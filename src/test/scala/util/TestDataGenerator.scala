@@ -6,7 +6,7 @@ import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.execution.plan.io.InMemoryScanExec
 import org.apache.spark.secco.execution.{
   InternalBlock,
-  InternalRow,
+  OldInternalRow,
   RowBlock,
   RowBlockContent
 }
@@ -24,7 +24,7 @@ object TestDataGenerator {
       cardinality: Int,
       arity: Int,
       upperBound: Int
-  ): Array[InternalRow] = {
+  ): Array[OldInternalRow] = {
     Range(0, cardinality)
       .map(f =>
         Range(0, arity)
@@ -38,7 +38,7 @@ object TestDataGenerator {
       cardinality: Int,
       arity: Int,
       upperBound: Int
-  ): RDD[InternalRow] = {
+  ): RDD[OldInternalRow] = {
     sc.parallelize(genRandomInternalRow(cardinality, arity, upperBound))
   }
 
@@ -108,7 +108,7 @@ object TestDataGenerator {
 
   def assignDataForScan(
       scan: Relation,
-      rows: Array[InternalRow]
+      rows: Array[OldInternalRow]
   ): LogicalPlan = {
     val dataManager =
       SeccoSession.currentSession.sessionState.cachedDataManager
@@ -130,7 +130,7 @@ object TestDataGenerator {
 
   def assignDataForScan(
       scan: Relation,
-      rowRDD: RDD[InternalRow]
+      rowRDD: RDD[OldInternalRow]
   ): LogicalPlan = {
     val dataManager =
       SeccoSession.currentSession.sessionState.cachedDataManager

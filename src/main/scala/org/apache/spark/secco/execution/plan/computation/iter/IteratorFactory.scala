@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.iter
 
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.execution.plan.computation.utils.{
   ConsecutiveRowArray,
   InternalRowHashMap,
@@ -10,18 +10,17 @@ import org.apache.spark.secco.execution.plan.support.FuncGenSupport
 
 import scala.collection.mutable.ArrayBuffer
 
-/**
-  * Factory for instantiating [[SeccoIterator]].
+/** Factory for instantiating [[SeccoIterator]].
   */
 object IteratorFactory extends FuncGenSupport {
 
   //warning: length of prefix must be smaller than length of localAttributeOrder
-  /**
-    * Return an iterator that performs selection predicates on [[InternalRow]] produced by child iterator.
-    * @param childIter child iterator that produce [[InternalRow]]
-    * @param selectionExprs selection predicates, which is of form ("a", "<", "b")
+  /** Return an iterator that performs selection predicates on [[OldInternalRow]] produced by child iterator.
+    *
+    * @param childIter           child iterator that produce [[OldInternalRow]]
+    * @param selectionExprs      selection predicates, which is of form ("a", "<", "b")
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeSelectIter(
       childIter: SeccoIterator,
@@ -35,12 +34,12 @@ object IteratorFactory extends FuncGenSupport {
   }
 
   //warning: length of prefix must be smaller than or equal to length of common attribute of iter and its childIter
-  /**
-    * Return an iterator that performs projection predicates on [[InternalRow]] produced by child iterator.
-    * @param childIter child iterator that produce [[InternalRow]]
-    * @param projectionList projection list, which is of form ("a", "b", "c").
+  /** Return an iterator that performs projection predicates on [[OldInternalRow]] produced by child iterator.
+    *
+    * @param childIter           child iterator that produce [[OldInternalRow]]
+    * @param projectionList      projection list, which is of form ("a", "b", "c").
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeProjectIter(
       childIter: SeccoIterator,
@@ -72,13 +71,13 @@ object IteratorFactory extends FuncGenSupport {
   }
 
   //warning: length of prefix must be smaller than or equal to length of common attribute of iter and its childIter
-  /**
-    * Return an iterator that performs aggregation on [[InternalRow]] produced by child iterator.
-    * @param childIter child iterator that produce [[InternalRow]]
-    * @param groupingList grouping list, which is of form ("a", "b", "c").
-    * @param semiringList semiring operators, which is of form ("sum", "a").
+  /** Return an iterator that performs aggregation on [[OldInternalRow]] produced by child iterator.
+    *
+    * @param childIter           child iterator that produce [[OldInternalRow]]
+    * @param groupingList        grouping list, which is of form ("a", "b", "c").
+    * @param semiringList        semiring operators, which is of form ("sum", "a").
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeAggregateIter(
       childIter: SeccoIterator,
@@ -115,12 +114,12 @@ object IteratorFactory extends FuncGenSupport {
     }
   }
 
-  /**
-    * Return an iterator that contains the results of cartesian product between baseIt and indexIt.
+  /** Return an iterator that contains the results of cartesian product between baseIt and indexIt.
+    *
     * @param baseIt base iterator
     * @param indexIt index iterator
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeCartesianProductIter(
       baseIt: SeccoIterator,
@@ -130,12 +129,12 @@ object IteratorFactory extends FuncGenSupport {
     CartesianProductIter(baseIt, indexIt, localAttributeOrder)
 
   //warning: length of prefix must be smaller than or equal to length of common attribute of iter and its baseIt
-  /**
-    * Return an iterator that contains the results of join between baseIt and indexIt.
+  /** Return an iterator that contains the results of join between baseIt and indexIt.
+    *
     * @param baseIt base iterator
     * @param indexIt index iterator
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeBinaryJoinIter(
       baseIt: SeccoIterator,
@@ -144,12 +143,12 @@ object IteratorFactory extends FuncGenSupport {
   ): BinaryJoinIter = BinaryJoinIter(baseIt, indexIt, localAttributeOrder)
 
   //warning: length of prefix must be smaller than length of localAttributeOrder
-  /**
-    * Return an iterator that contains the join results between tables represented by tries.
+  /** Return an iterator that contains the join results between tables represented by tries.
+    *
     * @param tries tries of the tables
     * @param schemas schemas of the tables
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   //TODO: this method should accept children iterators rather than tries.
   def makeLeapFrogJoinIter(
@@ -159,11 +158,11 @@ object IteratorFactory extends FuncGenSupport {
   ): GHDJoinIter = GHDJoinIter(tries, schemas, localAttributeOrder)
 
   //warning: length of prefix must be smaller than length of localAttributeOrder
-  /**
-    * Return an iterator that contains the pre-built trie for the table
+  /** Return an iterator that contains the pre-built trie for the table
+    *
     * @param trie tries of the table
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeTrieTableIter(
       trie: Trie,
@@ -171,11 +170,11 @@ object IteratorFactory extends FuncGenSupport {
   ): TrieTableIter =
     TrieTableIter(trie, localAttributeOrder)
 
-  /**
-    * Return an iterator that contains the pre-built hashmap for the table
+  /** Return an iterator that contains the pre-built hashmap for the table
+    *
     * @param hashMap HashMap of the table
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeHashMapTableIter(
       hashMap: InternalRowHashMap,
@@ -183,23 +182,23 @@ object IteratorFactory extends FuncGenSupport {
   ): HashMapTableIter = HashMapTableIter(hashMap, localAttributeOrder)
 
   //warning: length of prefix must be smaller than length of localAttributeOrder
-  /**
-    * Return an iterator that contains the [[InternalRow]] of the table
-    * @param array [[InternalRow]] of the table stored in [[Array]]
+  /** Return an iterator that contains the [[OldInternalRow]] of the table
+    *
+    * @param array [[OldInternalRow]] of the table stored in [[Array]]
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeArrayTableIter(
-      array: Array[InternalRow],
+      array: Array[OldInternalRow],
       localAttributeOrder: Array[String]
   ): ArrayTableIter = ArrayTableIter(array, localAttributeOrder)
 
   //warning: length of prefix must be smaller than length of localAttributeOrder
-  /**
-    * Return an iterator that contains the [[InternalRow]] of the table
-    * @param array [[InternalRow]] of the table stored in [[ConsecutiveRowArray]]
+  /** Return an iterator that contains the [[OldInternalRow]] of the table
+    *
+    * @param array [[OldInternalRow]] of the table stored in [[ConsecutiveRowArray]]
     * @param localAttributeOrder local attribute order
-    * @return An iterator that returns [[InternalRow]]
+    * @return An iterator that returns [[OldInternalRow]]
     */
   def makeConsecutiveRowArrayTableIter(
       array: ConsecutiveRowArray,
@@ -210,18 +209,18 @@ object IteratorFactory extends FuncGenSupport {
 }
 
 /** The trait for internal iterator that returns InternalRow */
-trait SeccoIterator extends Iterator[InternalRow] {
+trait SeccoIterator extends Iterator[OldInternalRow] {
 
   //warning: this operation is unsafe, prefix must follows some constraints, which is explained in IteratorFactory
   /** reset the iterator based on prefix */
-  def reset(prefix: InternalRow): SeccoIterator
+  def reset(prefix: OldInternalRow): SeccoIterator
 
   /** local attribute order of this iterator's output */
   def localAttributeOrder: Array[String]
 
   /** result of this iterator */
-  def result(): Array[InternalRow] = {
-    val buffer = ArrayBuffer[InternalRow]()
+  def result(): Array[OldInternalRow] = {
+    val buffer = ArrayBuffer[OldInternalRow]()
     while (hasNext) {
       buffer += next().clone()
     }
@@ -229,22 +228,22 @@ trait SeccoIterator extends Iterator[InternalRow] {
   }
 }
 
-/** A Iterator that stores just single [[InternalRow]] */
+/** A Iterator that stores just single [[OldInternalRow]] */
 class SingularIterator extends SeccoIterator {
 
-  private var _row: InternalRow = _
+  private var _row: OldInternalRow = _
   private var _isDefined: Boolean = false
 
   override def hasNext: Boolean = _isDefined
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     val res = _row
     _isDefined = false
     _row = null
     res
   }
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     _isDefined = true
     _row = prefix
     this
@@ -253,13 +252,13 @@ class SingularIterator extends SeccoIterator {
   override def localAttributeOrder: Array[String] = ???
 }
 
-/** A Iterator that stores no [[InternalRow]] */
+/** A Iterator that stores no [[OldInternalRow]] */
 class EmptyIterator extends SeccoIterator {
-  override def reset(prefix: InternalRow): SeccoIterator = ???
+  override def reset(prefix: OldInternalRow): SeccoIterator = ???
 
   override def localAttributeOrder: Array[String] = ???
 
   override def hasNext: Boolean = false
 
-  override def next(): InternalRow = ???
+  override def next(): OldInternalRow = ???
 }

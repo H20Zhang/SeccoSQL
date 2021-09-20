@@ -1,5 +1,5 @@
 package org.apache.spark.secco.execution.plan.computation.iter
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.execution.plan.computation.utils.{
   Accessor,
   ConsecutiveRowArray,
@@ -14,9 +14,9 @@ case class TrieTableIter(trie: Trie, localAttributeOrder: Array[String])
 
   private val trieAccessor: Accessor = trie.access()
 
-  private var underlyingIter: Iterator[InternalRow] = trieAccessor.iterator()
+  private var underlyingIter: Iterator[OldInternalRow] = trieAccessor.iterator()
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
 
     underlyingIter = trieAccessor.indexIterator(prefix)
 
@@ -27,19 +27,19 @@ case class TrieTableIter(trie: Trie, localAttributeOrder: Array[String])
     underlyingIter.hasNext
   }
 
-  @inline override def next(): InternalRow = {
+  @inline override def next(): OldInternalRow = {
     underlyingIter.next()
   }
 }
 
 case class ArrayTableIter(
-    array: Array[InternalRow],
+    array: Array[OldInternalRow],
     localAttributeOrder: Array[String]
 ) extends TableIter {
 
-  private var underlyingIter: Iterator[InternalRow] = array.iterator
+  private var underlyingIter: Iterator[OldInternalRow] = array.iterator
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     if (prefix.size == 0) {
       underlyingIter = array.iterator
       this
@@ -54,7 +54,7 @@ case class ArrayTableIter(
     underlyingIter.hasNext
   }
 
-  @inline override def next(): InternalRow = {
+  @inline override def next(): OldInternalRow = {
     underlyingIter.next()
   }
 }
@@ -64,10 +64,10 @@ case class ConsecutiveRowArrayTableIter(
     localAttributeOrder: Array[String]
 ) extends TableIter {
 
-  private var underlyingIter: Iterator[InternalRow] = array.iterator
+  private var underlyingIter: Iterator[OldInternalRow] = array.iterator
 
   //TODO: fix this
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     if (prefix.size == 0) {
       underlyingIter = array.iterator
       this
@@ -82,7 +82,7 @@ case class ConsecutiveRowArrayTableIter(
     underlyingIter.hasNext
   }
 
-  @inline override def next(): InternalRow = {
+  @inline override def next(): OldInternalRow = {
     underlyingIter.next()
   }
 }
@@ -92,12 +92,12 @@ case class HashMapTableIter(
     localAttributeOrder: Array[String]
 ) extends TableIter {
 
-  private var underlyingArray: Array[InternalRow] = Array.empty
+  private var underlyingArray: Array[OldInternalRow] = Array.empty
   var i = 0
   var arraySize = 0
 
   /** reset the iterator based on prefix */
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     underlyingArray = hashMap.get(prefix)
     i = 0
     arraySize = underlyingArray.size
@@ -106,7 +106,7 @@ case class HashMapTableIter(
 
   override def hasNext: Boolean = i < arraySize
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     val row = underlyingArray(i)
     i += 1
     row

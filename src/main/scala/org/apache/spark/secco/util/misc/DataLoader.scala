@@ -1,7 +1,7 @@
 package org.apache.spark.secco.util.misc
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.execution.sources.DataLoader
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
@@ -41,7 +41,7 @@ object DataLoader {
       spark: SparkSession,
       graphPath: String,
       isUndirected: Boolean = true
-  ): RDD[Array[InternalDataType]] = {
+  ): RDD[Array[OldInternalDataType]] = {
 
     val dlSession = SeccoSession.currentSession
     val loader = new DataLoader()

@@ -1,6 +1,6 @@
 package util
 
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.util.misc.SparkSingle
 
 object ExternalQueryEvaluator {
@@ -8,7 +8,7 @@ object ExternalQueryEvaluator {
   val ExternalEvaluatorName = "SparkSQL"
 
   def validateNaturalJoinQuery(
-      contents: Seq[Array[Array[InternalDataType]]],
+      contents: Seq[Array[Array[OldInternalDataType]]],
       schemas: Seq[Seq[String]]
   ): Long = {
 

@@ -20,8 +20,7 @@ import org.apache.spark.secco.expression.{
 import org.apache.spark.secco.types.DataType
 import org.apache.spark.secco.util.DebugUtils.printlnDebug
 
-/**
-  * Java can not access Projection (in package object)
+/** Java can not access Projection (in package object)
   */
 abstract class BaseProjection extends Projection {}
 
@@ -107,7 +106,7 @@ object GenerateSafeProjection
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments())
     )
-    logDebug(
+    printlnDebug(
       s"code for ${expressions.mkString(",")}:\n${CodeFormatter.format(code)}"
     )
 

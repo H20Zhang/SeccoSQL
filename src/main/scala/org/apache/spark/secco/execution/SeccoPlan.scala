@@ -14,8 +14,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 
-/**
-  * The base class for physical operators.
+/** The base class for physical operators.
   *
   * The naming convention is that physical operators end with "Exec" suffix, e.g. [[ProjectExec]].
   */
@@ -53,7 +52,7 @@ abstract class SeccoPlan
     simpleString + s"-> (${outputOld.mkString(",")})"
 
   /** Collect the results as [[Seq[InternalRow]]] */
-  def collectSeq(): Seq[InternalRow] = {
+  def collectSeq(): Seq[OldInternalRow] = {
     val internalBlockRDD = execute()
 
     val time1 = System.currentTimeMillis()
@@ -103,8 +102,7 @@ abstract class SeccoPlan
     numRows
   }
 
-  /**
-    * Returns the result of this query as an RDD[InternalBlock] by delegating to `doExecute` after
+  /** Returns the result of this query as an RDD[InternalBlock] by delegating to `doExecute` after
     * preparations.
     *
     * Concrete implementations of SparkPlan should override `doExecute`.
@@ -128,13 +126,12 @@ abstract class SeccoPlan
     }
   }
 
-  /**
-    * Returns the result of this query as an RDD[InternalBlock] by delegating to `doRDD` after
+  /** Returns the result of this query as an RDD[InternalBlock] by delegating to `doRDD` after
     * preparations.
     *
     * Concrete implementations of SparkPlan should override `doRDD`.
     */
-  final def rdd(): RDD[InternalRow] = {
+  final def rdd(): RDD[OldInternalRow] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
@@ -156,35 +153,31 @@ abstract class SeccoPlan
     }
   }
 
-  /**
-    * Prepare this secco plan for execution
+  /** Prepare this secco plan for execution
     */
   def prepare(): Unit = {
     doPrepare()
   }
 
-  /**
-    * Overridden by concrete implementations of [[SeccoPlan]]. It is guaranteed to run before any
+  /** Overridden by concrete implementations of [[SeccoPlan]]. It is guaranteed to run before any
     * `execute` of [[SeccoPlan]]. This is helpful if we want to set up some state or optimize the
     * parameter using up to date statistic before executing the
     * query, e.g., `BroadcastHashJoin` uses it to broadcast asynchronously.
     */
   protected def doPrepare(): Unit = {}
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
   protected def doExecute(): RDD[InternalBlock]
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalRow]`,
+  /** Perform the computation for computing the result of the query as an `RDD[InternalRow]`,
     * which allows very large result to be output in iterator form
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doRDD(): RDD[InternalRow] = {
+  protected def doRDD(): RDD[OldInternalRow] = {
     doExecute().flatMap {
       case r: RowBlock            => r.blockContent.content.iterator
       case c: ConsecutiveRowBlock => c.blockContent.content.iterator
@@ -193,8 +186,7 @@ abstract class SeccoPlan
     }
   }
 
-  /**
-    * Overridden by concrete implementations of DolpinPlan. It is guaranteed to run after any
+  /** Overridden by concrete implementations of DolpinPlan. It is guaranteed to run after any
     * `execute` of SparkPlan.
     *
     * This is helpful if we want to clean up cache result during `doExecute`

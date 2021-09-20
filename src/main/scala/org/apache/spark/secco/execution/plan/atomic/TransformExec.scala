@@ -4,8 +4,8 @@ import org.apache.spark.secco.execution.plan.support.FuncGenSupport
 import org.apache.spark.secco.execution.{
   SeccoPlan,
   InternalBlock,
-  InternalDataType,
-  InternalRow,
+  OldInternalDataType,
+  OldInternalRow,
   RowBlock,
   RowBlockContent
 }
@@ -18,11 +18,10 @@ case class TransformExec(
 ) extends SeccoPlan
     with FuncGenSupport {
 
-  lazy val transformFuncs: Array[InternalRow => InternalDataType] =
+  lazy val transformFuncs: Array[OldInternalRow => OldInternalDataType] =
     f.map(expr => genTransformFunc(expr, child.outputOld)).toArray
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -32,10 +31,10 @@ case class TransformExec(
         val content = blockContent.content
         val contentNum = content.length
         val funcNum = transformFuncs.length
-        val newContent = new Array[InternalRow](contentNum)
+        val newContent = new Array[OldInternalRow](contentNum)
         var i = 0
         while (i < contentNum) {
-          val arr = new Array[InternalDataType](funcNum)
+          val arr = new Array[OldInternalDataType](funcNum)
           var j = 0
           while (j < funcNum) {
             arr(j) = transformFuncs(j)(content(i))

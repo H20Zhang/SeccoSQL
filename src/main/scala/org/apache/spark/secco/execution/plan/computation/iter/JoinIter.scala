@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.iter
 
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 import org.apache.spark.secco.execution.plan.computation.utils._
 
 trait JoinIter extends SeccoIterator {}
@@ -15,9 +15,9 @@ case class GHDJoinIter(
   lazy val lf: LeapFrogJoin = LeapFrogJoin(tries, localAttributeOrder, schemas)
   lazy val plf: PartialLeapFrogJoin =
     PartialLeapFrogJoin(tries, localAttributeOrder, schemas)
-  var underlyingIter: Iterator[InternalRow] = lf
+  var underlyingIter: Iterator[OldInternalRow] = lf
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     plf.unsafeInit(prefix)
     underlyingIter = plf
     this
@@ -25,7 +25,7 @@ case class GHDJoinIter(
 
   override def hasNext: Boolean = underlyingIter.hasNext
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     val nextRes = underlyingIter.next()
     nextRes
   }
@@ -52,9 +52,9 @@ case class BinaryJoinIter(
   private val intersectionAttrSize: Int = intersectionAttributes.length
 
   private val outputRow =
-    new Array[InternalDataType](localAttributeOrder.length)
+    new Array[OldInternalDataType](localAttributeOrder.length)
   private val prefixRow =
-    new Array[InternalDataType](intersectionAttributes.length)
+    new Array[OldInternalDataType](intersectionAttributes.length)
 
   private var isIndexItInitialized = false
 
@@ -82,9 +82,9 @@ case class BinaryJoinIter(
 
   }
 
-  private var cachedIndexIt: Iterator[InternalRow] = _
+  private var cachedIndexIt: Iterator[OldInternalRow] = _
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     isIndexItInitialized = false
     baseIt.reset(prefix)
     this
@@ -133,7 +133,7 @@ case class BinaryJoinIter(
     false
   }
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     val indexRow = cachedIndexIt.next()
     var i = intersectionAttrSize
     while (i < indexAttrSize) {

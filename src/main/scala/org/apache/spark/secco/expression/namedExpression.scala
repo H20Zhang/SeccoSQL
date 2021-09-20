@@ -1,11 +1,13 @@
 package org.apache.spark.secco.expression
 
+import org.apache.spark.secco.analysis.UnresolvedException
 import org.apache.spark.secco.types.{DataType, LongType}
-import java.util.{Objects, UUID}
 
+import java.util.{Objects, UUID}
 import org.apache.spark.secco.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.utils.AttributeSet
+import org.apache.spark.secco.optimization.LogicalPlan
 
 object NamedExpression {
   private val curId = new java.util.concurrent.atomic.AtomicLong()
@@ -15,8 +17,7 @@ object NamedExpression {
     Some(expr.name, expr.dataType)
 }
 
-/**
-  * A globally unique id for a given named expression.
+/** A globally unique id for a given named expression.
   * Used to identify which attribute output by a relation is being
   * referenced in a subsequent computation.
   *
@@ -28,8 +29,7 @@ object ExprId {
   def apply(id: Long): ExprId = ExprId(id, NamedExpression.jvmId)
 }
 
-/**
-  * An [[Expression]] that is named.
+/** An [[Expression]] that is named.
   */
 trait NamedExpression extends Expression {
 
@@ -39,15 +39,13 @@ trait NamedExpression extends Expression {
   def name: String
   def exprId: ExprId
 
-  /**
-    * Returns a dot separated fully qualified name for this attribute.  Given that there can be
+  /** Returns a dot separated fully qualified name for this attribute.  Given that there can be
     * multiple qualifiers, it is possible that there are other possible way to refer to this
     * attribute.
     */
   def qualifiedName: String = (qualifier.toSeq :+ name).mkString(".")
 
-  /**
-    * Optional qualifier for the expression.
+  /** Optional qualifier for the expression.
     *
     * For now, since we do not allow using original table name to qualify a column name once the
     * table is aliased, this can only be:
@@ -80,8 +78,7 @@ trait NamedExpression extends Expression {
     }
 }
 
-/**
-  * Used to assign a new name to a computation.
+/** Used to assign a new name to a computation.
   * For example the SQL expression "1 + 1 AS a" could be represented as follows:
   *  Alias(Add(Literal(1), Literal(1)), "a")()
   *
@@ -166,8 +163,7 @@ abstract class Attribute extends LeafExpression with NamedExpression {
   def newInstance(): Attribute
 }
 
-/**
-  * A reference to an attribute produced by another operator in the tree.
+/** A reference to an attribute produced by another operator in the tree.
   *
   * @param name The name of this attribute, should only be used during analysis or for debugging.
   * @param dataType The [[DataType]] of this attribute.
@@ -188,8 +184,7 @@ case class AttributeReference(
 ) extends Attribute
     with Unevaluable {
 
-  /**
-    * Returns true iff the expression id is the same for both attributes.
+  /** Returns true iff the expression id is the same for both attributes.
     */
   def sameRef(other: AttributeReference): Boolean = this.exprId == other.exprId
 
@@ -216,8 +211,7 @@ case class AttributeReference(
       qualifier = qualifier
     )
 
-  /**
-    * Returns a copy of this [[AttributeReference]] with changed nullability.
+  /** Returns a copy of this [[AttributeReference]] with changed nullability.
     */
   override def withNullability(newNullability: Boolean): AttributeReference = {
     if (nullable == newNullability) {
@@ -241,8 +235,7 @@ case class AttributeReference(
     }
   }
 
-  /**
-    * Returns a copy of this [[AttributeReference]] with new qualifier.
+  /** Returns a copy of this [[AttributeReference]] with new qualifier.
     */
   override def withQualifier(
       newQualifier: Option[String]
@@ -310,8 +303,7 @@ case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
 
   override def eval(input: InternalRow): Any = ???
 
-  /**
-    * Returns Java source code that can be compiled to evaluate this expression.
+  /** Returns Java source code that can be compiled to evaluate this expression.
     * The default behavior is to call the eval method of the expression. Concrete expression
     * implementations should override this to do actual code generation.
     *
@@ -325,37 +317,36 @@ case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
   ): ExprCode = ???
 }
 
-//abstract class Star extends LeafExpression with NamedExpression {
-//  override def name: String = throw new UnresolvedException(this, "name")
-//  override def exprId: ExprId = throw new UnresolvedException(this, "exprId")
-//  override def dataType: DataType =
-//    throw new UnresolvedException(this, "dataType")
-//  override def nullable: Boolean =
-//    throw new UnresolvedException(this, "nullable")
-//  override def qualifier: Option[String] =
-//    throw new UnresolvedException(this, "qualifier")
-//  override def toAttribute: Attribute =
-//    throw new UnresolvedException(this, "toAttribute")
-//  override def newInstance(): NamedExpression =
-//    throw new UnresolvedException(this, "newInstance")
-//  override lazy val resolved = false
-//
-//  def expand(input: LogicalPlan): Seq[NamedExpression]
-//}
-//
-///**
-// * Represents all the resolved input attributes to a given relational operator. This is used
-// * in the data frame DSL.
-// *
-// * @param expressions Expressions to expand.
-// */
-//case class ResolvedStar(expressions: Seq[NamedExpression])
-//  extends Star
-//    with Unevaluable {
-//  override def newInstance(): NamedExpression =
-//    throw new UnresolvedException(this, "newInstance")
-//  override def toString: String =
-//    expressions.mkString("ResolvedStar(", ", ", ")")
-//
-//  override def expand(input: LogicalPlan): Seq[NamedExpression] = expressions
-//}
+abstract class Star extends LeafExpression with NamedExpression {
+  override def name: String = throw new UnresolvedException(this, "name")
+  override def exprId: ExprId = throw new UnresolvedException(this, "exprId")
+  override def dataType: DataType =
+    throw new UnresolvedException(this, "dataType")
+  override def nullable: Boolean =
+    throw new UnresolvedException(this, "nullable")
+  override def qualifier: Option[String] =
+    throw new UnresolvedException(this, "qualifier")
+  override def toAttribute: Attribute =
+    throw new UnresolvedException(this, "toAttribute")
+  override def newInstance(): NamedExpression =
+    throw new UnresolvedException(this, "newInstance")
+  override lazy val resolved = false
+
+  def expand(input: LogicalPlan): Seq[NamedExpression]
+}
+
+/** Represents all the resolved input attributes to a given relational operator. This is used
+  * in the data frame DSL.
+  *
+  * @param expressions Expressions to expand.
+  */
+case class ResolvedStar(expressions: Seq[NamedExpression])
+    extends Star
+    with Unevaluable {
+  override def newInstance(): NamedExpression =
+    throw new UnresolvedException(this, "newInstance")
+  override def toString: String =
+    expressions.mkString("ResolvedStar(", ", ", ")")
+
+  override def expand(input: LogicalPlan): Seq[NamedExpression] = expressions
+}

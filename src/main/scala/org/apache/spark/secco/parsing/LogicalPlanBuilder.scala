@@ -18,8 +18,7 @@ import org.apache.spark.secco.types.{
 import org.apache.spark.secco.{expression => E}
 import org.apache.spark.secco.{analysis => A}
 
-/**
-  * The builder for building the logical operator tree based on abstract syntax tree obtained by parser.
+/** The builder for building the logical operator tree based on abstract syntax tree obtained by parser.
   * It is worth noting that currently, we only support natural join
   */
 object LogicalPlanBuilder {
@@ -192,12 +191,11 @@ object LogicalPlanBuilder {
         L.With(
           recursive,
           fromQuery(query),
-          withList.map {
-            case WithElem(Identifier(name), columns, query) =>
-              (name, columns.map(_.map(_.d)))
+          withList.map { case WithElem(Identifier(name), columns, query) =>
+            (name, columns.map(_.map(_.d)))
           },
-          withList.map {
-            case WithElem(Identifier(name), columns, query) => fromQuery(query)
+          withList.map { case WithElem(Identifier(name), columns, query) =>
+            fromQuery(query)
           }
         )
     }
@@ -224,7 +222,7 @@ object LogicalPlanBuilder {
           case IntLit(d)     => E.Literal(d, IntegerType)
         }
       }
-      case QueryExpr(query) => E.ScalarSubquery(fromQuery(query))
+//      case QueryExpr(query) => E.ScalarSubquery(fromQuery(query))
       case MulExpr(a, b) =>
         E.Multiply(fromExpression(a), fromExpression(b))
       case DivExpr(a, b) =>
@@ -248,17 +246,17 @@ object LogicalPlanBuilder {
         E.GreaterThan(fromExpression(a), fromExpression(b))
       case GeqExpr(a, b) =>
         E.GreaterThanOrEqual(fromExpression(a), fromExpression(b))
-      case InExpr(a, b) => {
-        b match {
-          case QueryExpr(b) =>
-            E.In(fromExpression(a), E.ListQuery(fromQuery(b)) :: Nil)
-          case _ => throw new Exception("only `expr in (query)` is supported")
-        }
-      }
-      case ExistsExpr(query) => E.Exists(fromQuery(query))
-      case NotExpr(a)        => E.Not(fromExpression(a))
-      case AndExpr(a, b)     => E.And(fromExpression(a), fromExpression(b))
-      case OrExpr(a, b)      => E.Or(fromExpression(a), fromExpression(b))
+//      case InExpr(a, b) => {
+//        b match {
+//          case QueryExpr(b) =>
+//            E.In(fromExpression(a), E.ListQuery(fromQuery(b)) :: Nil)
+//          case _ => throw new Exception("only `expr in (query)` is supported")
+//        }
+//      }
+//      case ExistsExpr(query) => E.Exists(fromQuery(query))
+      case NotExpr(a)    => E.Not(fromExpression(a))
+      case AndExpr(a, b) => E.And(fromExpression(a), fromExpression(b))
+      case OrExpr(a, b)  => E.Or(fromExpression(a), fromExpression(b))
     }
   }
   def fromTableIdentifier(iden: Identifier) = iden.d

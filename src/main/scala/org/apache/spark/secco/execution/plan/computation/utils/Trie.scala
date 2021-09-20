@@ -3,7 +3,7 @@ package org.apache.spark.secco.execution.plan.computation.utils
 import java.util.Comparator
 
 import it.unimi.dsi.fastutil.doubles.Double2IntOpenHashMap
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 import org.apache.spark.secco.execution.plan.computation.iter.{
   EmptyIterator,
   SingularIterator
@@ -14,8 +14,8 @@ import scala.collection.mutable.ArrayBuffer
 
 /** This trait defines accessor used to access potentially shared data to avoid conflict problems in multi-threading */
 trait Accessor {
-  def iterator(): Iterator[InternalRow]
-  def indexIterator(prefix: InternalRow): Iterator[InternalRow]
+  def iterator(): Iterator[OldInternalRow]
+  def indexIterator(prefix: OldInternalRow): Iterator[OldInternalRow]
 }
 
 /** This trait defines methods to be supported by a Trie */
@@ -25,7 +25,7 @@ trait Trie extends Serializable {
   def access(): Accessor
 
   /** Check if the trie contains prefix */
-  def contains(prefix: InternalRow): Boolean
+  def contains(prefix: OldInternalRow): Boolean
 
   /** Return the values of next level based on prefix */
   def nextLevel(binding: ArraySegment): ArraySegment
@@ -40,13 +40,13 @@ trait Trie extends Serializable {
   def nextLevel(binding: ArraySegment, outputArraySegment: ArraySegment): Unit
 
   /** Return internal rows represented in this Trie */
-  def toInternalRows(): Array[InternalRow]
+  def toInternalRows(): Array[OldInternalRow]
 }
 
 object Trie {
 
   /** Instantiate a trie, currently [[org.apache.spark.secco.execution.plan.computation.utils.ArrayTrie]], from internal rows */
-  def apply(rows: Array[InternalRow], arity: Int): Trie = {
+  def apply(rows: Array[OldInternalRow], arity: Int): Trie = {
     ArrayTrie(rows, arity)
   }
 }
@@ -54,7 +54,7 @@ object Trie {
 // edge:Array[(ID, ID, Value)], node:Array[(Start, End)]
 class ArrayTrie(
     neighbors: Array[Int],
-    val values: Array[InternalDataType],
+    val values: Array[OldInternalDataType],
     neighborBegins: Array[Int],
     neighborEnds: Array[Int],
     level: Int
@@ -133,7 +133,7 @@ class ArrayTrie(
     inputArraySegment.size = end - start
   }
 
-  override def contains(prefix: InternalRow): Boolean = {
+  override def contains(prefix: OldInternalRow): Boolean = {
 
     var start = rootBegin
     var end = rootEnd
@@ -230,7 +230,7 @@ class ArrayTrie(
   }
 
   //just for verify the correctness of the trie implementation
-  def toInternalRows(): Array[Array[InternalDataType]] = {
+  def toInternalRows(): Array[Array[OldInternalDataType]] = {
     var tables =
       nextLevel(ArraySegment.emptyArray()).toArray().map(f => Array(f))
 
@@ -270,7 +270,9 @@ class ArrayTrie(
       private lazy val singularIt = new SingularIterator
       private lazy val emptyIt = new EmptyIterator
 
-      override def indexIterator(prefix: InternalRow): Iterator[InternalRow] = {
+      override def indexIterator(
+          prefix: OldInternalRow
+      ): Iterator[OldInternalRow] = {
 
         // if zero length prefix is input, it should return full iterator
         if (prefix.size == 0) {
@@ -290,7 +292,7 @@ class ArrayTrie(
         }
       }
 
-      override def iterator(): Iterator[InternalRow] = {
+      override def iterator(): Iterator[OldInternalRow] = {
         val pesudoAttrOrder = Range(0, level).map(_.toString)
         val lf =
           LeapFrogJoin(Array(self), pesudoAttrOrder, Seq(pesudoAttrOrder))
@@ -301,7 +303,7 @@ class ArrayTrie(
     }
 }
 
-class GraphTrie(graph: mutable.HashMap[InternalDataType, ArraySegment])
+class GraphTrie(graph: mutable.HashMap[OldInternalDataType, ArraySegment])
     extends Trie {
 
   val rootLevel = ArraySegment(graph.keys.toArray.sorted)
@@ -322,7 +324,7 @@ class GraphTrie(graph: mutable.HashMap[InternalDataType, ArraySegment])
     }
   }
 
-  override def toInternalRows(): Array[Array[InternalDataType]] = {
+  override def toInternalRows(): Array[Array[OldInternalDataType]] = {
     graph.toArray.flatMap(f => f._2.array.map(g => Array(f._1, g)))
   }
 
@@ -336,17 +338,17 @@ class GraphTrie(graph: mutable.HashMap[InternalDataType, ArraySegment])
       inputArraySegment: ArraySegment
   ): Unit = ???
 
-  override def contains(prefix: InternalRow): Boolean = ???
+  override def contains(prefix: OldInternalRow): Boolean = ???
 
   override def access(): Accessor = ???
 }
 
 object GraphTrie {
-  def apply(table: Array[Array[InternalDataType]], arity: Int): GraphTrie = {
+  def apply(table: Array[Array[OldInternalDataType]], arity: Int): GraphTrie = {
     assert(arity == 2)
 
     val graphBuffer =
-      mutable.HashMap[InternalDataType, ArrayBuffer[InternalDataType]]()
+      mutable.HashMap[OldInternalDataType, ArrayBuffer[OldInternalDataType]]()
 
     table.foreach { tuple =>
       val key = tuple(0)
@@ -359,11 +361,10 @@ object GraphTrie {
       }
     }
 
-    val graph = mutable.HashMap[InternalDataType, ArraySegment]()
+    val graph = mutable.HashMap[OldInternalDataType, ArraySegment]()
 
-    graphBuffer.foreach {
-      case (key, values) =>
-        graph(key) = ArraySegment(values.toArray.sorted)
+    graphBuffer.foreach { case (key, values) =>
+      graph(key) = ArraySegment(values.toArray.sorted)
     }
 
     new GraphTrie(graph)
@@ -374,18 +375,18 @@ object GraphTrie {
 class HashMapTrie(
     rootLevel: ArraySegment,
     nextLevelMap: mutable.HashMap[Int, mutable.HashMap[mutable.ArraySeq[
-      InternalDataType
+      OldInternalDataType
     ], ArraySegment]],
     arity: Int
 ) extends Trie {
 
   val tempArrayForIthLevel =
-    new Array[mutable.ArraySeq[InternalDataType]](arity)
+    new Array[mutable.ArraySeq[OldInternalDataType]](arity)
 
   init()
   def init() = {
     Range(0, arity).foreach { i =>
-      tempArrayForIthLevel(i) = new mutable.ArraySeq[InternalDataType](i + 1)
+      tempArrayForIthLevel(i) = new mutable.ArraySeq[OldInternalDataType](i + 1)
     }
   }
 
@@ -406,7 +407,7 @@ class HashMapTrie(
       return nextLevelMap(level)(tempArray)
     }
   }
-  override def toInternalRows(): Array[Array[InternalDataType]] = ???
+  override def toInternalRows(): Array[Array[OldInternalDataType]] = ???
   override def nextLevel(
       binding: ArraySegment,
       inputArraySegment: ArraySegment
@@ -417,25 +418,28 @@ class HashMapTrie(
       inputArraySegment: ArraySegment
   ): Unit = ???
 
-  override def contains(prefix: InternalRow): Boolean = ???
+  override def contains(prefix: OldInternalRow): Boolean = ???
 
   override def access(): Accessor = ???
 }
 
 object HashMapTrie {
-  def apply(table: Array[Array[InternalDataType]], arity: Int): HashMapTrie = {
+  def apply(
+      table: Array[Array[OldInternalDataType]],
+      arity: Int
+  ): HashMapTrie = {
     val rootLevel = ArraySegment(table.map(t => t(0)).distinct.sorted)
     val nextLevelMap =
       mutable.HashMap[Int, mutable.HashMap[mutable.ArraySeq[
-        InternalDataType
+        OldInternalDataType
       ], ArraySegment]]()
     var keyPos = 0
     while (keyPos < arity - 1) {
       val valuePos = keyPos + 1
       val tupleSize = valuePos + 1
-      var projectedTable = ArrayBuffer[Array[InternalDataType]]()
+      var projectedTable = ArrayBuffer[Array[OldInternalDataType]]()
       table.foreach { tuple =>
-        val projectedTuple = new Array[InternalDataType](tupleSize)
+        val projectedTuple = new Array[OldInternalDataType](tupleSize)
         var j = 0
         while (j <= keyPos + 1) {
           projectedTuple(j) = tuple(j)
@@ -448,12 +452,12 @@ object HashMapTrie {
       projectedTable = projectedTable.distinct
 
       val levelMap =
-        mutable.HashMap[mutable.ArraySeq[InternalDataType], ArrayBuffer[
-          InternalDataType
+        mutable.HashMap[mutable.ArraySeq[OldInternalDataType], ArrayBuffer[
+          OldInternalDataType
         ]]()
 
       projectedTable.foreach { tuple =>
-        val key = new mutable.ArraySeq[InternalDataType](keyPos + 1)
+        val key = new mutable.ArraySeq[OldInternalDataType](keyPos + 1)
         var j = 0
         while (j <= keyPos) {
           key(keyPos) = tuple(keyPos)
@@ -480,7 +484,7 @@ object HashMapTrie {
 // Scan the tuples of the relation sequentially, for each tuple,
 // locate the bit where it firstly diverge from the previous tuple and then create a new trie node.
 object ArrayTrie {
-  def apply(table: Array[Array[InternalDataType]], arity: Int): ArrayTrie = {
+  def apply(table: Array[Array[OldInternalDataType]], arity: Int): ArrayTrie = {
 
     //sort the relation in lexical order
     val comparator = new LexicalOrderComparator(arity)
@@ -490,7 +494,7 @@ object ArrayTrie {
     var idCounter = 0
     var leafIDCounter = -1
     val prevIDs = new Array[Int](arity)
-    var prevTuple = new Array[InternalDataType](arity)
+    var prevTuple = new Array[OldInternalDataType](arity)
 //    val edgeBuffer = ArrayBuffer[(Int, Int, DataType)]()
     val edgeBuffer = ArrayBuffer[ValuedEdge]()
     val nodeBuffer = ArrayBuffer[(Int, Int)]()
@@ -595,7 +599,7 @@ object ArrayTrie {
     }
 
     val neighbors = new Array[Int](edges.size - 1)
-    val values = new Array[InternalDataType](edges.size - 1)
+    val values = new Array[OldInternalDataType](edges.size - 1)
     val neighborsBegin = new Array[Int](nodeBuffer.size)
     val neighborsEnd = new Array[Int](nodeBuffer.size)
 
@@ -622,12 +626,12 @@ object ArrayTrie {
 }
 
 class LexicalOrderComparator(attrNum: Int)
-    extends Comparator[Array[InternalDataType]]
+    extends Comparator[Array[OldInternalDataType]]
     with Serializable {
 
   override def compare(
-      o1: Array[InternalDataType],
-      o2: Array[InternalDataType]
+      o1: Array[OldInternalDataType],
+      o2: Array[OldInternalDataType]
   ): Int = {
     var i = 0
     while (i < attrNum) {
@@ -644,12 +648,12 @@ class LexicalOrderComparator(attrNum: Int)
 }
 
 class TupleEdgeComparator
-    extends Comparator[(Int, Int, InternalDataType)]
+    extends Comparator[(Int, Int, OldInternalDataType)]
     with Serializable {
 
   override def compare(
-      o1: (Int, Int, InternalDataType),
-      o2: (Int, Int, InternalDataType)
+      o1: (Int, Int, OldInternalDataType),
+      o2: (Int, Int, OldInternalDataType)
   ): Int = {
 
     if (o1._1 < o2._1) {
@@ -666,7 +670,7 @@ class TupleEdgeComparator
   }
 }
 
-case class ValuedEdge(u: Int, v: Int, value: InternalDataType)
+case class ValuedEdge(u: Int, v: Int, value: OldInternalDataType)
 
 class ValuedEdgeComparator extends Comparator[ValuedEdge] with Serializable {
 

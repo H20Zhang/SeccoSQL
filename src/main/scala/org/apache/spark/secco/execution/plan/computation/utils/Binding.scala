@@ -1,12 +1,12 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 import scala.collection.mutable.ArrayBuffer
 
 class Binding {
 
-  val array: InternalRow = null
+  val array: OldInternalRow = null
   var end: Int = 0
 
   def partialBinding(i: Int) = {
@@ -15,7 +15,7 @@ class Binding {
     this
   }
 
-  def setPos(i: Int, value: InternalDataType) = {
+  def setPos(i: Int, value: OldInternalDataType) = {
     array(i) = value
   }
 
@@ -25,7 +25,7 @@ class Binding {
 }
 
 case class ArraySegment(
-    var array: InternalRow,
+    var array: OldInternalRow,
     var begin: Int,
     var end: Int,
     var size: Int
@@ -35,12 +35,12 @@ case class ArraySegment(
     array(begin + i)
   }
 
-  def update(i: Int, value: InternalDataType) = {
+  def update(i: Int, value: OldInternalDataType) = {
     array(begin + i) = value
   }
 
   def set(
-      _array: Array[InternalDataType],
+      _array: Array[OldInternalDataType],
       _begin: Int,
       _end: Int,
       _size: Int
@@ -73,7 +73,7 @@ case class ArraySegment(
     if (begin == 0 && size == array.size) {
       array
     } else {
-      val buffer = ArrayBuffer[InternalDataType]()
+      val buffer = ArrayBuffer[OldInternalDataType]()
       var i = begin
       while (i < end) {
         buffer += array(i)
@@ -85,12 +85,12 @@ case class ArraySegment(
   }
 
   def toIterator =
-    new Iterator[InternalDataType] {
+    new Iterator[OldInternalDataType] {
       var pos = begin
 
       override def hasNext: Boolean = pos < end
 
-      override def next(): InternalDataType = {
+      override def next(): OldInternalDataType = {
         val curPos = pos
         pos += 1
         array(curPos)
@@ -115,12 +115,13 @@ case class ArraySegment(
 }
 
 object ArraySegment {
-  val emptyArraySegment = ArraySegment(Array.empty[InternalDataType], 0, 0, 0)
+  val emptyArraySegment =
+    ArraySegment(Array.empty[OldInternalDataType], 0, 0, 0)
 
   def emptyArray() = emptyArraySegment
   def newEmptyArraySegment() =
-    ArraySegment(Array.empty[InternalDataType], 0, 0, 0)
-  def apply(array: Array[InternalDataType]): ArraySegment = {
+    ArraySegment(Array.empty[OldInternalDataType], 0, 0, 0)
+  def apply(array: Array[OldInternalDataType]): ArraySegment = {
     ArraySegment(array, 0, array.size, array.size)
   }
 }

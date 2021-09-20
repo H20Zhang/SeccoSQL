@@ -13,15 +13,14 @@ import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.execution.{
   SeccoPlan,
   InternalBlock,
-  InternalRow,
+  OldInternalRow,
   SharedParameter
 }
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * A local computation physical operator that performs a sequence of local computations in a stage.
+/** A local computation physical operator that performs a sequence of local computations in a stage.
   * @param child child physical operator
   * @param sharedAttributeOrder shared attribute orders
   * @param localExec local computations to be performed in this stage
@@ -249,7 +248,7 @@ case class LocalStageExec(
     }
   }
 
-  override protected def doRDD(): RDD[InternalRow] = {
+  override protected def doRDD(): RDD[OldInternalRow] = {
 
     logInfo(s"""
                |== Begin Stage ==

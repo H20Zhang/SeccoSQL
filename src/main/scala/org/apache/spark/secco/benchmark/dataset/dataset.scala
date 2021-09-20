@@ -2,7 +2,7 @@ package org.apache.spark.secco.benchmark.dataset
 
 import java.io.{BufferedWriter, File, FileWriter, PrintWriter}
 
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable

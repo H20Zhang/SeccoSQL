@@ -4,7 +4,7 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.benchmark.testcases._
 import org.apache.spark.secco.benchmark.util.FutureTask
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.util.misc.SparkSingle
 import org.apache.spark.rdd.RDD
 
@@ -114,8 +114,8 @@ object SeccoBenchmarkExecutor {
     val externalConf = new SeccoConfiguration
 
     //set user-defined configuration entries.
-    config.kwargs.foreach {
-      case (key, value) => externalConf.setString(key, value)
+    config.kwargs.foreach { case (key, value) =>
+      externalConf.setString(key, value)
     }
 
     //set up the timeout timer

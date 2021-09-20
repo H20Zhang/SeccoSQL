@@ -9,8 +9,7 @@ import scala.collection.mutable
 import scala.reflect.ClassTag
 import scala.util.{Failure, Success, Try}
 
-/**
-  * A catalog for looking up user defined functions, used by an [[Analyzer]].
+/** A catalog for looking up user defined functions, used by an [[Analyzer]].
   *
   * Note: The implementation should be thread-safe to allow concurrent access.
   */
@@ -89,7 +88,7 @@ object FunctionRegistry {
     expression[UnaryPositive]("positive"),
     //predicates
     expression[And]("and"),
-    expression[In]("in"),
+//    expression[In]("in"),
     expression[Not]("not"),
     expression[Or]("or"),
     //comparison operators
@@ -110,8 +109,8 @@ object FunctionRegistry {
 
   def newBuiltin: SimpleFunctionRegistry = {
     val fr = new SimpleFunctionRegistry
-    expressions.foreach {
-      case (name, builder) => fr.registerFunction(name, builder)
+    expressions.foreach { case (name, builder) =>
+      fr.registerFunction(name, builder)
     }
     fr
   }

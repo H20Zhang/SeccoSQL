@@ -3,7 +3,7 @@ package org.apache.spark.secco.execution.statsComputation
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.execution.{
   InternalBlock,
-  InternalDataType,
+  OldInternalDataType,
   RowBlock,
   RowBlockContent
 }
@@ -17,8 +17,7 @@ import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * The computer for computing the histogram statistic of the content.
+/** The computer for computing the histogram statistic of the content.
   */
 object HistogramStatisticComputer {
 
@@ -60,80 +59,78 @@ object HistogramStatisticComputer {
               val rowCount = array.size.toLong
 
               //compute column statistics
-              val colStats = attributes.zipWithIndex.map {
-                case (attr, idx) =>
-                  val colArr = array.map(f => f(idx)).sorted
+              val colStats = attributes.zipWithIndex.map { case (attr, idx) =>
+                val colArr = array.map(f => f(idx)).sorted
 
-                  //compute equi-height histogram
-                  val height = rowCount / num_bin_histogram match {
-                    case 0 =>
-                      1 // this mean each bucket will contain around 1 element
-                    case x => x
-                  }
+                //compute equi-height histogram
+                val height = rowCount / num_bin_histogram match {
+                  case 0 =>
+                    1 // this mean each bucket will contain around 1 element
+                  case x => x
+                }
 
-                  val percentileArr =
-                    new Array[InternalDataType](num_bin_histogram + 1)
-                  val binSet =
-                    Array.fill(num_bin_histogram)(
-                      mutable.HashSet[InternalDataType]()
-                    )
-
-                  var i = 0
-                  var binId = 0
-                  var eleCount = 0
-                  var binCount = 1
-                  while (i < colArr.size && binId < num_bin_histogram) {
-                    val value = colArr(i)
-                    eleCount += 1
-                    binSet(binId) += value
-
-                    //mark the initial low
-                    if (i == 0) {
-                      percentileArr(binId) = value
-                    }
-
-                    //first bucket is full, move to next bucket
-                    if (eleCount == binCount * height) {
-                      percentileArr(binId + 1) = value
-                      binId += 1
-                      binCount += 1
-                    }
-                    i += 1
-                  }
-
-                  percentileArr(num_bin_histogram) =
-                    colArr.lastOption.getOrElse(0.0)
-
-                  val bins = binSet.zipWithIndex
-                    .map {
-                      case (ndvSet, binId) =>
-                        HistogramBin(
-                          percentileArr(binId),
-                          percentileArr(binId + 1),
-                          ndvSet.size
-                        )
-                    }
-                    .filter(_.ndv != 0)
-
-                  val histogram = Histogram(height, bins)
-
-                  //compute other statistics
-                  val distinctCount = colArr.distinct.size
-                  val min = colArr.headOption.getOrElse(0.0)
-                  val max = colArr.lastOption.getOrElse(0.0)
-
-                  (
-                    attr,
-                    ColumnStat(
-                      Some(distinctCount),
-                      Some(min),
-                      Some(max),
-                      None,
-                      None,
-                      None,
-                      Some(histogram)
-                    )
+                val percentileArr =
+                  new Array[OldInternalDataType](num_bin_histogram + 1)
+                val binSet =
+                  Array.fill(num_bin_histogram)(
+                    mutable.HashSet[OldInternalDataType]()
                   )
+
+                var i = 0
+                var binId = 0
+                var eleCount = 0
+                var binCount = 1
+                while (i < colArr.size && binId < num_bin_histogram) {
+                  val value = colArr(i)
+                  eleCount += 1
+                  binSet(binId) += value
+
+                  //mark the initial low
+                  if (i == 0) {
+                    percentileArr(binId) = value
+                  }
+
+                  //first bucket is full, move to next bucket
+                  if (eleCount == binCount * height) {
+                    percentileArr(binId + 1) = value
+                    binId += 1
+                    binCount += 1
+                  }
+                  i += 1
+                }
+
+                percentileArr(num_bin_histogram) =
+                  colArr.lastOption.getOrElse(0.0)
+
+                val bins = binSet.zipWithIndex
+                  .map { case (ndvSet, binId) =>
+                    HistogramBin(
+                      percentileArr(binId),
+                      percentileArr(binId + 1),
+                      ndvSet.size
+                    )
+                  }
+                  .filter(_.ndv != 0)
+
+                val histogram = Histogram(height, bins)
+
+                //compute other statistics
+                val distinctCount = colArr.distinct.size
+                val min = colArr.headOption.getOrElse(0.0)
+                val max = colArr.lastOption.getOrElse(0.0)
+
+                (
+                  attr,
+                  ColumnStat(
+                    Some(distinctCount),
+                    Some(min),
+                    Some(max),
+                    None,
+                    None,
+                    None,
+                    Some(histogram)
+                  )
+                )
               }
 
               val colStatsMap = mutable.HashMap(colStats: _*)

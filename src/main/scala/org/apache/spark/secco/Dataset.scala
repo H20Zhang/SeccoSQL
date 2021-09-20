@@ -6,7 +6,7 @@ import org.apache.spark.secco.analysis.RelationAlgebraWithAnalysis
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
 import org.apache.spark.secco.execution.{
   InternalBlock,
-  InternalRow,
+  OldInternalRow,
   QueryExecution,
   RowBlock,
   RowBlockContent
@@ -17,8 +17,7 @@ import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.util.misc.DataLoader
 import org.apache.spark.rdd.RDD
 
-/**
-  * A Dataset is a strongly typed collection of domain-specific objects that can be transformed
+/** A Dataset is a strongly typed collection of domain-specific objects that can be transformed
   * in parallel using functional or relational operations.
   */
 class Dataset(
@@ -31,8 +30,7 @@ class Dataset(
   /** Return schema of the datasets. */
   def schema: Seq[Attribute] = queryExecution.analyzedPlan.output
 
-  /**
-    * Show first k rows of datasets.
+  /** Show first k rows of datasets.
     * @param numRow the first k rows
     */
   def show(numRow: Int): Unit = {
@@ -54,18 +52,17 @@ class Dataset(
   /* == actions == */
 
   /** Return rows of the dataset in RDD. */
-  def rdd(): RDD[InternalRow] = queryExecution.executionPlan.rdd()
+  def rdd(): RDD[OldInternalRow] = queryExecution.executionPlan.rdd()
 
   /** Return rows of the dataset in Seq. */
-  def collect(): Seq[InternalRow] = queryExecution.executionPlan.collectSeq()
+  def collect(): Seq[OldInternalRow] = queryExecution.executionPlan.collectSeq()
 
   /** Return the numbers of row of the dataset. */
   def count(): Long = queryExecution.executionPlan.count()
 
   /* == relational algebra transformation == */
 
-  /**
-    * Perform selection on dataset.
+  /** Perform selection on dataset.
     * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
     * @return a new dataset
     */
@@ -76,8 +73,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Perform a distinct projection on dataset.
+  /** Perform a distinct projection on dataset.
     * @param projectionList the list of columns to preserve after projection, e.g., R1.project("a").
     * @return a new dataset.
     */
@@ -91,8 +87,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Apply a element-wise function to transform the dataset (aka. non distinctive projection).
+  /** Apply a element-wise function to transform the dataset (aka. non distinctive projection).
     * @param projectionList the list of element wise functions on columns, e.g., R1.transform("a, a*b").
     * @return a new dataset.
     */
@@ -106,8 +101,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Perform natural join between this dataset and other datasets.
+  /** Perform natural join between this dataset and other datasets.
     * @param others other datasets to be joined, e.g., R1.naturalJoin(R2).
     * @return a new dataset.
     */
@@ -117,8 +111,7 @@ class Dataset(
     Dataset(seccoSession, RelationAlgebraWithAnalysis.join(children: _*))
   }
 
-  /**
-    * Perform cartesian product between this dataset and other datasets.
+  /** Perform cartesian product between this dataset and other datasets.
     * @param others other datasets to be performed cartesian product, e.g., R1.cartesianProduct(R2).
     * @return a new dataset.
     */
@@ -131,8 +124,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Perform theta join between this dataset and other datasets.
+  /** Perform theta join between this dataset and other datasets.
     * @param joinConditions the join conditions to perform theta-join, e.g., R1.thetaJoin("a < b", R2).
     * @param others other datasets to be theta-joined.
     * @return a new dataset.
@@ -146,8 +138,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Perform aggregation over this dataset.
+  /** Perform aggregation over this dataset.
     * @param aggregateFunctions aggregate functions to be performed, e.g., R1.aggregate(count(*) by a).
     * @return a new dataset.
     */
@@ -161,8 +152,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Rename columns of this dataset.
+  /** Rename columns of this dataset.
     * @param nameMapping the mapping from old name to new name
     * @return a new dataset.
     */
@@ -175,8 +165,7 @@ class Dataset(
 
   /* == set operations == */
 
-  /**
-    * Perform union between this dataset and other datasets.
+  /** Perform union between this dataset and other datasets.
     * @param others other datasets to be unioned.
     * @return a new dataset.
     */
@@ -186,8 +175,7 @@ class Dataset(
     Dataset(seccoSession, RelationAlgebraWithAnalysis.union(children: _*))
   }
 
-  /**
-    * Perform difference between this dataset and the other dataset.
+  /** Perform difference between this dataset and the other dataset.
     * @param other the other dataset to be unioned.
     * @return a new dataset.
     */
@@ -203,8 +191,7 @@ class Dataset(
 
   /* == iterative operations == */
 
-  /**
-    * Iteratively evaluate this dataset until numRun is reached, after that it'll return a dataset with name of
+  /** Iteratively evaluate this dataset until numRun is reached, after that it'll return a dataset with name of
     * returnTableIdentifier.
     * @param returnTableIdentifier the table to return.
     * @param numRun maximum number of iterations.
@@ -224,8 +211,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Assign this datasets to relation with name `tableName`, if the relation is not empty, it'll be overwritten.
+  /** Assign this datasets to relation with name `tableName`, if the relation is not empty, it'll be overwritten.
     * @param tableName the table name to assign.
     * @return a new dataset
     */
@@ -236,8 +222,7 @@ class Dataset(
     )
   }
 
-  /**
-    * Update the table specified by tableName by key, the difference of old table and new table is output to table with
+  /** Update the table specified by tableName by key, the difference of old table and new table is output to table with
     * deltaTableName.
     * @param tableName the table to update
     * @param deltaTableName the delta table to hold the difference between old table and new table
@@ -263,8 +248,7 @@ object Dataset {
   private val tempTableId = new AtomicLong()
   private val tempTableNamePrefix = "T"
 
-  /**
-    * Create an instance of [[Dataset]]
+  /** Create an instance of [[Dataset]]
     *
     * @param seSession the [[SeccoSession]] to create the dataset
     * @param logicalPlan    the logical plan of the dataset
@@ -278,8 +262,7 @@ object Dataset {
     new Dataset(seSession, qe)
   }
 
-  /**
-    * Create an [[Dataset]] from [[RDD]]
+  /** Create an [[Dataset]] from [[RDD]]
     *
     * @param rdd          the rdd that stores the data
     * @param catalogTable the catalog of the dataset
@@ -287,7 +270,7 @@ object Dataset {
     * @return a new [[Dataset]]
     */
   def fromRDD(
-      rdd: RDD[InternalRow],
+      rdd: RDD[OldInternalRow],
       catalogTable: CatalogTable,
       dlSession: SeccoSession
   ): Dataset = {
@@ -315,8 +298,7 @@ object Dataset {
     Dataset(dlSession, Relation(relationName))
   }
 
-  /**
-    * Create an [[Dataset]] from [[RDD]]
+  /** Create an [[Dataset]] from [[RDD]]
     *
     * @param rdd           the rdd that stores the data
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
@@ -326,7 +308,7 @@ object Dataset {
     * @return a new [[Dataset]]
     */
   def fromRDD(
-      rdd: RDD[InternalRow],
+      rdd: RDD[OldInternalRow],
       _relationName: Option[String] = None,
       _schema: Option[Seq[String]] = None,
       _primaryKey: Option[Seq[String]] = None,
@@ -349,8 +331,8 @@ object Dataset {
         val arity = rdd.take(1)(0).size
 
         assert(
-          rdd.map(f => f.size == arity).reduce {
-            case (l, r) => l != false && r != false
+          rdd.map(f => f.size == arity).reduce { case (l, r) =>
+            l != false && r != false
           },
           s"internal row must be have same width:${arity}"
         )
@@ -373,8 +355,7 @@ object Dataset {
     )
   }
 
-  /**
-    * Create an [[Dataset]] from [[Seq]]
+  /** Create an [[Dataset]] from [[Seq]]
     *
     * @param seq           the [[Seq]] that stores the data
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
@@ -384,7 +365,7 @@ object Dataset {
     * @return a new [[Dataset]]
     */
   def fromSeq(
-      seq: Seq[InternalRow],
+      seq: Seq[OldInternalRow],
       _relationName: Option[String] = None,
       _schema: Option[Seq[String]] = None,
       _primaryKey: Option[Seq[String]] = None,
@@ -395,8 +376,7 @@ object Dataset {
     fromRDD(rdd, _relationName, _schema, _primaryKey, dl)
   }
 
-  /**
-    * Create an [[Dataset]] from file
+  /** Create an [[Dataset]] from file
     *
     * @param path          the path that point to the location of datasets
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
@@ -416,8 +396,7 @@ object Dataset {
     fromRDD(rdd, _relationName, _schema, _primaryKey, dl)
   }
 
-  /**
-    * Create an empty [[Dataset]]
+  /** Create an empty [[Dataset]]
     *
     * @param relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
     * @param schema       the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)

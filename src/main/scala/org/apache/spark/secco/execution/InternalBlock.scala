@@ -14,7 +14,7 @@ abstract class InternalBlock extends Serializable {
 
 /** Block Contents */
 trait InternalBlockContent {}
-case class RowBlockContent(content: Array[InternalRow])
+case class RowBlockContent(content: Array[OldInternalRow])
     extends InternalBlockContent
 case class TrieBlockContent(content: Trie) extends InternalBlockContent
 case class HashMapBlockContent(content: InternalRowHashMap)

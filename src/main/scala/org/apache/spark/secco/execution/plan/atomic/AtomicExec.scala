@@ -18,8 +18,7 @@ case class CacheExec(child: SeccoPlan) extends UnaryExecNode {
 
 //  val view: CatalogView = CatalogView(output.map(CatalogColumn(_)))
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -42,8 +41,7 @@ case class CacheExec(child: SeccoPlan) extends UnaryExecNode {
 case class AssignExec(child: SeccoPlan, tableIdentifier: String)
     extends UnaryExecNode {
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -77,8 +75,7 @@ case class AssignExec(child: SeccoPlan, tableIdentifier: String)
 case class RenameExec(child: SeccoPlan, attrRenameMap: Map[String, String])
     extends UnaryExecNode {
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -98,8 +95,7 @@ case class IterativeExec(
     numRun: Int = 10
 ) extends UnaryExecNode {
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -162,7 +158,8 @@ case class UpdateExec(
     key: Seq[String]
 ) extends UnaryExecNode {
 
-  lazy val updateOp: (InternalDataType, InternalDataType) => InternalDataType =
+  lazy val updateOp
+      : (OldInternalDataType, OldInternalDataType) => OldInternalDataType =
     SeccoConfiguration.newDefaultConf().updateOp match {
       case "min" => Math.min
       case "max" => Math.max
@@ -177,11 +174,11 @@ case class UpdateExec(
   lazy val valuePos: Int = keyPos.length
   lazy val partitioner =
     new KeyHashPartitioner(keyPos, outputOld.size, conf.numPartition)
-  lazy val sentryRDD: RDD[(InternalRow, Boolean)] = genSentryRDD(
+  lazy val sentryRDD: RDD[(OldInternalRow, Boolean)] = genSentryRDD(
     conf.numPartition
   )
 
-  def genSentryRDD(numPartitions: Int): RDD[(InternalRow, Boolean)] = {
+  def genSentryRDD(numPartitions: Int): RDD[(OldInternalRow, Boolean)] = {
     val sentry = Range(0, numPartitions).map { sentryId =>
       val arr = new Array[Double](outputOld.size + 1)
       val sentryPos = outputOld.size
@@ -196,7 +193,7 @@ case class UpdateExec(
 
   def genPartitionRDD(
       rdd: RDD[InternalBlock],
-      sentryRDD: RDD[(InternalRow, Boolean)]
+      sentryRDD: RDD[(OldInternalRow, Boolean)]
   ): RDD[InternalBlock] = {
     val rowRDD = rdd.flatMap {
       case r: RowBlock => r.blockContent.content.map(f => (f, true))
@@ -225,16 +222,18 @@ case class UpdateExec(
         val content = r.blockContent.content
         val hashMap =
           mutable
-            .HashMap[mutable.WrappedArray[InternalDataType], InternalDataType]()
+            .HashMap[mutable.WrappedArray[
+              OldInternalDataType
+            ], OldInternalDataType]()
         content.foreach { row =>
-          val keyArr = new Array[InternalDataType](keyPos.length)
+          val keyArr = new Array[OldInternalDataType](keyPos.length)
           val keySize = keyPos.length
           var i = 0
           while (i < keySize) {
             keyArr(i) = row(keyPos(i))
             i += 1
           }
-          val key = mutable.WrappedArray.make[InternalDataType](keyArr)
+          val key = mutable.WrappedArray.make[OldInternalDataType](keyArr)
           val value = row(valuePos)
           hashMap(key) = value
         }
@@ -264,8 +263,8 @@ case class UpdateExec(
           .subBlocks(0)
           .asInstanceOf[GeneralBlock[
             mutable.HashMap[mutable.WrappedArray[
-              InternalDataType
-            ], InternalDataType]
+              OldInternalDataType
+            ], OldInternalDataType]
           ]]
         val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
 
@@ -273,14 +272,14 @@ case class UpdateExec(
         val rows = block1.blockContent.content
 
         val diffRows = rows.filter { row =>
-          val keyArr = new Array[InternalDataType](keyPos.size)
+          val keyArr = new Array[OldInternalDataType](keyPos.size)
           val keyPosSize = keyPos.length
           var i = 0
           while (i < keyPosSize) {
             keyArr(i) = row(keyPos(i))
             i += 1
           }
-          val key = mutable.WrappedArray.make[InternalDataType](keyArr)
+          val key = mutable.WrappedArray.make[OldInternalDataType](keyArr)
           hashMap.get(key) match {
             case Some(value) =>
               if (updateOp(value, row(valuePos)) != value) {
@@ -304,8 +303,8 @@ case class UpdateExec(
           .subBlocks(0)
           .asInstanceOf[GeneralBlock[
             mutable.HashMap[mutable.WrappedArray[
-              InternalDataType
-            ], InternalDataType]
+              OldInternalDataType
+            ], OldInternalDataType]
           ]]
         val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
 
@@ -314,14 +313,14 @@ case class UpdateExec(
         val keyPosSize = keyPos.length
 
         rows.foreach { row =>
-          val keyArr = new Array[InternalDataType](keyPosSize)
+          val keyArr = new Array[OldInternalDataType](keyPosSize)
 
           var i = 0
           while (i < keyPosSize) {
             keyArr(i) = row(keyPos(i))
             i += 1
           }
-          val key = mutable.WrappedArray.make[InternalDataType](keyArr)
+          val key = mutable.WrappedArray.make[OldInternalDataType](keyArr)
 
           hashMap.get(key) match {
             case Some(value) =>
@@ -348,22 +347,21 @@ case class UpdateExec(
         hashMapRDD.map {
           case b: GeneralBlock[
                 mutable.HashMap[mutable.WrappedArray[
-                  InternalDataType
-                ], InternalDataType]
+                  OldInternalDataType
+                ], OldInternalDataType]
               ] =>
             val hashMap = b.blockContent.content
-            val mutableArray = ArrayBuffer[InternalRow]()
+            val mutableArray = ArrayBuffer[OldInternalRow]()
             val keyPosSize = keyPos.length
-            hashMap.foreach {
-              case (key, value) =>
-                val res = new Array[InternalDataType](outputOld.size)
-                var i = 0
-                while (i < keyPosSize) {
-                  res(i) = key(i)
-                  i += 1
-                }
-                res(keyPosSize) = value
-                mutableArray += res
+            hashMap.foreach { case (key, value) =>
+              val res = new Array[OldInternalDataType](outputOld.size)
+              var i = 0
+              while (i < keyPosSize) {
+                res(i) = key(i)
+                i += 1
+              }
+              res(keyPosSize) = value
+              mutableArray += res
             }
             val content = mutableArray.toArray
             RowBlock(outputOld, RowBlockContent(content))
@@ -383,8 +381,7 @@ case class UpdateExec(
   private var iter = 0
   private var checkpointRDDOption: Option[RDD[InternalBlock]] = None
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -452,14 +449,14 @@ case class UpdateExec(
   override def outputOld: Seq[String] = child.outputOld
 }
 
-/** partition the [[InternalRow]] based on [[keyPos]] */
+/** partition the [[OldInternalRow]] based on [[keyPos]] */
 class KeyHashPartitioner(keyPos: Seq[Int], sentryPos: Int, _numPartitions: Int)
     extends Partitioner {
 
   val hashPartitioner = new HashPartitioner(numPartitions)
-  val underlyingArray = new Array[InternalDataType](keyPos.size)
-  val wrappedArray: mutable.WrappedArray[InternalDataType] =
-    mutable.WrappedArray.make[InternalDataType](underlyingArray)
+  val underlyingArray = new Array[OldInternalDataType](keyPos.size)
+  val wrappedArray: mutable.WrappedArray[OldInternalDataType] =
+    mutable.WrappedArray.make[OldInternalDataType](underlyingArray)
   val keyPosArray: Array[Int] = keyPos.toArray
   val keyPosArraySize: Int = keyPos.size
 
@@ -467,14 +464,14 @@ class KeyHashPartitioner(keyPos: Seq[Int], sentryPos: Int, _numPartitions: Int)
 
   override def getPartition(key: Any): Int = {
     key match {
-      case row: InternalRow if row.length <= sentryPos =>
+      case row: OldInternalRow if row.length <= sentryPos =>
         var i = 0
         while (i < keyPosArraySize) {
           underlyingArray(i) = row(i)
           i += 1
         }
         hashPartitioner.getPartition(wrappedArray)
-      case row: InternalRow if row.length == (sentryPos + 1) =>
+      case row: OldInternalRow if row.length == (sentryPos + 1) =>
         row(sentryPos).toInt
     }
   }
@@ -584,9 +581,8 @@ class UpdateRDD(
     val it1 = rdd1.iterator(partitions(0), context)
     val it2 = rdd2.iterator(partitions(1), context)
 
-    it1.zip(it2).map {
-      case (block1, block2) =>
-        MultiBlock(block1.output, Seq(block1, block2))
+    it1.zip(it2).map { case (block1, block2) =>
+      MultiBlock(block1.output, Seq(block1, block2))
     }
   }
 

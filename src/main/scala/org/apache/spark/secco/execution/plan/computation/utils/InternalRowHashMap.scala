@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 import scala.collection.mutable
 
@@ -12,21 +12,21 @@ import scala.collection.mutable
 class InternalRowHashMap(
     keyAttr: Array[String],
     localAttributeOrder: Array[String],
-    map: mutable.HashMap[mutable.WrappedArray[InternalDataType], Array[
-      InternalRow
+    map: mutable.HashMap[mutable.WrappedArray[OldInternalDataType], Array[
+      OldInternalRow
     ]]
 ) {
 
   private val keySize = keyAttr.size
-  private val keyArray = new Array[InternalDataType](keySize)
-  private val theKey: mutable.WrappedArray[InternalDataType] =
-    mutable.WrappedArray.make[InternalDataType](
+  private val keyArray = new Array[OldInternalDataType](keySize)
+  private val theKey: mutable.WrappedArray[OldInternalDataType] =
+    mutable.WrappedArray.make[OldInternalDataType](
       keyArray
     )
 
-  private val emptyArray = new Array[InternalRow](0)
+  private val emptyArray = new Array[OldInternalRow](0)
 
-  @inline private def copyToKey(key: Array[InternalDataType]): Unit = {
+  @inline private def copyToKey(key: Array[OldInternalDataType]): Unit = {
     var i = 0
     while (i < keySize) {
       keyArray(i) = key(i)
@@ -35,10 +35,10 @@ class InternalRowHashMap(
   }
 
   @inline private def newKeyInstance(
-      key: Array[InternalDataType]
-  ): mutable.WrappedArray[InternalDataType] = {
-    val keyArray = new Array[InternalDataType](keySize)
-    val theKey = mutable.WrappedArray.make[InternalDataType](
+      key: Array[OldInternalDataType]
+  ): mutable.WrappedArray[OldInternalDataType] = {
+    val keyArray = new Array[OldInternalDataType](keySize)
+    val theKey = mutable.WrappedArray.make[OldInternalDataType](
       keyArray
     )
     var i = 0
@@ -49,23 +49,23 @@ class InternalRowHashMap(
     theKey
   }
 
-  def contains(key: Array[InternalDataType]): Boolean = {
+  def contains(key: Array[OldInternalDataType]): Boolean = {
     copyToKey(key)
     map.contains(theKey)
   }
 
   def getOrElse(
-      key: Array[InternalDataType],
-      default: Array[InternalRow]
-  ): Array[InternalRow] = {
+      key: Array[OldInternalDataType],
+      default: Array[OldInternalRow]
+  ): Array[OldInternalRow] = {
     copyToKey(key)
     map.getOrElse(theKey, default)
   }
   def isEmpty(): Boolean = map.isEmpty
-  def get(key: InternalRow): Array[InternalRow] = {
+  def get(key: OldInternalRow): Array[OldInternalRow] = {
     getOrElse(key, emptyArray)
   }
-  def put(key: InternalRow, value: Array[InternalRow]): Unit = {
+  def put(key: OldInternalRow, value: Array[OldInternalRow]): Unit = {
     val newKey = newKeyInstance(key)
     map.put(newKey, value)
   }
@@ -75,18 +75,18 @@ object InternalRowHashMap {
   def apply(
       keyAttr: Array[String],
       localAttributeOrder: Array[String],
-      content: Array[InternalRow]
+      content: Array[OldInternalRow]
   ): InternalRowHashMap = {
     assert(localAttributeOrder.startsWith(keyAttr))
 
     //construct map
     val mapBuffer = mutable.HashMap[mutable.WrappedArray[
-      InternalDataType
-    ], mutable.ArrayBuffer[InternalRow]]()
+      OldInternalDataType
+    ], mutable.ArrayBuffer[OldInternalRow]]()
     val keySize = keyAttr.size
-    val keyArray = new Array[InternalDataType](keySize)
-    val key: mutable.WrappedArray[InternalDataType] =
-      mutable.WrappedArray.make[InternalDataType](
+    val keyArray = new Array[OldInternalDataType](keySize)
+    val key: mutable.WrappedArray[OldInternalDataType] =
+      mutable.WrappedArray.make[OldInternalDataType](
         keyArray
       )
 
@@ -102,9 +102,9 @@ object InternalRowHashMap {
 
       val buffer = mapBuffer.getOrElse(key, mutable.ArrayBuffer())
       if (buffer.isEmpty) {
-        val newKeyArray = new Array[InternalDataType](keySize)
-        val newKey: mutable.WrappedArray[InternalDataType] =
-          mutable.WrappedArray.make[InternalDataType](
+        val newKeyArray = new Array[OldInternalDataType](keySize)
+        val newKey: mutable.WrappedArray[OldInternalDataType] =
+          mutable.WrappedArray.make[OldInternalDataType](
             newKeyArray
           )
         var j = 0

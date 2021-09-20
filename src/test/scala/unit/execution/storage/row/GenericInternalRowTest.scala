@@ -5,6 +5,7 @@
  */
 package unit.execution.storage.row
 
+import org.apache.spark.secco.execution.storage.row.GenericInternalRow
 import org.apache.spark.secco.types._
 import org.scalatest.{BeforeAndAfter, FunSuite}
 

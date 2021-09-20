@@ -7,9 +7,9 @@ import com.google.common.util.concurrent.{
 }
 import org.apache.spark.internal.Logging
 import org.apache.spark.secco.codegen.Block.BlockHelper
-import org.apache.spark.secco.execution.InternalRow
 import org.apache.spark.secco.execution.storage.row.{
   GenericInternalRow,
+  InternalRow,
   UnsafeInternalRow
 }
 import org.apache.spark.secco.expression.{Attribute, Expression}
@@ -23,6 +23,7 @@ import org.apache.spark.secco.types.{
   StringType,
   StructType
 }
+import org.apache.spark.secco.util.DebugUtils.printlnDebug
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.{TaskContext, TaskKilledException}
@@ -1280,7 +1281,7 @@ object CodeGenerator extends Logging {
     evaluator.setParentClassLoader(parentClassLoader)
     // Cannot be under package codegen, or fail with java.lang.InstantiationException
     evaluator.setClassName(
-      "org.apache.spark.dolphin.codegen.ConcreteGeneratedClass"
+      "org.apache.spark.secco.codegen.ConcreteGeneratedClass"
     )
     evaluator.setDefaultImports(
       classOf[Platform].getName,
@@ -1401,12 +1402,11 @@ object CodeGenerator extends Logging {
     * weak keys/values and thus does not respond to memory pressure.
     */
   //TODO: add option for codegenCacheMaxEntries in DolphinConfiguration
-  private val cache = CacheBuilder
-    .newBuilder()
-    .maximumSize(1)
-    .build(new CacheLoader[CodeAndComment, (GeneratedClass, Int)]() {
+  private val cache = {
+    val cacheLoader = new CacheLoader[CodeAndComment, (GeneratedClass, Int)]() {
       override def load(code: CodeAndComment): (GeneratedClass, Int) = {
         val startTime = System.nanoTime()
+        printlnDebug(code.body)
         val result = doCompile(code)
         val endTime = System.nanoTime()
         def timeMs: Double = (endTime - startTime).toDouble / 1000000
@@ -1415,7 +1415,13 @@ object CodeGenerator extends Logging {
         logInfo(s"Code generated in $timeMs ms")
         result
       }
-    })
+    }
+
+    CacheBuilder
+      .newBuilder()
+      .maximumSize(1)
+      .build(cacheLoader)
+  }
 
   /** Name of Java primitive data type
     */

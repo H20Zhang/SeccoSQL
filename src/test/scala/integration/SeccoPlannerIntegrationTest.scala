@@ -1,6 +1,6 @@
 package integration
 
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.execution.planning.SeccoPlanner
 import org.apache.spark.secco.optimization.SeccoOptimizer
 import util.TestQuery.TestQuery
@@ -12,7 +12,7 @@ class SeccoPlannerIntegrationTest extends SeccoFunSuite {
 
   def genPlan(
       testQuery: TestQuery,
-      dataOfScans: Map[String, Array[InternalRow]] = Map()
+      dataOfScans: Map[String, Array[OldInternalRow]] = Map()
   ) = {
 
     pprint.pprintln(s"------------testing ${testQuery} ------------")
@@ -34,7 +34,7 @@ class SeccoPlannerIntegrationTest extends SeccoFunSuite {
 
   def executePlan(
       testQuery: TestQuery,
-      dataOfScans: Map[String, Array[InternalRow]] = Map()
+      dataOfScans: Map[String, Array[OldInternalRow]] = Map()
   ) = {
 
     pprint.pprintln(s"------------testing ${testQuery} ------------")

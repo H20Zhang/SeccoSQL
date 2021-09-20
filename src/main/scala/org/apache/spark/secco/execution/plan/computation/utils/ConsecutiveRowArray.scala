@@ -1,27 +1,27 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 import scala.collection.mutable.ArrayBuffer
 
 /** store InternalRows consecutively */
 case class ConsecutiveRowArray(
     arity: Int,
-    underlyingArray: Array[InternalDataType]
+    underlyingArray: Array[OldInternalDataType]
 ) {
 
   /** output consecutive stored InternalRows */
   class ConsecutiveRowIterator(
       arity: Int,
-      underlyingArray: Array[InternalDataType]
-  ) extends Iterator[InternalRow] {
+      underlyingArray: Array[OldInternalDataType]
+  ) extends Iterator[OldInternalRow] {
 
-    private val _outputRow = new Array[InternalDataType](arity)
+    private val _outputRow = new Array[OldInternalDataType](arity)
     private var _curPos = 0
     private val _underlyingArraySize = underlyingArray.length
 
     override def hasNext: Boolean = _curPos < _underlyingArraySize
-    override def next(): InternalRow = {
+    override def next(): OldInternalRow = {
       var i = 0
       while (i < arity) {
         _outputRow(i) = underlyingArray(_curPos + i)
@@ -33,7 +33,7 @@ case class ConsecutiveRowArray(
     }
   }
 
-  def iterator: Iterator[InternalRow] =
+  def iterator: Iterator[OldInternalRow] =
     new ConsecutiveRowIterator(arity, underlyingArray)
   def apply(idx: Int) = ???
   def isEmpty(): Boolean = underlyingArray.isEmpty
@@ -42,10 +42,10 @@ case class ConsecutiveRowArray(
 
 object ConsecutiveRowArray {
 
-  def apply(arity: Int, array: Array[InternalRow]): ConsecutiveRowArray = {
+  def apply(arity: Int, array: Array[OldInternalRow]): ConsecutiveRowArray = {
 
     val arraySize = array.size
-    val underlyingArray = new Array[InternalDataType](arity * arraySize)
+    val underlyingArray = new Array[OldInternalDataType](arity * arraySize)
 
     var j = 0
     while (j < arraySize) {
@@ -64,9 +64,9 @@ object ConsecutiveRowArray {
 
   def apply(
       arity: Int,
-      iterator: Iterator[InternalRow]
+      iterator: Iterator[OldInternalRow]
   ): ConsecutiveRowArray = {
-    val buffer = ArrayBuffer[InternalDataType]()
+    val buffer = ArrayBuffer[OldInternalDataType]()
     while (iterator.hasNext) {
       var i = 0
       val row = iterator.next()
@@ -78,7 +78,7 @@ object ConsecutiveRowArray {
 
     var i = 0
     val bufferSize = buffer.size
-    val underlyingArray = new Array[InternalDataType](bufferSize)
+    val underlyingArray = new Array[OldInternalDataType](bufferSize)
     while (i < bufferSize) {
       underlyingArray(i) = buffer(i)
       i += 1

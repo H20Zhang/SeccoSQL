@@ -3,12 +3,11 @@ package org.apache.spark.secco.optimization.statsEstimation
 import org.apache.spark.util.Utils
 import java.math.{MathContext, RoundingMode}
 
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 
 import scala.collection.mutable
 
-/**
-  * Estimates of various statistics.  The default estimation logic simply lazily multiplies the
+/** Estimates of various statistics.  The default estimation logic simply lazily multiplies the
   * corresponding statistic produced by the children.  To override this behavior, override
   * `statistics` and assign it an overridden version of `Statistics`.
   *
@@ -69,8 +68,7 @@ case class Statistics(
   }
 }
 
-/**
-  * Statistics collected for a column.
+/** Statistics collected for a column.
   *
   * 1. The JVM data type stored in min/max is the internal data type for the corresponding
   *    Catalyst data type. For example, the internal type of DateType is Int, and that the internal
@@ -88,8 +86,8 @@ case class Statistics(
   */
 case class ColumnStat(
     distinctCount: Option[BigInt] = None,
-    min: Option[InternalDataType] = None,
-    max: Option[InternalDataType] = None,
+    min: Option[OldInternalDataType] = None,
+    max: Option[OldInternalDataType] = None,
     nullCount: Option[BigInt] = None,
     avgLen: Option[Long] = None,
     maxLen: Option[Long] = None,
@@ -107,8 +105,7 @@ case class ColumnStat(
 
 }
 
-/**
-  * This class is an implementation of equi-height histogram.
+/** This class is an implementation of equi-height histogram.
   * Equi-height histogram represents the distribution of a column's values by a sequence of bins.
   * Each bin has a value range and contains approximately the same number of rows.
   *
@@ -134,8 +131,7 @@ case class Histogram(height: Double, bins: Array[HistogramBin]) {
   }
 }
 
-/**
-  * A bin in an equi-height histogram. We use double type for lower/higher bound for simplicity.
+/** A bin in an equi-height histogram. We use double type for lower/higher bound for simplicity.
   *
   * @param lo lower bound of the value range in this bin
   * @param hi higher bound of the value range in this bin

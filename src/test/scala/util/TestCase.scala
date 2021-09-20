@@ -3,7 +3,7 @@ package util
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.{Catalog, CatalogColumn, CatalogTable}
 import org.apache.spark.secco.optimization.plan.Relation
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.rdd.RDD
 import util.TestQuery.TestQuery
@@ -25,10 +25,10 @@ object TestCase {
 
   def assignArrayData(
       plan: LogicalPlan,
-      arrayOfScans: Map[String, Array[InternalRow]]
+      arrayOfScans: Map[String, Array[OldInternalRow]]
   ) = {
-    val scans = plan.collect {
-      case s: Relation => s
+    val scans = plan.collect { case s: Relation =>
+      s
     }
 
     scans.foreach { scan =>
@@ -40,10 +40,10 @@ object TestCase {
 
   def assignRDDData(
       plan: LogicalPlan,
-      rddOfScans: Map[String, RDD[InternalRow]]
+      rddOfScans: Map[String, RDD[OldInternalRow]]
   ) = {
-    val scans = plan.collect {
-      case s: Relation => s
+    val scans = plan.collect { case s: Relation =>
+      s
     }
 
     scans.foreach { scan =>
@@ -83,13 +83,13 @@ object TestCase {
 
   def queryWithArrayInput(
       testQuery: TestQuery,
-      dataOfScans: Map[String, Array[InternalRow]] = Map()
+      dataOfScans: Map[String, Array[OldInternalRow]] = Map()
   ) = {
     val plan = getPlan(testQuery)
 
     dataOfScans match {
       case data if data.isEmpty => genData(plan)
-      case arrayOfScans: Map[String, Array[InternalRow]] =>
+      case arrayOfScans: Map[String, Array[OldInternalRow]] =>
         assignArrayData(plan, arrayOfScans)
       case _ =>
         throw new Exception(
@@ -100,13 +100,13 @@ object TestCase {
 
   def queryWithRDDInput(
       testQuery: TestQuery,
-      dataOfScans: Map[String, RDD[InternalRow]] = Map()
+      dataOfScans: Map[String, RDD[OldInternalRow]] = Map()
   ) = {
     val plan = getPlan(testQuery)
 
     dataOfScans match {
       case data if data.isEmpty => genData(plan)
-      case rddOfScans: Map[String, RDD[InternalRow]] =>
+      case rddOfScans: Map[String, RDD[OldInternalRow]] =>
         assignRDDData(plan, rddOfScans)
       case _ =>
         throw new Exception(

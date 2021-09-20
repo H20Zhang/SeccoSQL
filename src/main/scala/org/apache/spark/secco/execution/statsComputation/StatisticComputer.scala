@@ -4,7 +4,7 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.execution.{
   InternalBlock,
-  InternalDataType,
+  OldInternalDataType,
   RowBlock,
   RowBlockContent
 }
@@ -19,13 +19,11 @@ import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * The trait for class that compute the statistics of the content
+/** The trait for class that compute the statistics of the content
   */
 trait StatisticComputer {
 
-  /**
-    * compute the statistic
+  /** compute the statistic
     * @param attributes attributes of the content
     * @param content the RDD that contains the relation whose statistic to be computed.
     * @return

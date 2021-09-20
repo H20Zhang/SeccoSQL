@@ -4,6 +4,7 @@
  */
 package unit.execution.storage.row
 
+import org.apache.spark.secco.execution.storage.row.UnsafeInternalRow
 import org.apache.spark.secco.types._
 import org.scalatest._
 

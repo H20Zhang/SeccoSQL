@@ -1,5 +1,5 @@
 package org.apache.spark.secco.execution.plan.computation.iter
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 case class CartesianProductIter(
     baseIt: SeccoIterator,
@@ -16,7 +16,7 @@ case class CartesianProductIter(
   private val indexAttrSize: Int = indexIt.localAttributeOrder.length
 
   private val outputRow =
-    new Array[InternalDataType](localAttributeOrder.length)
+    new Array[OldInternalDataType](localAttributeOrder.length)
 
   private var isBaseInitialized = false
 
@@ -25,7 +25,7 @@ case class CartesianProductIter(
 
   // There is no need to implement reset, as in left-deep plan,
   // cartesian product iterator will never be used as indexIt.
-  override def reset(prefix: InternalRow): SeccoIterator = ???
+  override def reset(prefix: OldInternalRow): SeccoIterator = ???
 
   @inline override def hasNext: Boolean = {
 
@@ -43,7 +43,7 @@ case class CartesianProductIter(
       true
     } else if (baseIt.hasNext && isIndexNotEmpty) {
       //reset using empty prefix to initiate full reset
-      indexIt.reset(Array[InternalDataType]())
+      indexIt.reset(Array[OldInternalDataType]())
 
       if (indexIt.isEmpty) {
         isIndexNotEmpty = false
@@ -63,7 +63,7 @@ case class CartesianProductIter(
 
   }
 
-  @inline override def next(): InternalRow = {
+  @inline override def next(): OldInternalRow = {
     val indexRow = indexIt.next()
     var i = 0
     while (i < indexAttrSize) {

@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.iter
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 import org.apache.spark.secco.execution.plan.computation.utils.{
   BufferPool,
   InternalRowBufferPoolImpl,
@@ -17,9 +17,9 @@ trait ProjectIter extends SeccoIterator with FuncGenSupport {
   lazy val (projectionFunc, projectedRow) =
     genProjectionFunc(localAttributeOrder, childIter.localAttributeOrder)
 
-  override def result(): Array[InternalRow] = {
+  override def result(): Array[OldInternalRow] = {
     val childResult = childIter.result()
-    val outputRows = new Array[InternalRow](childResult.length)
+    val outputRows = new Array[OldInternalRow](childResult.length)
     val numOutputRow = outputRows.length
     var i = 0
     while (i < numOutputRow) {
@@ -46,7 +46,7 @@ case class MatchedPrefixProjectIter(
     localAttributeOrder: Array[String]
 ) extends ProjectIter {
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     outputDefined = false
     isInitialized = false
     childIter.reset(prefix)
@@ -56,7 +56,7 @@ case class MatchedPrefixProjectIter(
   val localAttributeSize: Int = projectionList.size
   var outputDefined = false
   var isInitialized = false
-  val outputRow = new Array[InternalDataType](localAttributeSize)
+  val outputRow = new Array[OldInternalDataType](localAttributeSize)
 
   private def updateOutput(): Unit = {
     var i = 0
@@ -105,13 +105,13 @@ case class MatchedPrefixProjectIter(
     outputDefined
   }
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     outputDefined = false
     outputRow
   }
 
-  override def result(): Array[InternalRow] = {
-    val buffer = ArrayBuffer[InternalRow]()
+  override def result(): Array[OldInternalRow] = {
+    val buffer = ArrayBuffer[OldInternalRow]()
     while (hasNext) {
       buffer += next().clone()
     }
@@ -147,7 +147,7 @@ case class PartiallyMatchedPrefixProjectIter(
 
   private val emptyIt = new EmptyIterator
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     inputBufferPool.reset()
 //    outputBufferPool.reset()
     nextGroupKeyDefined = false
@@ -162,17 +162,17 @@ case class PartiallyMatchedPrefixProjectIter(
   }
 
   val groupArity: Int = groupingList.length
-  var nextGroup: ArrayBuffer[InternalRow] = ArrayBuffer()
-  val nextGroupKey = new Array[InternalDataType](groupArity)
+  var nextGroup: ArrayBuffer[OldInternalRow] = ArrayBuffer()
+  val nextGroupKey = new Array[OldInternalDataType](groupArity)
   var nextGroupKeyDefined = false
-  var nextProjectedIter: Iterator[InternalRow] = Iterator.empty
+  var nextProjectedIter: Iterator[OldInternalRow] = Iterator.empty
 //  val outputBufferPool: BufferPool[mutable.WrappedArray[InternalDataType]] =
 //    new WrappedArrayBufferPoolImpl(localAttributeSize)
-  val inputBufferPool: BufferPool[InternalRow] =
+  val inputBufferPool: BufferPool[OldInternalRow] =
     new InternalRowBufferPoolImpl(childIter.localAttributeOrder.length)
 
   //update nextGroupKey based on row
-  private def updateNextGroupKey(row: InternalRow): Unit = {
+  private def updateNextGroupKey(row: OldInternalRow): Unit = {
     inputBufferPool.reset()
     //get group projected row
     groupProjectionFunc(row)
@@ -208,12 +208,12 @@ case class PartiallyMatchedPrefixProjectIter(
   private def makeNextProjectedIter() = {
 //    outputBufferPool.reset()
     val projectedNextGroupSet =
-      mutable.HashSet[mutable.WrappedArray[InternalDataType]]()
+      mutable.HashSet[mutable.WrappedArray[OldInternalDataType]]()
     nextGroup.foreach { row =>
       projectionFunc(row)
-      val arr = new Array[InternalDataType](localAttributeSize)
+      val arr = new Array[OldInternalDataType](localAttributeSize)
 //      val arr = internalRowBufferPool.newInstance()
-      val wrappedArr = mutable.WrappedArray.make[InternalDataType](arr)
+      val wrappedArr = mutable.WrappedArray.make[OldInternalDataType](arr)
 //      val wrappedArr = outputBufferPool.newInstance()
       var i = 0
       while (i < localAttributeSize) {
@@ -230,7 +230,7 @@ case class PartiallyMatchedPrefixProjectIter(
 //    val projectedNextGroupArray = projectedNextGroupArrayBuffer.toArray
 
     val projectedNextGroupArray =
-      new Array[InternalRow](projectedNextGroupSet.size)
+      new Array[OldInternalRow](projectedNextGroupSet.size)
     var i = 0
     projectedNextGroupSet.foreach { projectedRow =>
       projectedNextGroupArray(i) = projectedRow.array
@@ -288,7 +288,7 @@ case class PartiallyMatchedPrefixProjectIter(
     }
   }
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     nextProjectedIter.next()
   }
 }
@@ -299,9 +299,9 @@ case class NoMatchedPrefixProjectIter(
     localAttributeOrder: Array[String]
 ) extends ProjectIter {
 
-  override def reset(prefix: InternalRow): SeccoIterator = ???
+  override def reset(prefix: OldInternalRow): SeccoIterator = ???
 
   override def hasNext: Boolean = ???
 
-  override def next(): InternalRow = ???
+  override def next(): OldInternalRow = ???
 }

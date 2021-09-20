@@ -3,22 +3,21 @@ package org.apache.spark.secco
 import org.apache.spark.SparkContext
 import org.apache.spark.secco.catalog.CatalogTable
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.util.misc.SparkSingle
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.util.RandomIndicesGenerator
 
-/**
-  * The entry point to programming Secco with the Dataset API.
+/** The entry point to programming Secco with the Dataset API.
   */
 class SeccoSession(
     @transient val sparkContext: SparkContext,
     @transient val sessionState: SessionState
 ) { self =>
 
-  /**
-    * Create an [[Dataset]] from a [[Seq]] of [[InternalRow]]
+  /** Create an [[Dataset]] from a [[Seq]] of [[OldInternalRow]]
+    *
     * @param seq the [[Seq]] that stores the data
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
     * @param _schema the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
@@ -26,7 +25,7 @@ class SeccoSession(
     * @return a new [[Dataset]]
     */
   def createDatasetFromSeq(
-      seq: Seq[InternalRow],
+      seq: Seq[OldInternalRow],
       _relationName: Option[String] = None,
       _schema: Option[Seq[String]] = None,
       _primaryKey: Option[Seq[String]] = None
@@ -34,8 +33,8 @@ class SeccoSession(
     Dataset.fromSeq(seq, _relationName, _schema, _primaryKey, this)
   }
 
-  /**
-    * Create an [[Dataset]] from [[RDD]] of [[InternalRow]]
+  /** Create an [[Dataset]] from [[RDD]] of [[OldInternalRow]]
+    *
     * @param rdd the rdd that stores the data
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
     * @param _schema the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
@@ -43,7 +42,7 @@ class SeccoSession(
     * @return a new [[Dataset]]
     */
   def createDatasetFromRDD(
-      rdd: RDD[InternalRow],
+      rdd: RDD[OldInternalRow],
       _relationName: Option[String] = None,
       _schema: Option[Seq[String]] = None,
       _primaryKey: Option[Seq[String]] = None
@@ -51,8 +50,7 @@ class SeccoSession(
     Dataset.fromRDD(rdd, _relationName, _schema, _primaryKey, this)
   }
 
-  /**
-    * Create an [[Dataset]] from file
+  /** Create an [[Dataset]] from file
     * @param path the path that point to the location of datasets
     * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
     * @param _schema the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
@@ -68,8 +66,7 @@ class SeccoSession(
     Dataset.fromFile(path, _relationName, _schema, _primaryKey, this)
   }
 
-  /**
-    * Create an empty [[Dataset]]
+  /** Create an empty [[Dataset]]
     * @param relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
     * @param schema the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
     * @param _primaryKey the primary key of the schema
@@ -83,8 +80,7 @@ class SeccoSession(
     Dataset.empty(relationName, schema, _primaryKey, this)
   }
 
-  /**
-    * Returns the specified table/view as a `DataFrame`.
+  /** Returns the specified table/view as a `DataFrame`.
     *
     * @param tableName is either a qualified or unqualified name that designates a table or view.
     *                  If a database is specified, it identifies the table/view from the database.
@@ -99,15 +95,13 @@ class SeccoSession(
     )
   }
 
-  /**
-    * Executes a SQL query and return the result as a `Dataset`.
+  /** Executes a SQL query and return the result as a `Dataset`.
     */
   def sql(sqlText: String): Dataset = {
     Dataset(self, sessionState.sqlParser.parsePlan(sqlText))
   }
 
-  /**
-    * Stop [[SeccoSession]]
+  /** Stop [[SeccoSession]]
     */
   def stop(): Unit = {
     sparkContext.stop()

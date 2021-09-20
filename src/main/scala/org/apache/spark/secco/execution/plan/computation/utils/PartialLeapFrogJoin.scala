@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 
 //TODO: this class should add more checking to ensure its correctness
 class PartialLeapFrogJoin(
@@ -16,7 +16,7 @@ class PartialLeapFrogJoin(
   }
 
   //fixme: this method should implemented to ensure the correctness of this class.
-  def contains(prefix: InternalRow): Boolean = ???
+  def contains(prefix: OldInternalRow): Boolean = ???
 
   var idPrinted = false
 
@@ -24,7 +24,7 @@ class PartialLeapFrogJoin(
   // this method is correct if the attributes in prefix are disconnected in the relations.
   //   or
   // this method is correct if it is used in processing subgraph query using GHD with induced hypernodes.
-  def unsafeInit(prefix: InternalRow) = {
+  def unsafeInit(prefix: OldInternalRow) = {
     firstInitialized = false
     hasEnd = false
     var i = 0

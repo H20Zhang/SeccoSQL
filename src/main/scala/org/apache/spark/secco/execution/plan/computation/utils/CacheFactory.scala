@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 import org.apache.spark.secco.execution.plan.computation.iter.{
   EmptyIterator,
   SingularIterator
@@ -43,14 +43,14 @@ trait Cache {
   /** store InternalRows consecutively */
   case class ConsecutiveValueArray(
       arity: Int,
-      underlyingArray: Array[InternalDataType]
+      underlyingArray: Array[OldInternalDataType]
   ) {}
 
   object ConsecutiveValueArray {
     def apply(
-        iterator: Iterator[InternalRow]
+        iterator: Iterator[OldInternalRow]
     ): ConsecutiveValueArray = {
-      val buffer = ArrayBuffer[InternalDataType]()
+      val buffer = ArrayBuffer[OldInternalDataType]()
       while (iterator.hasNext) {
         var i = 0
         val row = iterator.next()
@@ -62,7 +62,7 @@ trait Cache {
 
       var i = 0
       val bufferSize = buffer.size
-      val underlyingArray = new Array[InternalDataType](bufferSize)
+      val underlyingArray = new Array[OldInternalDataType](bufferSize)
       while (i < bufferSize) {
         underlyingArray(i) = buffer(i)
         i += 1
@@ -73,15 +73,15 @@ trait Cache {
   }
 
   /** output consecutive stored InternalRows */
-  class ConsecutiveKeyValueRowIterator extends Iterator[InternalRow] {
+  class ConsecutiveKeyValueRowIterator extends Iterator[OldInternalRow] {
 
-    private val _outputRow = new Array[InternalDataType](attributes.length)
+    private val _outputRow = new Array[OldInternalDataType](attributes.length)
     private var _curPos = 0
     private var _underlyingArraySize = 0
-    private var _underlyingArray: Array[InternalDataType] = _
+    private var _underlyingArray: Array[OldInternalDataType] = _
 
     def reset(
-        key: Array[InternalDataType],
+        key: Array[OldInternalDataType],
         consecutiveArray: ConsecutiveValueArray
     ): ConsecutiveKeyValueRowIterator = {
       _curPos = 0
@@ -96,7 +96,7 @@ trait Cache {
     }
 
     override def hasNext: Boolean = _curPos < _underlyingArraySize
-    override def next(): InternalRow = {
+    override def next(): OldInternalRow = {
       var i = 0
       while (i < valueSize) {
         _outputRow(valuePos(i)) = _underlyingArray(_curPos + i)
@@ -119,16 +119,16 @@ trait Cache {
   def keyAttributes: Array[String]
   def valueAttributes: Array[String]
 
-  def contains(key: Array[InternalDataType]): Boolean
-  def get(key: Array[InternalDataType]): Iterator[InternalRow]
+  def contains(key: Array[OldInternalDataType]): Boolean
+  def get(key: Array[OldInternalDataType]): Iterator[OldInternalRow]
   def getOrElse(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow]
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow]
   def put(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow]
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow]
 }
 
 class LRUMapCache(
@@ -138,14 +138,14 @@ class LRUMapCache(
 
   assert(valueAttributes.nonEmpty)
 
-  val lruKeyArray = new Array[InternalDataType](keySize)
-  val lruKey: mutable.WrappedArray[InternalDataType] =
-    mutable.WrappedArray.make[InternalDataType](
+  val lruKeyArray = new Array[OldInternalDataType](keySize)
+  val lruKey: mutable.WrappedArray[OldInternalDataType] =
+    mutable.WrappedArray.make[OldInternalDataType](
       lruKeyArray
     )
   val map =
     new LRUHashMap[mutable.WrappedArray[
-      InternalDataType
+      OldInternalDataType
     ], ConsecutiveValueArray](
       SeccoConfiguration.newDefaultConf().cacheSize
     )
@@ -153,7 +153,7 @@ class LRUMapCache(
   val iterator = new ConsecutiveKeyValueRowIterator()
   val emptyIterator = new EmptyIterator
 
-  @inline private def copyToKey(key: Array[InternalDataType]): Unit = {
+  @inline private def copyToKey(key: Array[OldInternalDataType]): Unit = {
     var i = 0
     while (i < keySize) {
       lruKeyArray(i) = key(i)
@@ -162,10 +162,10 @@ class LRUMapCache(
   }
 
   @inline private def newLRUKeyInstance(
-      key: Array[InternalDataType]
-  ): mutable.WrappedArray[InternalDataType] = {
-    val lruKeyArray = new Array[InternalDataType](keySize)
-    val lruKey = mutable.WrappedArray.make[InternalDataType](
+      key: Array[OldInternalDataType]
+  ): mutable.WrappedArray[OldInternalDataType] = {
+    val lruKeyArray = new Array[OldInternalDataType](keySize)
+    val lruKey = mutable.WrappedArray.make[OldInternalDataType](
       lruKeyArray
     )
     var i = 0
@@ -176,19 +176,21 @@ class LRUMapCache(
     lruKey
   }
 
-  override def contains(key: Array[InternalDataType]): Boolean = {
+  override def contains(key: Array[OldInternalDataType]): Boolean = {
     copyToKey(key)
     map.contain(lruKey)
   }
 
-  override def get(key: Array[InternalDataType]): Iterator[InternalRow] = {
+  override def get(
+      key: Array[OldInternalDataType]
+  ): Iterator[OldInternalRow] = {
     getOrElse(key, emptyIterator)
   }
 
   override def put(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     val newLRUKey = newLRUKeyInstance(key)
     val lruValue = ConsecutiveValueArray(it)
     map.put(newLRUKey, lruValue)
@@ -196,9 +198,9 @@ class LRUMapCache(
   }
 
   override def getOrElse(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     copyToKey(key)
     val res = map.getOrDefault(key, null)
     if (res != null) {
@@ -216,15 +218,15 @@ class LastUsedMapCache(
 
   assert(valueAttributes.nonEmpty)
 
-  private val lastKey: Array[InternalDataType] =
-    new Array[InternalDataType](keySize) map (f => Double.MaxValue)
+  private val lastKey: Array[OldInternalDataType] =
+    new Array[OldInternalDataType](keySize) map (f => Double.MaxValue)
 
   private var lastConsecutiveArray: ConsecutiveValueArray = _
   private val iterator: ConsecutiveKeyValueRowIterator =
     new ConsecutiveKeyValueRowIterator
   private val emptyIterator = new EmptyIterator
 
-  override def contains(key: Array[InternalDataType]): Boolean = {
+  override def contains(key: Array[OldInternalDataType]): Boolean = {
     var i = 0
     while (i < keySize) {
       if (key(i) != lastKey(i)) {
@@ -236,14 +238,16 @@ class LastUsedMapCache(
     true
   }
 
-  override def get(key: Array[InternalDataType]): Iterator[InternalRow] = {
+  override def get(
+      key: Array[OldInternalDataType]
+  ): Iterator[OldInternalRow] = {
     getOrElse(key, emptyIterator)
   }
 
   override def getOrElse(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     if (contains(key)) {
       iterator.reset(lastKey, lastConsecutiveArray)
     } else {
@@ -252,9 +256,9 @@ class LastUsedMapCache(
   }
 
   override def put(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     var i = 0
     while (i < keySize) {
       lastKey(i) = key(i)
@@ -269,20 +273,20 @@ class LRUSetCache(
     val keyAttributes: Array[String],
     val valueAttributes: Array[String] = Array.empty
 ) extends Cache {
-  val lruKeyArray = new Array[InternalDataType](keySize)
-  val lruKey: mutable.WrappedArray[InternalDataType] =
-    mutable.WrappedArray.make[InternalDataType](
+  val lruKeyArray = new Array[OldInternalDataType](keySize)
+  val lruKey: mutable.WrappedArray[OldInternalDataType] =
+    mutable.WrappedArray.make[OldInternalDataType](
       lruKeyArray
     )
   val map =
-    new LRUHashMap[mutable.WrappedArray[InternalDataType], Boolean](
+    new LRUHashMap[mutable.WrappedArray[OldInternalDataType], Boolean](
       SeccoConfiguration.newDefaultConf().cacheSize
     )
 
   val iterator = new SingularIterator()
   val emptyIterator = new EmptyIterator
 
-  @inline private def copyToKey(key: Array[InternalDataType]): Unit = {
+  @inline private def copyToKey(key: Array[OldInternalDataType]): Unit = {
     var i = 0
     while (i < keySize) {
       lruKeyArray(i) = key(i)
@@ -291,10 +295,10 @@ class LRUSetCache(
   }
 
   @inline private def newLRUKeyInstance(
-      key: Array[InternalDataType]
-  ): mutable.WrappedArray[InternalDataType] = {
-    val lruKeyArray = new Array[InternalDataType](keySize)
-    val lruKey = mutable.WrappedArray.make[InternalDataType](
+      key: Array[OldInternalDataType]
+  ): mutable.WrappedArray[OldInternalDataType] = {
+    val lruKeyArray = new Array[OldInternalDataType](keySize)
+    val lruKey = mutable.WrappedArray.make[OldInternalDataType](
       lruKeyArray
     )
     var i = 0
@@ -305,28 +309,30 @@ class LRUSetCache(
     lruKey
   }
 
-  override def contains(key: Array[InternalDataType]): Boolean = {
+  override def contains(key: Array[OldInternalDataType]): Boolean = {
     copyToKey(key)
     map.contain(lruKey)
   }
 
-  override def get(key: Array[InternalDataType]): Iterator[InternalRow] = {
+  override def get(
+      key: Array[OldInternalDataType]
+  ): Iterator[OldInternalRow] = {
     getOrElse(key, emptyIterator)
   }
 
   override def put(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     val newLRUKey = newLRUKeyInstance(key)
     map.put(newLRUKey, true)
     iterator.reset(key)
   }
 
   override def getOrElse(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     copyToKey(key)
     val res = map.getOrDefault(key, false)
     if (res != false) {
@@ -342,13 +348,13 @@ class LastUsedSetCache(
     val valueAttributes: Array[String] = Array.empty
 ) extends Cache {
 
-  private val lastKey: Array[InternalDataType] =
-    new Array[InternalDataType](keySize) map (f => Double.MaxValue)
+  private val lastKey: Array[OldInternalDataType] =
+    new Array[OldInternalDataType](keySize) map (f => Double.MaxValue)
 
   private val iterator: SingularIterator = new SingularIterator
   private val emptyIterator = new EmptyIterator
 
-  override def contains(key: Array[InternalDataType]): Boolean = {
+  override def contains(key: Array[OldInternalDataType]): Boolean = {
     var i = 0
     while (i < keySize) {
       if (key(i) != lastKey(i)) {
@@ -360,14 +366,16 @@ class LastUsedSetCache(
     true
   }
 
-  override def get(key: Array[InternalDataType]): Iterator[InternalRow] = {
+  override def get(
+      key: Array[OldInternalDataType]
+  ): Iterator[OldInternalRow] = {
     getOrElse(key, emptyIterator)
   }
 
   override def getOrElse(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     if (contains(key)) {
       iterator.reset(lastKey)
     } else {
@@ -376,9 +384,9 @@ class LastUsedSetCache(
   }
 
   override def put(
-      key: Array[InternalDataType],
-      it: Iterator[InternalRow]
-  ): Iterator[InternalRow] = {
+      key: Array[OldInternalDataType],
+      it: Iterator[OldInternalRow]
+  ): Iterator[OldInternalRow] = {
     var i = 0
     while (i < keySize) {
       lastKey(i) = key(i)

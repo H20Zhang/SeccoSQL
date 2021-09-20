@@ -1,6 +1,6 @@
 package org.apache.spark.secco.optimization.statsEstimation.histogram
 
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.optimization.plan.Join
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
@@ -101,8 +101,7 @@ object HistogramJoinEstimation extends Estimation[Join] {
   }
 
   // scalastyle:off
-  /**
-    * The number of rows of A inner join B on A.k1 = B.k1 is estimated by this basic formula:
+  /** The number of rows of A inner join B on A.k1 = B.k1 is estimated by this basic formula:
     * T(A IJ B) = T(A) * T(B) / max(V(A.k1), V(B.k1)),
     * where V is the number of distinct values (ndv) of that column. The underlying assumption for
     * this formula is: each value of the smaller domain is included in the larger domain.
@@ -189,8 +188,8 @@ object HistogramJoinEstimation extends Estimation[Join] {
   /** Returns join cardinality and the column stat for this pair of join keys. */
   private def computeByNdv(
       key: String,
-      min: InternalDataType,
-      max: InternalDataType,
+      min: OldInternalDataType,
+      max: OldInternalDataType,
       leftStats: Statistics,
       rightStats: Statistics
   ): (BigInt, ColumnStat) = {
@@ -230,8 +229,8 @@ object HistogramJoinEstimation extends Estimation[Join] {
       key: String,
       leftHistogram: Histogram,
       rightHistogram: Histogram,
-      newMin: InternalDataType,
-      newMax: InternalDataType,
+      newMin: OldInternalDataType,
+      newMax: OldInternalDataType,
       leftStats: Statistics,
       rightStats: Statistics
   ): (BigInt, ColumnStat) = {
@@ -289,8 +288,7 @@ object HistogramJoinEstimation extends Estimation[Join] {
     (Estimation.ceil(card), newStats)
   }
 
-  /**
-    * Propagate or update column stats for output attributes.
+  /** Propagate or update column stats for output attributes.
     */
   private def updateOutputStats(
       outputRows: BigInt,

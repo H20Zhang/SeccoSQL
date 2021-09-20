@@ -6,7 +6,7 @@ import org.apache.spark.secco.execution.plan.communication.utils.{
 }
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalRow,
+  OldInternalRow,
   SharedParameter
 }
 
@@ -33,7 +33,7 @@ trait PairExchangeSupport {
     )
 
   /** generate the sentry tuples, which consists of (sentryTuple, isSentryTuple) */
-  def genSentry(attrs: Seq[String]): Seq[(InternalRow, Boolean)] = {
+  def genSentry(attrs: Seq[String]): Seq[(OldInternalRow, Boolean)] = {
     genShareVectorsForAttrs(attrs).map(f => (f.map(_.toDouble), true))
   }
 

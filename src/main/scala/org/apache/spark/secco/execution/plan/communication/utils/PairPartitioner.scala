@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.communication.utils
 
 import org.apache.spark.Partitioner
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.util.Utils
 
 /** partition the relation according to the space defined by share,
@@ -34,19 +34,18 @@ class PairPartitioner(shareSpaceVector: Array[Int]) extends Partitioner {
   override def getPartition(key: Any): Int =
     key match {
       case array: Array[Int] if array.size == artiy =>
-        val coordinate = array.zipWithIndex.map {
-          case (value, i) =>
-            Utils.nonNegativeMod(value, shareSpaceVector(i))
+        val coordinate = array.zipWithIndex.map { case (value, i) =>
+          Utils.nonNegativeMod(value, shareSpaceVector(i))
         }
         getServerId(coordinate)
       case array: Array[Long] if array.size == artiy =>
-        val coordinate = array.zipWithIndex.map {
-          case (value, i) => nonNegativeModForLong(value, shareSpaceVector(i))
+        val coordinate = array.zipWithIndex.map { case (value, i) =>
+          nonNegativeModForLong(value, shareSpaceVector(i))
         }
         getServerId(coordinate)
-      case array: InternalRow if array.size == artiy =>
-        val coordinate = array.zipWithIndex.map {
-          case (value, i) => nonNegativeModForDouble(value, shareSpaceVector(i))
+      case array: OldInternalRow if array.size == artiy =>
+        val coordinate = array.zipWithIndex.map { case (value, i) =>
+          nonNegativeModForDouble(value, shareSpaceVector(i))
         }
         getServerId(coordinate)
       case _ =>
@@ -58,8 +57,8 @@ class PairPartitioner(shareSpaceVector: Array[Int]) extends Partitioner {
       coordinate.forall(_ >= 0),
       s"all pos of coordiante:${coordinate} should >= 0"
     )
-    coordinate.zipWithIndex.map {
-      case (value, i) => value * productFactor(i)
+    coordinate.zipWithIndex.map { case (value, i) =>
+      value * productFactor(i)
     }.sum
   }
 

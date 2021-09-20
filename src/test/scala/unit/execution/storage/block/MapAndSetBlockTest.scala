@@ -1,5 +1,11 @@
 package unit.execution.storage.block
 
+import org.apache.spark.secco.execution.storage.block.{
+  HashMapInternalBlock,
+  HashMapInternalBlockBuilder,
+  HashSetInternalBlock,
+  HashSetInternalBlockBuilder
+}
 import org.apache.spark.secco.execution.storage.row._
 import org.apache.spark.secco.types._
 import org.scalatest.{BeforeAndAfter, FunSuite}

@@ -2,7 +2,8 @@ package unit.expression.codegen
 
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression
-import org.apache.spark.secco.expression.BindReferences
+import org.apache.spark.secco.expression.codegen.GeneratePredicate
+import org.apache.spark.secco.expression.{AttributeReference, BindReferences}
 import org.apache.spark.secco.types.IntegerType
 import org.scalatest.FunSuite
 

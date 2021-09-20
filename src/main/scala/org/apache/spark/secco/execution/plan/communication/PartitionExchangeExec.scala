@@ -18,7 +18,7 @@ case class PartitionExchangeExec(
 
   override def outputOld: Seq[String] = child.outputOld
 
-  lazy val sentryRDD: RDD[(InternalRow, Boolean)] =
+  lazy val sentryRDD: RDD[(OldInternalRow, Boolean)] =
     sparkContext.parallelize(genSentry(outputOld), 10).cache()
 
   override protected def doExecute(): RDD[InternalBlock] = {
@@ -40,7 +40,7 @@ case class PartitionExchangeExec(
     val indexedBlockRDD = partitionedRDD.mapPartitions { it =>
       var shareVector: Array[Int] = null
       val content = it.toArray
-      val array = new Array[InternalRow](content.length - 1)
+      val array = new Array[OldInternalRow](content.length - 1)
 
       var j = 0
       var i = 0

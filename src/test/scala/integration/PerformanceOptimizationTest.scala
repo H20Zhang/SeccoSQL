@@ -1,6 +1,6 @@
 package integration
 
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.execution.planning.SeccoPlanner
 import org.apache.spark.secco.optimization.SeccoOptimizer
 import org.apache.spark.rdd.RDD
@@ -13,7 +13,7 @@ class PerformanceOptimizationTest extends SeccoFunSuite {
 
   def genPlan(
       testQuery: TestQuery,
-      dataOfScans: Map[String, RDD[InternalRow]] = Map()
+      dataOfScans: Map[String, RDD[OldInternalRow]] = Map()
   ) = {
 
     pprint.pprintln(s"------------testing ${testQuery} ------------")

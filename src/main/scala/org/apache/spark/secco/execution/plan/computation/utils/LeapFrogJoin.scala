@@ -1,20 +1,21 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 class LeapFrogJoin(
     tries: Array[Trie],
     attrOrder: Seq[String],
     schemas: Seq[Seq[String]]
-) extends Iterator[InternalRow] {
+) extends Iterator[OldInternalRow] {
 
   lazy val numRelations: Int = schemas.size
   lazy val attrSize: Int = attrOrder.size
-  protected val binding = new Array[InternalDataType](attrSize)
+  protected val binding = new Array[OldInternalDataType](attrSize)
   protected var hasEnd = false
-  protected val unaryIterators = new Array[Iterator[InternalDataType]](attrSize)
+  protected val unaryIterators =
+    new Array[Iterator[OldInternalDataType]](attrSize)
   protected val lastIdx: Int = attrSize - 1
-  protected var lastIterator: Iterator[InternalDataType] = null
+  protected var lastIterator: Iterator[OldInternalDataType] = null
   //init
 //  init()
 
@@ -28,9 +29,8 @@ class LeapFrogJoin(
       : Array[(Array[(Int, Array[Int], ArraySegment)], Array[ArraySegment])] = {
     Range(0, attrSize).toArray.map { idx =>
       val curAttr = attrOrder(idx)
-      val relevantRelation = schemas.zipWithIndex.filter {
-        case (schema, _) =>
-          schema.contains(curAttr)
+      val relevantRelation = schemas.zipWithIndex.filter { case (schema, _) =>
+        schema.contains(curAttr)
       }
 
       //set up prefix information for each relation
@@ -40,7 +40,7 @@ class LeapFrogJoin(
           val attrPos = relativeOrder.indexOf(curAttr)
           val partialBindingPos = new Array[Int](attrPos)
           val partialBinding =
-            ArraySegment(new Array[InternalDataType](attrPos))
+            ArraySegment(new Array[OldInternalDataType](attrPos))
 
           var i = 0
           while (i < attrPos) {
@@ -125,7 +125,9 @@ class LeapFrogJoin(
 
   //construct the unary iterator for the i-th attribute given prefix consisting of 0 to i-1th attribute
   //Noted: this class could return empty unary iterator
-  protected def constructIthIterator(idx: Int): Iterator[InternalDataType] = {
+  protected def constructIthIterator(
+      idx: Int
+  ): Iterator[OldInternalDataType] = {
 
     val (prefixPosForEachRelation, segmentArrays) = relevantRelationForAttrMap(
       idx
@@ -174,11 +176,11 @@ class LeapFrogJoin(
   }
 
   //return the underlying binding array
-  def getBinding(): Array[InternalDataType] = {
+  def getBinding(): Array[OldInternalDataType] = {
     binding
   }
 
-  override def next(): Array[InternalDataType] = {
+  override def next(): Array[OldInternalDataType] = {
     binding(lastIdx) = lastIterator.next()
     binding
   }

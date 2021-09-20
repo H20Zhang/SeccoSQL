@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.iter
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 import org.apache.spark.secco.execution.plan.computation.utils.{
   BufferPool,
   InternalRowBufferPoolImpl,
@@ -18,9 +18,10 @@ trait SemiringAggregateIter extends SeccoIterator with FuncGenSupport {
   def groupingList: Seq[String]
   def semiringList: (String, String)
 
-  lazy val multiplyFunc: InternalRow => InternalDataType =
+  lazy val multiplyFunc: OldInternalRow => OldInternalDataType =
     genMultiplyFunc(semiringList._2, childIter.localAttributeOrder)
-  lazy val sumFunc: (InternalDataType, InternalDataType) => InternalDataType =
+  lazy val sumFunc
+      : (OldInternalDataType, OldInternalDataType) => OldInternalDataType =
     genSumFunc(
       semiringList._1
     )
@@ -28,7 +29,7 @@ trait SemiringAggregateIter extends SeccoIterator with FuncGenSupport {
     genProjectionFunc(groupingList, childIter.localAttributeOrder)
   }
 
-  override def result(): Array[InternalRow] = {
+  override def result(): Array[OldInternalRow] = {
 
     val localAttributeSize = localAttributeOrder.length
 
@@ -36,12 +37,14 @@ trait SemiringAggregateIter extends SeccoIterator with FuncGenSupport {
       localAttributeSize
     )
 
-    val groupKeyArray = new Array[InternalDataType](localAttributeSize)
-    val groupKey = mutable.WrappedArray.make[InternalDataType](groupKeyArray)
+    val groupKeyArray = new Array[OldInternalDataType](localAttributeSize)
+    val groupKey = mutable.WrappedArray.make[OldInternalDataType](groupKeyArray)
 
     val aggregateGroupMap =
       mutable
-        .HashMap[mutable.WrappedArray[InternalDataType], InternalDataType]()
+        .HashMap[mutable.WrappedArray[
+          OldInternalDataType
+        ], OldInternalDataType]()
 
     childIter.foreach { row =>
       groupProjectionFunc(row)
@@ -59,7 +62,7 @@ trait SemiringAggregateIter extends SeccoIterator with FuncGenSupport {
       }
     }
 
-    val aggregateGroupArray = new Array[InternalRow](aggregateGroupMap.size)
+    val aggregateGroupArray = new Array[OldInternalRow](aggregateGroupMap.size)
     var i = 0
     aggregateGroupMap.foreach { projectedRow =>
       projectedRow._1(localAttributeSize - 1) = projectedRow._2
@@ -80,7 +83,7 @@ case class MatchedPrefixSemiringAggregateIter(
     semiringList: (String, String),
     localAttributeOrder: Array[String]
 ) extends SemiringAggregateIter {
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
     nextDefined = false
     outputDefined = false
     isInitialized = false
@@ -89,16 +92,16 @@ case class MatchedPrefixSemiringAggregateIter(
   }
 
   val groupArity: Int = groupingList.length
-  val nextGroupKey = new Array[InternalDataType](groupArity)
+  val nextGroupKey = new Array[OldInternalDataType](groupArity)
   var nextDefined = false
   var outputDefined = false
   var isInitialized = false
   var aggValue: Double = _
-  var outputRow: Array[InternalDataType] =
-    new Array[InternalDataType](localAttributeOrder.length)
+  var outputRow: Array[OldInternalDataType] =
+    new Array[OldInternalDataType](localAttributeOrder.length)
 
   //update nextGroupKey based on row
-  private def updateNextGroupKeyAndAggValue(row: InternalRow): Unit = {
+  private def updateNextGroupKeyAndAggValue(row: OldInternalRow): Unit = {
     //get group projected row
     groupProjectionFunc(row)
 
@@ -171,13 +174,13 @@ case class MatchedPrefixSemiringAggregateIter(
     outputDefined
   }
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     outputDefined = false
     outputRow
   }
 
-  override def result(): Array[InternalRow] = {
-    val buffer = ArrayBuffer[InternalRow]()
+  override def result(): Array[OldInternalRow] = {
+    val buffer = ArrayBuffer[OldInternalRow]()
     while (hasNext) {
       buffer += next().clone()
     }
@@ -195,7 +198,7 @@ case class PartiallyMatchedPrefixSemiringAggregateIter(
 
   private val emptyIt = new EmptyIterator
 
-  override def reset(prefix: InternalRow): SeccoIterator = {
+  override def reset(prefix: OldInternalRow): SeccoIterator = {
 //    inputBufferPool.reset()
 //    outputBufferPool.reset()
     childIter.reset(prefix)
@@ -229,17 +232,17 @@ case class PartiallyMatchedPrefixSemiringAggregateIter(
   }
 
   val subgroupArity: Int = subgroupList.length
-  var nextsubGroup: ArrayBuffer[InternalRow] = ArrayBuffer()
-  val nextsubGroupKey = new Array[InternalDataType](subgroupArity)
+  var nextsubGroup: ArrayBuffer[OldInternalRow] = ArrayBuffer()
+  val nextsubGroupKey = new Array[OldInternalDataType](subgroupArity)
   var nextsubGroupKeyDefined = false
-  var nextAggregateIter: Iterator[InternalRow] = Iterator.empty
+  var nextAggregateIter: Iterator[OldInternalRow] = Iterator.empty
 //  val outputBufferPool: BufferPool[mutable.WrappedArray[InternalDataType]] =
 //    new WrappedArrayBufferPoolImpl(localAttributeSize)
 //  val inputBufferPool: BufferPool[InternalRow] =
 //    new InternalRowBufferPoolImpl(childIter.localAttributeOrder.length)
 
   //update nextGroupKey based on row
-  private def updateNextGroupKey(row: InternalRow): Unit = {
+  private def updateNextGroupKey(row: OldInternalRow): Unit = {
 
 //    inputBufferPool.reset()
     //get group projected row
@@ -280,11 +283,13 @@ case class PartiallyMatchedPrefixSemiringAggregateIter(
 
     val aggregateGroupMap =
       mutable
-        .HashMap[mutable.WrappedArray[InternalDataType], InternalDataType]()
+        .HashMap[mutable.WrappedArray[
+          OldInternalDataType
+        ], OldInternalDataType]()
     nextsubGroup.foreach { row =>
       groupProjectionFunc(row)
-      val arr = new Array[InternalDataType](localAttributeSize)
-      val wrappedArr = mutable.WrappedArray.make[InternalDataType](arr)
+      val arr = new Array[OldInternalDataType](localAttributeSize)
+      val wrappedArr = mutable.WrappedArray.make[OldInternalDataType](arr)
 //      val wrappedArr = outputBufferPool.newInstance()
 
       var i = 0
@@ -309,7 +314,7 @@ case class PartiallyMatchedPrefixSemiringAggregateIter(
 //
 //    val aggregateGroupArray = aggregateGroupArrayBuffer.toArray
 
-    val aggregateGroupArray = new Array[InternalRow](aggregateGroupMap.size)
+    val aggregateGroupArray = new Array[OldInternalRow](aggregateGroupMap.size)
     var i = 0
     aggregateGroupMap.foreach { projectedRow =>
       projectedRow._1(localAttributeSize - 1) = projectedRow._2
@@ -365,7 +370,7 @@ case class PartiallyMatchedPrefixSemiringAggregateIter(
     }
   }
 
-  override def next(): InternalRow = {
+  override def next(): OldInternalRow = {
     nextAggregateIter.next()
   }
 }
@@ -376,9 +381,9 @@ case class NoMatchedPrefixSemiringAggregateIter(
     semiringList: (String, String),
     localAttributeOrder: Array[String]
 ) extends SemiringAggregateIter {
-  override def reset(prefix: InternalRow): SeccoIterator = ???
+  override def reset(prefix: OldInternalRow): SeccoIterator = ???
 
   override def hasNext: Boolean = ???
 
-  override def next(): InternalRow = ???
+  override def next(): OldInternalRow = ???
 }

@@ -3,7 +3,7 @@ package org.apache.spark.secco.benchmark
 import java.time.Duration
 
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.util.misc.{DataLoader, SparkSingle}
 import org.apache.spark.secco.{Dataset, SeccoSession}
@@ -39,8 +39,7 @@ case class BenchmarkResult(
 
 }
 
-/**
-  * Base class that represents a benchmark.
+/** Base class that represents a benchmark.
   *
   * A benchmark contains following steps:
   *   1. loadData: load the data related to benchmark
@@ -177,12 +176,11 @@ abstract class SQLBenchmark extends Benchmark {
   def relationsWithAddress: Map[CatalogTable, String]
 
   override protected def loadData(path: String): Map[String, Dataset] = {
-    relationsWithAddress.map {
-      case (catalogTable, suffix) =>
-        val dataPath = s"${path}/${suffix}"
-        val rdd = DataLoader.loadTSV(dataPath)
+    relationsWithAddress.map { case (catalogTable, suffix) =>
+      val dataPath = s"${path}/${suffix}"
+      val rdd = DataLoader.loadTSV(dataPath)
 
-        (catalogTable.tableName, Dataset.fromRDD(rdd, catalogTable, dlSession))
+      (catalogTable.tableName, Dataset.fromRDD(rdd, catalogTable, dlSession))
     }
   }
 
@@ -194,9 +192,8 @@ abstract class SQLBenchmark extends Benchmark {
     //compute the histogram of the relations
     conf.delayStrategy match {
       case "DP" | "Greedy" =>
-        inputData.foreach {
-          case (key, value) =>
-            value.logical.asInstanceOf[Relation].computeStats()
+        inputData.foreach { case (key, value) =>
+          value.logical.asInstanceOf[Relation].computeStats()
         }
       case "Heuristic" | "NoDelay" | "AllDelay" | "JoinDelay" =>
       case _ =>
@@ -225,8 +222,8 @@ abstract class SubgraphBenchmark extends GraphBenchmark {
 
   /** Parse the subgraph query into CatalogTable, which is later assigned to edge relation of the graph */
   private def parseEdgesOfSubgraphQuery: Seq[CatalogTable] = {
-    val edges = edgesOfSubgraphQuery.split(";").map(_.split("-")).map {
-      rawEdge =>
+    val edges =
+      edgesOfSubgraphQuery.split(";").map(_.split("-")).map { rawEdge =>
         try {
           val src = rawEdge(0)
           val dst = rawEdge(1)
@@ -237,7 +234,7 @@ abstract class SubgraphBenchmark extends GraphBenchmark {
               s"${edgesOfSubgraphQuery} does not follow form: node1-node2;node3-node4;node5-node6"
             )
         }
-    }
+      }
 
     val prefix = "G"
     var idx = 1
@@ -277,9 +274,8 @@ abstract class SubgraphBenchmark extends GraphBenchmark {
     //compute the histogram of the relations
     conf.delayStrategy match {
       case "DP" | "Greedy" =>
-        inputData.foreach {
-          case (key, value) =>
-            value.logical.asInstanceOf[Relation].computeStats()
+        inputData.foreach { case (key, value) =>
+          value.logical.asInstanceOf[Relation].computeStats()
         }
       case "Heuristic" | "NoDelay" | "AllDelay" | "JoinDelay" =>
       case _ =>
@@ -309,12 +305,11 @@ abstract class GraphAnalyticBenchmark extends GraphBenchmark {
   def relationsWithAddress: Map[CatalogTable, String]
 
   override protected def loadData(path: String): Map[String, Dataset] = {
-    relationsWithAddress.map {
-      case (catalogTable, suffix) =>
-        val dataPath = s"${path}/${suffix}"
-        val rdd = DataLoader.loadTSV(dataPath)
+    relationsWithAddress.map { case (catalogTable, suffix) =>
+      val dataPath = s"${path}/${suffix}"
+      val rdd = DataLoader.loadTSV(dataPath)
 
-        (catalogTable.tableName, Dataset.fromRDD(rdd, catalogTable, dlSession))
+      (catalogTable.tableName, Dataset.fromRDD(rdd, catalogTable, dlSession))
     }
   }
 }

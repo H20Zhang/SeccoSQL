@@ -35,7 +35,7 @@ case class PushPairExchangeExec(
       child: SeccoPlan,
       rdd: RDD[InternalBlock],
       relationId: Int
-  ): RDD[(Int, (Int, InternalRow))] = {
+  ): RDD[(Int, (Int, OldInternalRow))] = {
 
     //init
     val localOutput = child.outputOld
@@ -111,8 +111,7 @@ case class PushPairExchangeExec(
     shareResults.share.foreach { case (key, value) => share(key) = value }
   }
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -129,9 +128,8 @@ case class PushPairExchangeExec(
 
     // do execute
     val inputs = children.map(_.execute())
-    val rdds = inputs.zipWithIndex.map {
-      case (input, relationID) =>
-        genCoordinateRDD(children(relationID), input, relationID)
+    val rdds = inputs.zipWithIndex.map { case (input, relationID) =>
+      genCoordinateRDD(children(relationID), input, relationID)
     }
 
     val relationId2Output =
@@ -143,29 +141,27 @@ case class PushPairExchangeExec(
     sparkContext
       .union(rdds)
       .groupByKey(SeccoConfiguration.newDefaultConf().numPartition)
-      .map {
-        case (key, tuples) =>
-          val shareVector = partitioner.getCoordinate(key)
-          val receivedRowBlocks = tuples
-            .groupBy(_._1)
-            .map {
-              case (relationId, values) =>
-                val content = values.map(_._2).toArray
-                val rowBlock = RowBlockContent(content)
-                val localShareVector =
-                  relationId2LocalIndex(relationId).map(shareVector).toArray
-                val localOutput = relationId2Output(relationId)
-                val indexedRowBlock =
-                  RowIndexedBlock(
-                    localOutput,
-                    localShareVector,
-                    rowBlock
-                  )
-                indexedRowBlock
-            }
-            .toArray
+      .map { case (key, tuples) =>
+        val shareVector = partitioner.getCoordinate(key)
+        val receivedRowBlocks = tuples
+          .groupBy(_._1)
+          .map { case (relationId, values) =>
+            val content = values.map(_._2).toArray
+            val rowBlock = RowBlockContent(content)
+            val localShareVector =
+              relationId2LocalIndex(relationId).map(shareVector).toArray
+            val localOutput = relationId2Output(relationId)
+            val indexedRowBlock =
+              RowIndexedBlock(
+                localOutput,
+                localShareVector,
+                rowBlock
+              )
+            indexedRowBlock
+          }
+          .toArray
 
-          MultiTableIndexedBlock(outputOld, shareVector, receivedRowBlocks)
+        MultiTableIndexedBlock(outputOld, shareVector, receivedRowBlocks)
       }
 
   }

@@ -1,16 +1,17 @@
 package org.apache.spark.secco.analysis
 
+import org.apache.spark.secco.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.secco.expression.{Attribute, Star}
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.plan.LeafNode
-import org.apache.spark.secco.execution.InternalRow
+import org.apache.spark.secco.execution.storage.row
+import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.trees.{TreeNode, TreeNodeException}
 import org.apache.spark.secco.types.{DataType, IntegerType}
 
-/**
-  * Thrown when an invalid attempt is made to access a property of a tree that has yet to be fully
+/** Thrown when an invalid attempt is made to access a property of a tree that has yet to be fully
   * resolved.
   */
 class UnresolvedException[TreeType <: TreeNode[_]](
@@ -48,7 +49,21 @@ case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
 
   override def sql: String = s"`$name`"
 
+  /** Returns the result of evaluating this expression on a given input Row */
   override def eval(input: InternalRow): Any = ???
+
+  /** Returns Java source code that can be compiled to evaluate this expression.
+    * The default behavior is to call the eval method of the expression. Concrete expression
+    * implementations should override this to do actual code generation.
+    *
+    * @param ctx a [[CodegenContext]]
+    * @param ev  an [[ExprCode]] with unique terms， which is to be assigned value of the expression.
+    * @return an [[ExprCode]] containing the Java source code to generate the given expression
+    */
+  override protected def doGenCode(
+      ctx: CodegenContext,
+      ev: ExprCode
+  ): ExprCode = ???
 }
 
 case class UnresolvedAlias(
@@ -73,8 +88,7 @@ case class UnresolvedAlias(
   override lazy val resolved = false
 }
 
-/**
-  * Represents all of the input attributes to a given relational operator, for example in
+/** Represents all of the input attributes to a given relational operator, for example in
   * "SELECT * FROM ...".
   *
   * This is also used to expand structs. For example:

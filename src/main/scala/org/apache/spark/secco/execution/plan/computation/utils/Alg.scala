@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.InternalDataType
+import org.apache.spark.secco.execution.OldInternalDataType
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -9,7 +9,7 @@ object Alg {
   def reorder(
       attributeOrder: Seq[String],
       schema: Seq[String],
-      content: Array[Array[InternalDataType]]
+      content: Array[Array[OldInternalDataType]]
   ) = {
     //The func that mapping idx-th value of each tuple to j-th pos, where j-th position is the reletive order of idx-th attribute determined via attribute order
     val tupleMappingFunc =
@@ -22,7 +22,7 @@ object Alg {
     //    .zipWithIndex.reverse.sortBy(_._1).map(_._2).toArray
     val contentArity = schema.size
     val contentSize = content.size
-    val tempArray = new Array[InternalDataType](contentArity)
+    val tempArray = new Array[OldInternalDataType](contentArity)
 
     var i = 0
     while (i < contentSize) {
@@ -50,8 +50,8 @@ object Alg {
     BSearch.search(array, value)
 
   def binarySearch(
-      array: Array[InternalDataType],
-      value: InternalDataType,
+      array: Array[OldInternalDataType],
+      value: OldInternalDataType,
       _left: Int,
       _right: Int
   )(implicit arithmetic: Numeric[Int]): Int =
@@ -61,8 +61,8 @@ object Alg {
     Intersection.mergeLikeIntersection(arrays)
 
   def mergelikeIntersection(
-      arrays: Array[Array[InternalDataType]]
-  ): Array[InternalDataType] = {
+      arrays: Array[Array[OldInternalDataType]]
+  ): Array[OldInternalDataType] = {
     val segmentArrays = arrays.map(arr => ArraySegment(arr))
     Intersection.mergeLikeIntersection(segmentArrays).toArray()
   }
@@ -71,15 +71,15 @@ object Alg {
     Intersection.leapfrogIntersection(arrays)
 
   def leapfrogIntersection(
-      arrays: Array[Array[InternalDataType]]
-  ): Array[InternalDataType] = {
+      arrays: Array[Array[OldInternalDataType]]
+  ): Array[OldInternalDataType] = {
     val segmentArrays = arrays.map(arr => ArraySegment(arr))
     Intersection.leapfrogIntersection(segmentArrays).toArray()
   }
 
-  def leapfrogIt(arrays: Array[ArraySegment]): Iterator[InternalDataType] =
+  def leapfrogIt(arrays: Array[ArraySegment]): Iterator[OldInternalDataType] =
     IntersectionIterator.leapfrogIt(arrays)
-  def listIt(arrays: Array[ArraySegment]): Iterator[InternalDataType] =
+  def listIt(arrays: Array[ArraySegment]): Iterator[OldInternalDataType] =
     IntersectionIterator.listIt(arrays)
 }
 
@@ -103,8 +103,8 @@ object BSearch {
   }
 
   def search(
-      array: Array[InternalDataType],
-      value: InternalDataType,
+      array: Array[OldInternalDataType],
+      value: OldInternalDataType,
       _leftPos: Int,
       _rightPos: Int
   ): Int = {
@@ -134,7 +134,7 @@ object BSearch {
 
 object IntersectionIterator {
 
-  def leapfrogIt(arrays: Array[ArraySegment]): Iterator[InternalDataType] = {
+  def leapfrogIt(arrays: Array[ArraySegment]): Iterator[OldInternalDataType] = {
 //        check some preliminary conditions
     if (arrays.size == 1) {
       return arrays(0).toIterator
@@ -151,12 +151,12 @@ object IntersectionIterator {
     new LeapFrogUnaryIterator(arrays)
   }
 
-  def listIt(arrays: Array[ArraySegment]): Iterator[InternalDataType] =
+  def listIt(arrays: Array[ArraySegment]): Iterator[OldInternalDataType] =
     new IntersectedListIterator(arrays)
 }
 
 class IntersectedListIterator(arrays: Array[ArraySegment])
-    extends Iterator[InternalDataType] {
+    extends Iterator[OldInternalDataType] {
 
   val content = Intersection.leapfrogIntersection(arrays)
   var idx = -1
@@ -166,14 +166,14 @@ class IntersectedListIterator(arrays: Array[ArraySegment])
     (idx + 1) < end
   }
 
-  override def next(): InternalDataType = {
+  override def next(): OldInternalDataType = {
     idx += 1
     content(idx)
   }
 }
 
 class LeapFrogUnaryIterator(var arrays: Array[ArraySegment])
-    extends Iterator[InternalDataType] {
+    extends Iterator[OldInternalDataType] {
 
   var value = Double.MaxValue
   val numOfArrays = arrays.size
@@ -250,7 +250,7 @@ class LeapFrogUnaryIterator(var arrays: Array[ArraySegment])
     !isEnd
   }
 
-  override def next(): InternalDataType = {
+  override def next(): OldInternalDataType = {
 //    nextConsumed = true
     var curPos = currentPosOfArrays(p)
     val curArray = arrays(p)
@@ -271,7 +271,7 @@ class LeapFrogUnaryIterator(var arrays: Array[ArraySegment])
 object Intersection {
   //  find the position i where array(i) >= value and i is the minimal value
   //  noted: the input array should be sorted
-  def seek(array: ArraySegment, value: InternalDataType, _left: Int): Int = {
+  def seek(array: ArraySegment, value: OldInternalDataType, _left: Int): Int = {
     var left: Int = _left;
     var right: Int = array.size;
 
@@ -304,7 +304,7 @@ object Intersection {
       return arrays(0)
     }
 
-    val buffer = new ArrayBuffer[InternalDataType]()
+    val buffer = new ArrayBuffer[OldInternalDataType]()
 
     var i = 0
     while (i < arrays.size) {
@@ -384,7 +384,7 @@ object Intersection {
       rightArray: ArraySegment
   ): ArraySegment = {
 
-    val buffer = new ArrayBuffer[InternalDataType]()
+    val buffer = new ArrayBuffer[OldInternalDataType]()
 
     if (leftArray == null || rightArray == null) {
       return ArraySegment(buffer.toArray)

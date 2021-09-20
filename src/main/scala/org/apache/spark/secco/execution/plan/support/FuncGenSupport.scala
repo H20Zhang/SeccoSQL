@@ -1,37 +1,39 @@
 package org.apache.spark.secco.execution.plan.support
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 trait FuncGenSupport {
 
   def genSelectionFunc(
       selectionExprs: Seq[(String, String, String)],
       localAttributeOrder: Seq[String]
-  ): InternalRow => Boolean = {
-    val selectionFuncs = selectionExprs.map {
-      case (l, op, r) =>
-        val lPos = localAttributeOrder.indexOf(l)
-        val rPos = localAttributeOrder.indexOf(r)
+  ): OldInternalRow => Boolean = {
+    val selectionFuncs = selectionExprs.map { case (l, op, r) =>
+      val lPos = localAttributeOrder.indexOf(l)
+      val rPos = localAttributeOrder.indexOf(r)
 
-        op match {
-          case "="  => (row: InternalRow) => row(lPos) == row(rPos)
-          case "<"  => (row: InternalRow) => row(lPos) < row(rPos)
-          case ">"  => (row: InternalRow) => row(lPos) > row(rPos)
-          case "!=" => (row: InternalRow) => row(lPos) != row(rPos)
-        }
+      op match {
+        case "="  => (row: OldInternalRow) => row(lPos) == row(rPos)
+        case "<"  => (row: OldInternalRow) => row(lPos) < row(rPos)
+        case ">"  => (row: OldInternalRow) => row(lPos) > row(rPos)
+        case "!=" => (row: OldInternalRow) => row(lPos) != row(rPos)
+      }
     }.toArray
 
-    (row: InternalRow) => selectionFuncs.forall(func => func(row))
+    (row: OldInternalRow) => selectionFuncs.forall(func => func(row))
   }
 
   def genProjectionFunc(
       projectionList: Seq[String],
       inputAttributOrder: Seq[String]
-  ): (InternalRow => Array[InternalDataType], Array[InternalDataType]) = {
+  ): (
+      OldInternalRow => Array[OldInternalDataType],
+      Array[OldInternalDataType]
+  ) = {
     val pos =
       projectionList.map(attr => inputAttributOrder.indexOf(attr)).toArray
     val size = pos.length
-    val processedRow = new Array[InternalDataType](size)
+    val processedRow = new Array[OldInternalDataType](size)
     var i = 0
     while (i < size) {
       processedRow(i) = Double.MaxValue
@@ -39,7 +41,7 @@ trait FuncGenSupport {
     }
 
     (
-      (row: InternalRow) => {
+      (row: OldInternalRow) => {
         var i = 0
         while (i < size) {
           processedRow(i) = row(pos(i))
@@ -53,25 +55,25 @@ trait FuncGenSupport {
 
   def genSumFunc(
       funcName: String
-  ): (InternalDataType, InternalDataType) => InternalDataType = {
+  ): (OldInternalDataType, OldInternalDataType) => OldInternalDataType = {
     funcName match {
-      case "Sum"   => (x: InternalDataType, y: InternalDataType) => x + y
-      case "Count" => (x: InternalDataType, y: InternalDataType) => x + y
+      case "Sum"   => (x: OldInternalDataType, y: OldInternalDataType) => x + y
+      case "Count" => (x: OldInternalDataType, y: OldInternalDataType) => x + y
       case "Min"   => Math.min
       case "Max"   => Math.max
-      case "sum"   => (x: InternalDataType, y: InternalDataType) => x + y
-      case "count" => (x: InternalDataType, y: InternalDataType) => x + y
+      case "sum"   => (x: OldInternalDataType, y: OldInternalDataType) => x + y
+      case "count" => (x: OldInternalDataType, y: OldInternalDataType) => x + y
       case "min"   => Math.min
       case "max"   => Math.max
-      case "*"     => (x: InternalDataType, y: InternalDataType) => x * y
-      case "+"     => (x: InternalDataType, y: InternalDataType) => x + y
+      case "*"     => (x: OldInternalDataType, y: OldInternalDataType) => x * y
+      case "+"     => (x: OldInternalDataType, y: OldInternalDataType) => x + y
     }
   }
 
   def genMultiplyFunc(
       funcExpr: String,
       tupleAttributeOrder: Seq[String]
-  ): InternalRow => InternalDataType = {
+  ): OldInternalRow => OldInternalDataType = {
 
     val attrExtractRegex = "\\w+".r
     val opExtractRegex = "[\\*|+]".r
@@ -84,11 +86,11 @@ trait FuncGenSupport {
     val tupleSize: Int = attributes.size
 
     if (opFuncs.nonEmpty) {
-      if (opStrings(0) == "*" && attributes.isEmpty) { (row: InternalRow) =>
+      if (opStrings(0) == "*" && attributes.isEmpty) { (row: OldInternalRow) =>
         {
           1.0
         }
-      } else { (row: InternalRow) =>
+      } else { (row: OldInternalRow) =>
         {
           var i = 1
           var res = row(pos(0))
@@ -105,7 +107,7 @@ trait FuncGenSupport {
         pos.size == 1,
         s"wrong numbers of attributes:${attributes} in multiply func"
       )
-      (row: InternalRow) => {
+      (row: OldInternalRow) => {
         row(pos(0))
       }
     }
@@ -114,7 +116,7 @@ trait FuncGenSupport {
   def genTransformFunc(
       funcExpr: String,
       tupleAttributeOrder: Seq[String]
-  ): InternalRow => InternalDataType = {
+  ): OldInternalRow => OldInternalDataType = {
 
     val attrExtractRegex = "(\\w|\\.)+".r
     val constantExtractRegex = "\\w+\\.\\w+".r
@@ -138,7 +140,7 @@ trait FuncGenSupport {
 
     val tupleSize = attributes.length
 
-    if (opFuncs.nonEmpty) { (row: InternalRow) =>
+    if (opFuncs.nonEmpty) { (row: OldInternalRow) =>
       {
         var i = 1
         var res = 0.0
@@ -164,7 +166,7 @@ trait FuncGenSupport {
         pos.size == 1,
         s"wrong numbers of attributes:${attributes} in multiply func"
       )
-      (row: InternalRow) => {
+      (row: OldInternalRow) => {
         var v = 0.0
         if (pos(0) >= 0) {
           v = row(pos(0))

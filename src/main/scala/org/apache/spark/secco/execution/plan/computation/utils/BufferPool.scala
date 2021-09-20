@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.{InternalDataType, InternalRow}
+import org.apache.spark.secco.execution.{OldInternalDataType, OldInternalRow}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -11,7 +11,7 @@ trait BufferPool[T] {
   def totalSize: Int
   def occupiedSize: Int
   def newInstance(): T
-  def newInstanceWithArray(arr: InternalRow): T
+  def newInstanceWithArray(arr: OldInternalRow): T
   def reset(): Unit
 }
 
@@ -23,9 +23,9 @@ object BufferPool {
 }
 
 class InternalRowBufferPoolImpl(val arity: Int)
-    extends BufferPool[InternalRow] {
+    extends BufferPool[OldInternalRow] {
   private var pos: Int = -1
-  private var buffer: ArrayBuffer[InternalRow] = ArrayBuffer()
+  private var buffer: ArrayBuffer[OldInternalRow] = ArrayBuffer()
 
   override def freeSize: Int = totalSize - occupiedSize
 
@@ -33,12 +33,12 @@ class InternalRowBufferPoolImpl(val arity: Int)
 
   override def occupiedSize: Int = pos + 1
 
-  override def newInstance(): InternalRow = {
+  override def newInstance(): OldInternalRow = {
 //    pos += 1
 //    if (pos < totalSize) {
 //      buffer(pos)
 //    } else {
-    val newInternalRow = new Array[InternalDataType](arity)
+    val newInternalRow = new Array[OldInternalDataType](arity)
 //      buffer += newInternalRow
     newInternalRow
 //    }
@@ -50,7 +50,7 @@ class InternalRowBufferPoolImpl(val arity: Int)
     buffer = ArrayBuffer()
   }
 
-  override def newInstanceWithArray(arr: InternalRow): InternalRow = {
+  override def newInstanceWithArray(arr: OldInternalRow): OldInternalRow = {
     val outputArr = newInstance()
     var i = 0
     while (i < arity) {
