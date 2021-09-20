@@ -1,6 +1,9 @@
 *.class
 *.log
 
+# Datasets
+/datasets/
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
@@ -21,6 +24,7 @@ Desktop.ini
 /.project
 /.idea/
 .bsp
+.idea
 
 # ignore Maven generated target folders
 target
