@@ -1,6 +1,6 @@
-## Secco
+## SeccoSQL
 
-Secco (**Se**parate **c**ommunication from **co**mputation) is a distributed analytic system for SQL, Graph Analytic, and Subgraph Query.
+SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is a distributed analytic system for SQL, Graph Analytic, and Subgraph Query.
 
 **Table of Content**
 
@@ -15,32 +15,33 @@ You need to install Spark 2.4.5, Hadoop 2.7.2 on your cluster.
 ### Project Structure
 
 ```
-/datasets - folder for storing toy datasets and other datasets that generated from Secco's embeded dataset generator for testing.
+/datasets - folder for storing toy datasets and folder template for storing datasets of synthetic workload experiment
 /project - project related configuration files.
 /script - scripts for running and testing Secco.
 /src
 	src/main - source files
 		src/main/resource - configuration files for Secco
 		src/main/scala - scala source files 
-			org/apache/spark/secco: main project package (the path name does not have any meaning)
-				org/apache/spark/secco/analysis 
-				org/apache/spark/secco/benchmark
-				org/apache/spark/secco/catalog 
-				org/apache/spark/secco/config
-				org/apache/spark/secco/execution
-				org/apache/spark/secco/expression
-				org/apache/spark/secco/optimization
-				org/apache/spark/secco/parsing
-				org/apache/spark/secco/trees
-				org/apache/spark/secco/types
-				org/apache/spark/secco/utils
+			org/apache/spark/secco: main package
+				org/apache/spark/secco/analysis - analyzer
+				org/apache/spark/secco/benchmark - benchmark & testing
+				org/apache/spark/secco/catalog - catalog of database
+				org/apache/spark/secco/codegen - code generator
+				org/apache/spark/secco/config - configurations
+				org/apache/spark/secco/execution - physical plans & planner
+				org/apache/spark/secco/expression - expressions
+				org/apache/spark/secco/optimization - logical plans & optimizer
+				org/apache/spark/secco/parsing - parser
+				org/apache/spark/secco/trees - tree struture used in optimizer framework
+				org/apache/spark/secco/types - types
+				org/apache/spark/secco/utils - utility
 	src/test - unit tests files
 		src/test/resource - configuration files for Secco in unit tests
 		src/test/scala - scala unit tests files
-			src/test/scala/integration
-			src/test/scala/playground
-			src/test/scala/unit
-			src/test/scala/util
+			src/test/scala/integration - integration test
+			src/test/scala/playground - playground for testing new functions
+			src/test/scala/unit - unit test
+			src/test/scala/util - utility for testing
 ```
 
 ### Usage

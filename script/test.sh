@@ -5,7 +5,7 @@ DataLocation="/hzhang/dataset"
 
 # Execute a single test-case
 Execute() {
-  JAR="./Secco-assembly-0.1.jar"
+  JAR="./SeccoSQL-assembly-0.1.jar"
   executeScript=runSpark-logo.sh
   mainClass=org.apache.spark.secco.benchmark.SeccoBenchmarkExecutor
   timeLimit=12h
