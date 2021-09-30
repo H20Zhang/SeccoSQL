@@ -4,7 +4,7 @@ import org.apache.spark.secco.Dataset
 import org.apache.spark.secco.execution.SharedParameter
 import org.apache.spark.secco.optimization.ExecMode
 import org.apache.spark.secco.optimization.plan.{
-  Join,
+  MultiwayNaturalJoin,
   LocalStage,
   Partition,
   RootNode
@@ -14,8 +14,7 @@ import util.{SeccoFunSuite, UnitTestTag}
 
 import scala.collection.mutable
 
-/**
-  * This class contains testing related to rules and operators about decoupling communication
+/** This class contains testing related to rules and operators about decoupling communication
   * and computation
   */
 class DecoupleOptimizationRulesSuite extends SeccoFunSuite {
@@ -52,7 +51,7 @@ class DecoupleOptimizationRulesSuite extends SeccoFunSuite {
     //localStage
     val l1 = LocalStage.box(
       Seq(p1, p2),
-      Join(Seq(p1, p2), mode = ExecMode.Computation)
+      MultiwayNaturalJoin(Seq(p1, p2), mode = ExecMode.Computation)
     )
     println(l1)
 
@@ -60,7 +59,7 @@ class DecoupleOptimizationRulesSuite extends SeccoFunSuite {
     val p3 = Partition(R3, restriction2)
     val l2 = LocalStage.box(
       Seq(p3, l1),
-      Join(Seq(p3, l1), mode = ExecMode.Computation)
+      MultiwayNaturalJoin(Seq(p3, l1), mode = ExecMode.Computation)
     )
     println(l2)
 

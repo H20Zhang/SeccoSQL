@@ -106,7 +106,7 @@ object GenerateSafeProjection
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments())
     )
-    printlnDebug(
+    logDebug(
       s"code for ${expressions.mkString(",")}:\n${CodeFormatter.format(code)}"
     )
 

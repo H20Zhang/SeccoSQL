@@ -1,6 +1,10 @@
 package org.apache.spark.secco.optimization.statsEstimation.exact.deprecated
 
-import org.apache.spark.secco.optimization.plan.{Aggregate, Join, Relation}
+import org.apache.spark.secco.optimization.plan.{
+  Aggregate,
+  MultiwayNaturalJoin,
+  Relation
+}
 import org.apache.spark.secco.optimization.statsEstimation.exact.{
   ExactStatsPlanVisitor,
   NoExactCardinalityException
@@ -31,8 +35,8 @@ object ExactAggregateEstimation extends Estimation[Aggregate] {
   def setSelectivityMap(
       selectivityMap: Map[(Set[String], Set[String]), Double]
   ): Unit = {
-    assert(selectivityMap.forall {
-      case (_, selectivity) => selectivity >= 0 && selectivity <= 1
+    assert(selectivityMap.forall { case (_, selectivity) =>
+      selectivity >= 0 && selectivity <= 1
     })
     _selectivityMap = Some(selectivityMap)
   }
@@ -56,7 +60,7 @@ object ExactAggregateEstimation extends Estimation[Aggregate] {
       )
 
     } else if (x.child.isInstanceOf[Relation]) {
-      val relationNameSet = Set(x.child.asInstanceOf[Relation].tableName)
+      val relationNameSet = Set(x.child.asInstanceOf[Relation].tableIdentifier)
 
       val selectivityOpt =
         _selectivityMap.get.get((x.groupingListOld.toSet, relationNameSet))
@@ -74,17 +78,19 @@ object ExactAggregateEstimation extends Estimation[Aggregate] {
           )
         )
       }
-    } else if (x.child.isInstanceOf[Join]) {
-      assert(x.child.isInstanceOf[Join])
-      val j = x.child.asInstanceOf[Join]
+    } else if (x.child.isInstanceOf[MultiwayNaturalJoin]) {
+      assert(x.child.isInstanceOf[MultiwayNaturalJoin])
+      val j = x.child.asInstanceOf[MultiwayNaturalJoin]
 
       val mergedPlan = Estimation.mergeJoin(j)
-      assert(mergedPlan.isInstanceOf[Join])
-      val mergedJoin = mergedPlan.asInstanceOf[Join]
+      assert(mergedPlan.isInstanceOf[MultiwayNaturalJoin])
+      val mergedJoin = mergedPlan.asInstanceOf[MultiwayNaturalJoin]
 
       assert(mergedJoin.children.forall(_.isInstanceOf[Relation]))
       val relationNameSet =
-        mergedJoin.children.map(f => f.asInstanceOf[Relation].tableName).toSet
+        mergedJoin.children
+          .map(f => f.asInstanceOf[Relation].tableIdentifier)
+          .toSet
 
       val selectivityOpt =
         _selectivityMap.get.get((x.groupingListOld.toSet, relationNameSet))

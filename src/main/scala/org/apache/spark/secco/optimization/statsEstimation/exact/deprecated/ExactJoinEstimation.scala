@@ -1,13 +1,13 @@
 package org.apache.spark.secco.optimization.statsEstimation.exact.deprecated
 
-import org.apache.spark.secco.optimization.plan.{Join, Relation}
+import org.apache.spark.secco.optimization.plan.{MultiwayNaturalJoin, Relation}
 import org.apache.spark.secco.optimization.statsEstimation.exact.NoExactCardinalityException
 import org.apache.spark.secco.optimization.statsEstimation.{
   Estimation,
   Statistics
 }
 
-object ExactJoinEstimation extends Estimation[Join] {
+object ExactJoinEstimation extends Estimation[MultiwayNaturalJoin] {
 
   private var _defaultCardinality = 1L
   private var _cardinalityMap: Option[Map[Set[String], Long]] =
@@ -31,7 +31,7 @@ object ExactJoinEstimation extends Estimation[Join] {
     _defaultCardinality
   }
 
-  override def estimate(x: Join): Option[Statistics] = {
+  override def estimate(x: MultiwayNaturalJoin): Option[Statistics] = {
 
     if (_cardinalityMap.isEmpty) {
       Some(
@@ -41,15 +41,17 @@ object ExactJoinEstimation extends Estimation[Join] {
       )
     } else {
       val mergedPlan = Estimation.mergeJoin(x)
-      assert(mergedPlan.isInstanceOf[Join])
-      val mergedJoin = mergedPlan.asInstanceOf[Join]
+      assert(mergedPlan.isInstanceOf[MultiwayNaturalJoin])
+      val mergedJoin = mergedPlan.asInstanceOf[MultiwayNaturalJoin]
 
       assert(
         mergedJoin.children.forall(_.isInstanceOf[Relation]),
         s"mergedJoin:${mergedJoin}"
       )
       val relationNameSet =
-        mergedJoin.children.map(f => f.asInstanceOf[Relation].tableName).toSet
+        mergedJoin.children
+          .map(f => f.asInstanceOf[Relation].tableIdentifier)
+          .toSet
 
       val cardinalityOpt = _cardinalityMap.get.get(relationNameSet)
 

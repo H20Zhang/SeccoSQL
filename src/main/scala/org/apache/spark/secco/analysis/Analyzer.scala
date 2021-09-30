@@ -19,15 +19,14 @@ import org.apache.spark.secco.optimization.{LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Distinct,
-  Join,
+  MultiwayNaturalJoin,
   JoinType,
   Project,
   Relation
 }
 import org.apache.spark.secco.trees.RuleExecutor
 
-/**
-  * A trivial [[Analyzer]] Used for testing when all relations are already filled in
+/** A trivial [[Analyzer]] Used for testing when all relations are already filled in
   * and the analyzer needs only to resolve attribute references.
   */
 object SimpleAnalyzer
@@ -37,8 +36,7 @@ object SimpleAnalyzer
       FunctionRegistry.newBuiltin
     )
 
-/**
-  * Provides a way to keep state during the analysis, this enables us to decouple the concerns
+/** Provides a way to keep state during the analysis, this enables us to decouple the concerns
   * of analysis environment from the catalog.
   *
   * Note this is thread local.
@@ -73,8 +71,7 @@ object AnalysisContext {
   }
 }
 
-/**
-  * Provides a logical query plan analyzer, which translates [[UnresolvedAttribute]]s and
+/** Provides a logical query plan analyzer, which translates [[UnresolvedAttribute]]s and
   * [[UnresolvedRelation]]s into fully typed objects using information in a
   * [[SessionCatalog]] and a [[FunctionRegistry]].
   */
@@ -212,8 +209,7 @@ class Analyzer(
   }
 
   //===Analysis Rules===
-  /**
-    * Checks whether a function identifier referenced by an [[UnresolvedFunction]] is defined in the
+  /** Checks whether a function identifier referenced by an [[UnresolvedFunction]] is defined in the
     * function registry. Note that this rule doesn't try to resolve the [[UnresolvedFunction]]. It
     * only performs simple existence check according to the function identifier to quickly identify
     * undefined functions without triggering relation resolution, which may incur potentially
@@ -230,8 +226,7 @@ class Analyzer(
       }
   }
 
-  /**
-    * Replaces [[UnresolvedRelation]]s with concrete relations from the catalog.
+  /** Replaces [[UnresolvedRelation]]s with concrete relations from the catalog.
     */
   object ResolveRelations extends Rule[LogicalPlan] {
 
@@ -246,25 +241,22 @@ class Analyzer(
       }
 
     override def apply(plan: LogicalPlan): LogicalPlan =
-      plan.resolveOperators {
-        case u: UnresolvedRelation => resolveRelation(u)
+      plan.resolveOperators { case u: UnresolvedRelation =>
+        resolveRelation(u)
       }
   }
 
-  /**
-    * Replaces [[UnresolvedAttribute]]s with concrete [[AttributeReference]]s from
+  /** Replaces [[UnresolvedAttribute]]s with concrete [[AttributeReference]]s from
     * a logical plan node's children.
     */
   object ResolveReferences extends Rule[LogicalPlan] {
 
-    /**
-      * Returns true if `exprs` contains a [[Star]].
+    /** Returns true if `exprs` contains a [[Star]].
       */
     def containsStar(exprs: Seq[Expression]): Boolean =
       exprs.exists(_.collect { case _: Star => true }.nonEmpty)
 
-    /**
-      * Expands the matching attribute.*'s in `child`'s output.
+    /** Expands the matching attribute.*'s in `child`'s output.
       */
     def expandStarExpression(
         expr: Expression,
@@ -284,8 +276,7 @@ class Analyzer(
       }
     }
 
-    /**
-      * Build a project list for Project/Aggregate and expand the star if possible
+    /** Build a project list for Project/Aggregate and expand the star if possible
       */
     private def buildExpandedProjectList(
         exprs: Seq[NamedExpression],
@@ -304,8 +295,7 @@ class Analyzer(
         .map(_.asInstanceOf[NamedExpression])
     }
 
-    /**
-      * Generate new logical plans for all conflicting attributes of
+    /** Generate new logical plans for all conflicting attributes of
       * children with different expression IDs.
       */
     //currently, for each input Relation, even with same name, their output's
@@ -329,49 +319,43 @@ class Analyzer(
 //          j.copy(children = dedup(chilren))
         case q: LogicalPlan =>
           logTrace(s"Attempting to resolve ${q.simpleString}")
-          q.transformExpressionsUp {
-            case u @ UnresolvedAttribute(nameParts) =>
-              val result = q.resolveAttributeByChildren(nameParts).getOrElse(u)
-              result
+          q.transformExpressionsUp { case u @ UnresolvedAttribute(nameParts) =>
+            val result = q.resolveAttributeByChildren(nameParts).getOrElse(u)
+            result
           }
       }
   }
 
-  /**
-    * Replaces [[UnresolvedFunction]]s with concrete [[Expression]]s.
+  /** Replaces [[UnresolvedFunction]]s with concrete [[Expression]]s.
     */
   object ResolveFunctions extends Rule[LogicalPlan] {
     override def apply(plan: LogicalPlan): LogicalPlan =
-      plan.resolveOperators {
-        case q: LogicalPlan =>
-          q transformExpressions {
-            case u if !u.childrenResolved =>
-              u // Skip until children are resolved
-            case u @ UnresolvedFunction(name, children, isDistinct) =>
-              functionRegistry.lookUpFunction(name, children)
-          }
+      plan.resolveOperators { case q: LogicalPlan =>
+        q transformExpressions {
+          case u if !u.childrenResolved =>
+            u // Skip until children are resolved
+          case u @ UnresolvedFunction(name, children, isDistinct) =>
+            functionRegistry.lookUpFunction(name, children)
+        }
       }
   }
 
-  /**
-    * Replaces [[UnresolvedAlias]]s with concrete aliases.
+  /** Replaces [[UnresolvedAlias]]s with concrete aliases.
     */
   object ResolveAliases extends Rule[LogicalPlan] {
 
     private def assignAliases(exprs: Seq[NamedExpression]) = {
       exprs.zipWithIndex
-        .map {
-          case (expr, i) =>
-            expr.transformUp {
-              case u @ UnresolvedAlias(child, optGenAliasFunc) =>
-                child match {
-                  case ne: NamedExpression => ne
-                  case e if !e.resolved    => u
-                  case e if optGenAliasFunc.isDefined =>
-                    Alias(child, optGenAliasFunc.get.apply(e))()
-                  case e => Alias(e, e.sql)()
-                }
+        .map { case (expr, i) =>
+          expr.transformUp { case u @ UnresolvedAlias(child, optGenAliasFunc) =>
+            child match {
+              case ne: NamedExpression => ne
+              case e if !e.resolved    => u
+              case e if optGenAliasFunc.isDefined =>
+                Alias(child, optGenAliasFunc.get.apply(e))()
+              case e => Alias(e, e.sql)()
             }
+          }
         }
         .asInstanceOf[Seq[NamedExpression]]
     }
@@ -391,8 +375,7 @@ class Analyzer(
       }
   }
 
-  /**
-    * This rule resolves and rewrites subqueries inside expressions.
+  /** This rule resolves and rewrites subqueries inside expressions.
     *
     * Note: CTEs are handled in CTESubstitution.
     */
@@ -400,8 +383,7 @@ class Analyzer(
     override def apply(plan: LogicalPlan): LogicalPlan = ???
   }
 
-  /**
-    * Replace unresolved expressions in grouping keys with resolved ones in SELECT clauses.
+  /** Replace unresolved expressions in grouping keys with resolved ones in SELECT clauses.
     * This rule is expected to run after [[ResolveReferences]] applied.
     * This feature is optional.
     */
@@ -409,23 +391,21 @@ class Analyzer(
     override def apply(plan: LogicalPlan): LogicalPlan = ???
   }
 
-  /**
-    * Removes natural join by calculating output columns based on output from two sides,
+  /** Removes natural join by calculating output columns based on output from two sides,
     * Then apply a Project on a normal Join to eliminate natural or using join.
     */
   object ResolveNaturalJoin extends Rule[LogicalPlan] {
     override def apply(plan: LogicalPlan): LogicalPlan = ???
   }
 
-  /**
-    * Turns projections that contain aggregate expressions into aggregations.
+  /** Turns projections that contain aggregate expressions into aggregations.
     */
   object ResolveGlobalAggregatesInSelect extends Rule[LogicalPlan] {
 
     def containsAggregates(exprs: Seq[Expression]): Boolean = {
       // Find the first Aggregate Expression.
-      exprs.exists(_.collectFirst {
-        case ae: AggregateFunction => ae
+      exprs.exists(_.collectFirst { case ae: AggregateFunction =>
+        ae
       }.isDefined)
     }
 
@@ -445,8 +425,7 @@ class Analyzer(
       }
   }
 
-  /**
-    * This rule finds aggregate expressions that are not in an aggregate operator.  For example,
+  /** This rule finds aggregate expressions that are not in an aggregate operator.  For example,
     * those in a HAVING clause or ORDER BY clause.  These expressions are pushed down to the
     * underlying aggregate operator and then projected away after the original operator.
     */
@@ -454,8 +433,7 @@ class Analyzer(
     override def apply(plan: LogicalPlan): LogicalPlan = ???
   }
 
-  /**
-    * The aggregate expressions from subquery referencing outer query block are pushed
+  /** The aggregate expressions from subquery referencing outer query block are pushed
     * down to the outer query block for evaluation. This rule below updates such outer references
     * as AttributeReference referring attributes from the parent/outer query block.
     *
@@ -492,15 +470,14 @@ class Analyzer(
     override def apply(plan: LogicalPlan): LogicalPlan = ???
   }
 
-  /**
-    * Cleans up unnecessary Aliases inside the plan. Basically we only need Alias as a top level
+  /** Cleans up unnecessary Aliases inside the plan. Basically we only need Alias as a top level
     * expression in Project(project list) or Aggregate(aggregate expressions) or
     * Window(window expressions).
     */
   object CleanupAliases extends Rule[LogicalPlan] {
     private def trimAliases(e: Expression): Expression = {
-      e.transformDown {
-        case Alias(child, _) => child
+      e.transformDown { case Alias(child, _) =>
+        child
       }
     }
 
@@ -530,8 +507,8 @@ class Analyzer(
           )
 
         case other =>
-          other transformExpressionsDown {
-            case Alias(child, _) => child
+          other transformExpressionsDown { case Alias(child, _) =>
+            child
           }
       }
   }

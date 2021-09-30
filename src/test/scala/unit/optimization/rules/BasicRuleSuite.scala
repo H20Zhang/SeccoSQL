@@ -30,7 +30,7 @@ class BasicRuleSuite extends SeccoFunSuite {
       MergeAllJoin(MergeAllJoin(MergeAllJoin(expr)))
 
     val groundTruth =
-      Join(
+      MultiwayNaturalJoin(
         Seq(Relation("R1"), Relation("R2"), Relation("R3"), Relation("R4")),
         mode = ExecMode.Coupled
       )
@@ -108,7 +108,7 @@ class BasicRuleSuite extends SeccoFunSuite {
       PushSelectionThroughJoin(MergeSelection(MergeDelayedJoin(expr)))
 
     val groundTruth =
-      Join(
+      MultiwayNaturalJoin(
         Seq(
           Filter(Relation("R1"), Seq(("A", "<", "B")), ExecMode.Coupled),
           Filter(Relation("R2"), Seq(("B", "<", "C")), ExecMode.Coupled),
@@ -130,7 +130,7 @@ class BasicRuleSuite extends SeccoFunSuite {
 
     val groundTruth =
       Project(
-        Join(
+        MultiwayNaturalJoin(
           Seq(
             Relation("R1"),
             Relation("R2"),
@@ -154,7 +154,7 @@ class BasicRuleSuite extends SeccoFunSuite {
     val optimizedExpr = PushRenameToLeaf(MergeAllJoin(expr))
 
     val groundTruth =
-      Join(
+      MultiwayNaturalJoin(
         Seq(
           Rename(Relation("R1"), Map("A" -> "B")),
           Relation("R2"),

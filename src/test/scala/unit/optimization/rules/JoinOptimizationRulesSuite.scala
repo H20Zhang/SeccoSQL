@@ -65,8 +65,8 @@ class JoinOptimizationRulesSuite extends SeccoFunSuite {
       R1
         .naturalJoin(R2, R3, R4, R5, R6, R7, R8)
         .logical
-        .transform {
-          case j: Join => j.copy(joinType = JoinType.GHD)
+        .transform { case j: MultiwayNaturalJoin =>
+          j.copy(joinType = JoinType.GHD)
         }
 
     val optimizedExpr = ConsecutiveJoinReorder(expr)

@@ -13,71 +13,37 @@ import org.json4s.scalap.scalasig.AttributeInfo
 
 import scala.collection.mutable.ArrayBuffer
 
+/* ---------------------------------------------------------------------------------------------------------------------
+ * This file contains logical plans with multiple children, i.e., n > 2.
+ *
+ * 0.  MultiNode: base class of logical plan with multiple children.
+ *
+ * ---------------------------------------------------------------------------------------------------------------------
+ */
+
+/** A [[LogicalPlan]] with multiple children */
 abstract class MultiNode extends LogicalPlan {}
 
-/**
-  * An operator that perform cartesian product between [[children]]
-  * @param children children logical plan
-  * @param mode execution mode: local or global
-  */
-case class CartesianProduct(children: Seq[LogicalPlan], mode: ExecMode)
-    extends MultiNode {
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = children.flatMap(_.outputOld).distinct
-
-  override def relationalSymbol: String = s"⨉"
-}
-
-object JoinType extends Enumeration {
-  type JoinType = Value
-  val Inner, // inner join between two relations
-  LeftOuter, // left outer join between two relations
-  RightOuter, // right outer join between two relations
-  FullOuter, // full outer join between two relations
-  Natural, // natural join between relations (possibly more than 2)
-  GHD, // natural join inside GHD node
-  PKFK, // primary key foreign key natural join
-  FKFK, // foreign key foreign key natural join
-  GHDFKFK //this join types are subType of natural join
-  = Value
-}
-
-/**
-  * An operators that joins [[children]]
+/** A [[LogicalPlan]] that performs multiway natural join between [[children]]
   *
   * @param children children logical plan
-  * @param joinType select from
-  *                 ([[JoinType.PKFK]]: primary key foreign key natural join,
-  *                 [[JoinType.FKFK]]: foreign key foreign key natural join,
-  *                 [[JoinType.GHD]]: natural join inside GHD node,
-  *                 [[JoinType.GHDFKFK]]: natural join between GHD node,
-  *                 [[JoinType.Natural]]: natural join
+  * @param joinType join type = Natural
   * @param mode     execution mode
   */
-case class Join(
+case class MultiwayNaturalJoin(
     children: Seq[LogicalPlan],
     joinType: JoinType = Natural,
-    mode: ExecMode = ExecMode.Coupled,
-    joinCondition: Seq[Expression] = Seq()
+    mode: ExecMode = ExecMode.Coupled
 ) extends MultiNode {
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = children.flatMap(_.outputOld).distinct
-
   override def output: Seq[Attribute] = {
-    if (joinType == Natural) {
-      val attributeBuffer = ArrayBuffer[(Attribute, String)]()
-      children.flatMap(_.output).foreach { attr =>
-        if (!attributeBuffer.map(_._2).contains(attr.name)) {
-          attributeBuffer += ((attr, attr.name))
-        }
+    val attributeBuffer = ArrayBuffer[(Attribute, String)]()
+    children.flatMap(_.output).foreach { attr =>
+      if (!attributeBuffer.map(_._2).contains(attr.name)) {
+        attributeBuffer += ((attr, attr.name))
       }
-      attributeBuffer.map(_._1)
-    } else {
-      children.flatMap(_.output)
     }
-
+    attributeBuffer.map(_._1)
   }
 
   def duplicatedResolved: Boolean =
@@ -108,18 +74,8 @@ case class Join(
   override def relationalSymbol: String = s"⋈"
 }
 
-case class Union(children: Seq[LogicalPlan], mode: ExecMode) extends MultiNode {
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = children.head.outputOld
-
-  override def relationalSymbol: String = s"⋃"
-}
-
-/**
-  * An operator that embed a series of local computation.
-  * We assume the inputs are partitions,
-  * and there is an implicit pair operator that pairs them up.
+/** A [[LogicalPlan]] that pairs up of children's partitions and then perform a series of local computation.
+  * We assume the inputs are [[Partition]] or [[Relation]]
   *
   * @param children children logical plans
   * @param localPlan plan of local computations
@@ -130,11 +86,6 @@ case class LocalStage(
 ) extends MultiNode {
 
   override def mode: ExecMode = localPlan.mode
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    localPlan.outputOld
-  }
 
   /** Merge this localStage with LocalStage in its children */
   def mergeConsecutiveLocalStage(): LocalStage = {
@@ -150,9 +101,8 @@ case class LocalStage(
 
   /** Unbox the localPlan by replacing all placeHolder by actual operator */
   def unboxedPlan(): LogicalPlan = {
-    localPlan transform {
-      case placeholder: PlaceHolder =>
-        LocalStage.placeHolders2Child(placeholder, children)
+    localPlan transform { case placeholder: PlaceHolder =>
+      LocalStage.placeHolders2Child(placeholder, children)
     }
   }
 
@@ -206,6 +156,8 @@ case class LocalStage(
     }
   }
 
+  /** The output attributes */
+  override def output: Seq[Attribute] = localPlan.output
 }
 
 object LocalStage {
@@ -219,8 +171,8 @@ object LocalStage {
       unboxedLocalPlan.mode == ExecMode.Computation || unboxedLocalPlan.mode == ExecMode.DelayComputation,
       s"localPlan's mode must be ${ExecMode.Computation} or ${ExecMode.DelayComputation}"
     )
-    val localPlan = unboxedLocalPlan transform {
-      case childPlan: LogicalPlan => child2PlaceHolder(childPlan, children)
+    val localPlan = unboxedLocalPlan transform { case childPlan: LogicalPlan =>
+      child2PlaceHolder(childPlan, children)
     }
 
     LocalStage(children, localPlan)
@@ -237,7 +189,7 @@ object LocalStage {
       planList: Seq[LogicalPlan]
   ): LogicalPlan = {
     if (posOf(planList, childPlan) != -1) {
-      PlaceHolder(posOf(planList, childPlan), childPlan.outputOld)
+      PlaceHolder(posOf(planList, childPlan), childPlan.output)
     } else {
       childPlan
     }
@@ -257,6 +209,12 @@ object LocalStage {
 
 }
 
+/** A [[LogicalPlan]] that represents CTE(common table expression)
+  * @param recursive numbers of iterations
+  * @param query query to be iteratively computed
+  * @param withList schema of the temporary tables
+  * @param withListQueries [[LogicalPlan]] of the temporary tables.
+  */
 case class With(
     recursive: Option[Option[Int]],
     query: LogicalPlan,
@@ -275,128 +233,4 @@ case class With(
       .mkString("[", ", ", "]")
 
   override def mode: ExecMode = ExecMode.Atomic
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = Seq()
 }
-
-///**
-//  * An operator that embed a series of local computation.
-//  * We assume the inputs are partitions,
-//  * and there is an implicit pair operator that pairs them up.
-//  *
-//  * @param children children logical plans
-//  * @param innerTreeNodes a sequence of local computation
-//  */
-//case class LocalStage(
-//                       children: Seq[LogicalPlan],
-//                       innerTreeNodes: Seq[LogicalPlan],
-//                       mode: ExecMode = ExecMode.Computation
-//                     ) extends MultiNode {
-//
-//  /** The root plan of [[innerTreeNodes]] */
-//  lazy val rootPlan = {
-//    innerTreeNodes.find { plan1 =>
-//      innerTreeNodes.diff(Seq(plan1)).forall { plan2 =>
-//        plan2.find(plan3 => plan3 == plan1).isEmpty
-//      }
-//    }.get
-//  }
-//
-//  /** The output attributes */
-//  override def outputOld: Seq[String] = {
-//    rootPlan.outputOld
-//  }
-//
-//  /** Merge two consecutive LOp into one */
-//  def merge(lopToMerge: LocalStage): LocalStage = {
-//    assert(
-//      children.contains(lopToMerge),
-//      "lopToMerge should be a children of this LOp"
-//    )
-//
-//    //TODO: add comment
-//    val unboxedLopToMergeSubtreeNodes = lopToMerge.innerTreeNodes.map(plan =>
-//      plan transform {
-//        case placeholder: PlaceHolder =>
-//          LocalStage.placeHolders2Child(
-//            placeholder,
-//            lopToMerge.children
-//          )
-//      }
-//    )
-//
-//    val unboxedLopToMergeRoot = lopToMerge.rootPlan transform {
-//      case placeholder: PlaceHolder =>
-//        LocalStage.placeHolders2Child(
-//          placeholder,
-//          lopToMerge.children
-//        )
-//    }
-//
-//    val unboxedSubtreeNodes = innerTreeNodes
-//      .map(plan =>
-//        plan transform {
-//          case placeholder: PlaceHolder =>
-//            LocalStage.placeHolders2Child(placeholder, children)
-//        }
-//      )
-//      .map { plan =>
-//        plan transform {
-//          case l: LocalStage if l.fastEquals(lopToMerge) =>
-//            unboxedLopToMergeRoot
-//        }
-//      }
-//
-//    val newSubTreeNodes =
-//      unboxedSubtreeNodes ++ unboxedLopToMergeSubtreeNodes
-//
-//    LocalStage(
-//      children.diff(Seq(lopToMerge)) ++ lopToMerge.children,
-//      newSubTreeNodes
-//    )
-//  }
-//
-//  override def argString: String = s"[${rootPlan.relationalString}]"
-//
-//}
-//
-//object LocalStage {
-//  def apply(
-//             children: Seq[LogicalPlan],
-//             innerTreeNodes: Seq[LogicalPlan]
-//           ): LocalStage = {
-//    val newInnerTreeNodes = innerTreeNodes.map { plan =>
-//      plan transform {
-//        case childPlan: LogicalPlan => child2PlaceHolder(childPlan, children)
-//      }
-//    }
-//
-//    LocalStage(children, newInnerTreeNodes, ExecMode.Computation)
-//  }
-//
-//  /** convert the child to placeholder logical plan */
-//  def child2PlaceHolder(
-//                         childPlan: LogicalPlan,
-//                         planList: Seq[LogicalPlan]
-//                       ): LogicalPlan = {
-//    if (posOf(planList, childPlan) != -1) {
-//      PlaceHolder(posOf(planList, childPlan), childPlan.outputOld)
-//    } else {
-//      childPlan
-//    }
-//  }
-//
-//  /** convert the placeholder logical plan to child */
-//  def placeHolders2Child(
-//                          childPlan: LogicalPlan,
-//                          planList: Seq[LogicalPlan]
-//                        ): LogicalPlan = {
-//    if (childPlan.isInstanceOf[PlaceHolder]) {
-//      planList(childPlan.asInstanceOf[PlaceHolder].pos)
-//    } else {
-//      childPlan
-//    }
-//  }
-//
-//}

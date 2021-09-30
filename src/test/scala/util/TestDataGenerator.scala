@@ -91,9 +91,9 @@ object TestDataGenerator {
     plan.foreach { childPlan =>
       childPlan match {
         case s: Relation =>
-          if (replaceExistingData || dataManager(s.tableName).isEmpty) {
+          if (replaceExistingData || dataManager(s.tableIdentifier).isEmpty) {
             genInMemoryScanExecWithRandomInternalRow(
-              s.tableName,
+              s.tableIdentifier,
               s.outputOld,
               cardinality,
               upperBound
@@ -123,7 +123,7 @@ object TestDataGenerator {
       .cache()
 
     rdd.count()
-    dataManager.storeRelation(scan.tableName, rdd)
+    dataManager.storeRelation(scan.tableIdentifier, rdd)
 
     scan
   }
@@ -144,7 +144,7 @@ object TestDataGenerator {
       .cache()
 
     rdd.count()
-    dataManager.storeRelation(scan.tableName, rdd)
+    dataManager.storeRelation(scan.tableIdentifier, rdd)
 
     scan
   }

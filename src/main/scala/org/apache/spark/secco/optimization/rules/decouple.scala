@@ -19,14 +19,14 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   private def newPlanWithMode(plan: LogicalPlan, newMode: ExecMode) =
     plan match {
-      case p: Project          => p.copy(mode = newMode)
-      case a: Aggregate        => a.copy(mode = newMode)
-      case d: Diff             => d.copy(mode = newMode)
-      case pk: PKFKJoin        => pk.copy(mode = newMode)
-      case u: Union            => u.copy(mode = newMode)
-      case j: Join             => j.copy(mode = newMode)
-      case c: CartesianProduct => c.copy(mode = newMode)
-      case f: Filter           => f.copy(mode = newMode)
+      case p: Project             => p.copy(mode = newMode)
+      case a: Aggregate           => a.copy(mode = newMode)
+      case d: Diff                => d.copy(mode = newMode)
+      case pk: PKFKJoin           => pk.copy(mode = newMode)
+      case u: Union               => u.copy(mode = newMode)
+      case j: MultiwayNaturalJoin => j.copy(mode = newMode)
+      case c: CartesianProduct    => c.copy(mode = newMode)
+      case f: Filter              => f.copy(mode = newMode)
       case _ =>
         throw new Exception(
           s"not supported plan:${plan.nodeName} for mutating ExecMode"
@@ -37,8 +37,8 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   /** Not delaying any computation */
   def noDelay(rootPlan: LogicalPlan): LogicalPlan =
-    rootPlan transform {
-      case j: Join => j.copy(joinType = JoinType.GHDFKFK)
+    rootPlan transform { case j: MultiwayNaturalJoin =>
+      j.copy(joinType = JoinType.GHDFKFK)
     }
 
   /** Delaying all computation */
@@ -57,12 +57,12 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
       case pkfk: PKFKJoin =>
-        Join(
+        MultiwayNaturalJoin(
           Seq(pkfk.left, pkfk.right),
           JoinType.GHD,
           ExecMode.CoupledWithComputationDelay
         )
-      case j: Join =>
+      case j: MultiwayNaturalJoin =>
         newPlanWithMode(j, ExecMode.CoupledWithComputationDelay)
     }
 
@@ -78,7 +78,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   def heuristicSizeDelay(rootPlan: LogicalPlan): LogicalPlan =
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
-      case j @ Join(children, _, _, _) =>
+      case j @ MultiwayNaturalJoin(children, _, _, _) =>
         val inputSize = children
           .map(f => StatsPlanVisitor.visit(f).rowCount)
           .sum
@@ -123,10 +123,9 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     //find the optimal plan and cost greedily
     Range(0, nodesWithDecision.size).foreach { i =>
-      val newNodesWithDecision = nodesWithDecision.map {
-        case (decision, idx) =>
-          if (idx == i) ((decision._1, !decision._2), idx)
-          else (decision, idx)
+      val newNodesWithDecision = nodesWithDecision.map { case (decision, idx) =>
+        if (idx == i) ((decision._1, !decision._2), idx)
+        else (decision, idx)
       }
       val decisions = newNodesWithDecision
         .map(_._1)
@@ -208,40 +207,39 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       }
 
       val optimalRootWithChildren = subtrees
-        .map {
-          case subtree =>
-            val subtreeWithoutRelation = subtree.diff(relationNodes)
+        .map { case subtree =>
+          val subtreeWithoutRelation = subtree.diff(relationNodes)
 
-            //find root of the childrenTree
-            val remainingNodes = intermediateNodes.diff(subtreeWithoutRelation)
-            val childrenRoots = remainingNodes.filter { childRoot =>
-              remainingNodes
-                .diff(Seq(childRoot))
-                .forall(child => child.find(f => f == childRoot).isEmpty)
-            }
+          //find root of the childrenTree
+          val remainingNodes = intermediateNodes.diff(subtreeWithoutRelation)
+          val childrenRoots = remainingNodes.filter { childRoot =>
+            remainingNodes
+              .diff(Seq(childRoot))
+              .forall(child => child.find(f => f == childRoot).isEmpty)
+          }
 
-            //calculate communication cost of the root
-            val setDelay =
-              subtreeWithoutRelation.filter(node => node != root).toSet
-            val newRoot = root transform {
-              case p: LogicalPlan if setDelay(p) =>
-                newPlanWithMode(p, ExecMode.CoupledWithComputationDelay)
-            }
+          //calculate communication cost of the root
+          val setDelay =
+            subtreeWithoutRelation.filter(node => node != root).toSet
+          val newRoot = root transform {
+            case p: LogicalPlan if setDelay(p) =>
+              newPlanWithMode(p, ExecMode.CoupledWithComputationDelay)
+          }
 
-            val localStage = decoupleOptimizer.execute(newRoot)
-            val selfCost = localStage.communicationCost()
-            logTrace(s"localStage:${localStage} with cost:${selfCost}")
+          val localStage = decoupleOptimizer.execute(newRoot)
+          val selfCost = localStage.communicationCost()
+          logTrace(s"localStage:${localStage} with cost:${selfCost}")
 
-            //find the optimal communication cost of the children's root
-            val childrenOptimalPlanAndCost = childrenRoots.map(childRoot =>
-              (childRoot, optimalPlanAndCost(childRoot))
-            )
+          //find the optimal communication cost of the children's root
+          val childrenOptimalPlanAndCost = childrenRoots.map(childRoot =>
+            (childRoot, optimalPlanAndCost(childRoot))
+          )
 
-            //sum the communication cost
-            val cost =
-              selfCost + childrenOptimalPlanAndCost.map(f => f._2._2).sum
+          //sum the communication cost
+          val cost =
+            selfCost + childrenOptimalPlanAndCost.map(f => f._2._2).sum
 
-            (newRoot, childrenOptimalPlanAndCost, cost)
+          (newRoot, childrenOptimalPlanAndCost, cost)
         }
         .minBy(_._3)
 
@@ -276,23 +274,22 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case RootNode(child, _) =>
+    plan transform { case RootNode(child, _) =>
 //        pprint.pprintln(
 //          s"[debug]: dlSession.sessionState.conf.DELAY_STRATEGY:${dlSession.sessionState.conf.delayStrategy}"
 //        )
 
-        dlSession.sessionState.conf.delayStrategy match {
-          case "Heuristic"     => heuristicDelay(child)
-          case "HeuristicSize" => heuristicSizeDelay(child)
-          case "Greedy"        => greedyDelay(child)
-          case "DP"            => DynamicProgrammingDelay(child)
-          case "NoDelay"       => noDelay(child)
-          case "AllDelay"      => allDelay(child)
-          case "JoinDelay"     => joinDelay(child)
-          case x: String =>
-            throw new Exception(s"Not supported delay strategy:${x}")
-        }
+      dlSession.sessionState.conf.delayStrategy match {
+        case "Heuristic"     => heuristicDelay(child)
+        case "HeuristicSize" => heuristicSizeDelay(child)
+        case "Greedy"        => greedyDelay(child)
+        case "DP"            => DynamicProgrammingDelay(child)
+        case "NoDelay"       => noDelay(child)
+        case "AllDelay"      => allDelay(child)
+        case "JoinDelay"     => joinDelay(child)
+        case x: String =>
+          throw new Exception(s"Not supported delay strategy:${x}")
+      }
     }
 }
 
@@ -369,8 +366,8 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
         Aggregate(
           partition,
           a.groupingListOld,
-          (a.semiringListOld._1, localAggregation.producedOutput.head),
-          a.producedOutput,
+          (a.semiringListOld._1, localAggregation.producedOutputOld.head),
+          a.producedOutputOld,
           ExecMode.Computation
         )
       } else { //early aggregation optimization not enabled
@@ -384,7 +381,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
           partition,
           a.groupingListOld,
           a.semiringListOld,
-          a.producedOutput,
+          a.producedOutputOld,
           ExecMode.Computation
         )
       }
@@ -400,7 +397,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
         partition,
         a.groupingListOld,
         a.semiringListOld,
-        a.producedOutput,
+        a.producedOutputOld,
         ExecMode.DelayComputation
       )
     }
@@ -469,7 +466,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     }
   }
 
-  private def handleJoin(j: Join) = {
+  private def handleJoin(j: MultiwayNaturalJoin) = {
     val children = j.children
     val restriction = mutable.HashMap[String, Int]()
     val sharedRestriction = SharedParameter(restriction)
@@ -478,9 +475,17 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     j.mode match {
       case ExecMode.Coupled =>
-        Join(childrenPartitions, j.joinType, ExecMode.Computation)
+        MultiwayNaturalJoin(
+          childrenPartitions,
+          j.joinType,
+          ExecMode.Computation
+        )
       case ExecMode.CoupledWithComputationDelay =>
-        Join(childrenPartitions, j.joinType, ExecMode.DelayComputation)
+        MultiwayNaturalJoin(
+          childrenPartitions,
+          j.joinType,
+          ExecMode.DelayComputation
+        )
     }
   }
 
@@ -509,7 +514,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       case u: Union
           if u.mode == ExecMode.Coupled || u.mode == ExecMode.CoupledWithComputationDelay =>
         handleUnion(u)
-      case j: Join
+      case j: MultiwayNaturalJoin
           if j.mode == ExecMode.Coupled || j.mode == ExecMode.CoupledWithComputationDelay =>
         handleJoin(j)
       case c: CartesianProduct
@@ -543,7 +548,7 @@ object PackLocalComputationIntoLocalStage extends Rule[LogicalPlan] {
       case u: Union
           if u.mode == ExecMode.Computation || u.mode == ExecMode.DelayComputation =>
         LocalStage.box(u.children, u)
-      case j: Join
+      case j: MultiwayNaturalJoin
           if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
         LocalStage.box(j.children, j)
       case c: CartesianProduct
@@ -555,8 +560,8 @@ object PackLocalComputationIntoLocalStage extends Rule[LogicalPlan] {
 /** A rule that unpacks LocalStage into local computation operators */
 object UnPackLocalStage extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case l: LocalStage => l.unboxedPlan()
+    plan transform { case l: LocalStage =>
+      l.unboxedPlan()
     }
 }
 

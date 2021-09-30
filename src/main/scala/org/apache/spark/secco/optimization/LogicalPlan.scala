@@ -16,8 +16,7 @@ import org.apache.spark.secco.optimization.support.{
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 
-/**
-  * An abstract logical plan class
+/** An abstract logical plan class
   */
 abstract class LogicalPlan
     extends QueryPlan[LogicalPlan]
@@ -25,8 +24,7 @@ abstract class LogicalPlan
     with LogicalPlanStatsSupport
     with CostModelSupport {
 
-  /**
-    * The execution mode of this operator, which can be either
+  /** The execution mode of this operator, which can be either
     * 1. Coupled: the operator performs both communication and computation, and can be decoupled
     * 2. Computation: the operator performs only computation
     * 3. Communication: the operator performs only communication
@@ -35,20 +33,31 @@ abstract class LogicalPlan
   def mode: ExecMode
 
   /** The primary key of the output, using Seq() to denote no output key exists */
-  def primaryKeys: Seq[String] = Seq()
+  @deprecated
+  def primaryKeyOld: Seq[String] = {
+    throw new Exception(
+      "primaryKeyOld is deprecated, please use primaryKey instead."
+    )
+  }
+
+  /** The primary key of the output, using Seq() to denote no output key exists */
+  def primaryKey: Seq[Attribute] = Seq()
 
   /** The attributes that do not existed in database but are generated in operator */
-  def producedOutput: Seq[String] = Seq()
+  @deprecated
+  def producedOutputOld: Seq[String] = {
+    throw new Exception(
+      "producedOutputOld is deprecated, please stop using it."
+    )
+  }
 
-  /**
-    * Returns true if this node and its children have already been gone through analysis and
+  /** Returns true if this node and its children have already been gone through analysis and
     * verification.  Note that this is only an optimization used to avoid analyzing trees that
     * have already been analyzed, and can be reset by transformations.
     */
   var analyzed: Boolean = false
 
-  /**
-    * Returns true if this expression and all its children have been resolved to a specific schema
+  /** Returns true if this expression and all its children have been resolved to a specific schema
     * and false if it still contains any unresolved placeholders. Implementations of LogicalPlan
     * can override this (e.g.
     * [[org.apache.spark.secco.analysis.UnresolvedRelation UnresolvedRelation]]
@@ -57,13 +66,11 @@ abstract class LogicalPlan
   lazy val resolved: Boolean =
     expressions.forall(_.resolved) && childrenResolved
 
-  /**
-    * Returns true if all its children of this query plan have been resolved.
+  /** Returns true if all its children of this query plan have been resolved.
     */
   def childrenResolved: Boolean = children.forall(_.resolved)
 
-  /**
-    * Returns a copy of this node where `rule` has been recursively applied first to all of its
+  /** Returns a copy of this node where `rule` has been recursively applied first to all of its
     * children and then itself (post-order). When `rule` does not apply to a given node, it is left
     * unchanged.  This function is similar to `transformUp`, but skips sub-trees that have already
     * been marked as analyzed.
@@ -85,20 +92,18 @@ abstract class LogicalPlan
     }
   }
 
-  /**
-    * Recursively transforms the expressions of a tree, skipping nodes that have already
+  /** Recursively transforms the expressions of a tree, skipping nodes that have already
     * been analyzed.
     */
   def resolveExpressions(
       r: PartialFunction[Expression, Expression]
   ): LogicalPlan = {
-    this resolveOperators {
-      case p => p.transformExpressions(r)
+    this resolveOperators { case p =>
+      p.transformExpressions(r)
     }
   }
 
-  /**
-    * Optionally resolves the given strings to a [[NamedExpression]] using the input from all child
+  /** Optionally resolves the given strings to a [[NamedExpression]] using the input from all child
     * nodes of this LogicalPlan. The attribute is expressed as
     * as string in the following form: `[scope].AttributeName.[nested].[fields]...`.
     */
@@ -107,16 +112,14 @@ abstract class LogicalPlan
   ): Option[NamedExpression] =
     resolveAttribute(nameParts, children.flatMap(_.output))
 
-  /**
-    * Optionally resolves the given strings to a [[NamedExpression]] based on the output of this
+  /** Optionally resolves the given strings to a [[NamedExpression]] based on the output of this
     * LogicalPlan. The attribute is expressed as string in the following form:
     * `[scope].AttributeName.[nested].[fields]...`.
     */
   def resolveAttributeBySelf(nameParts: Seq[String]): Option[NamedExpression] =
     resolveAttribute(nameParts, output)
 
-  /**
-    * Resolve the given `name` string against the given attribute, returning either 0 or 1 match.
+  /** Resolve the given `name` string against the given attribute, returning either 0 or 1 match.
     *
     * This assumes `name` has multiple parts, where the 1st part is a qualifier
     * (i.e. table name, alias, or subquery alias).
@@ -136,8 +139,7 @@ abstract class LogicalPlan
     }
   }
 
-  /**
-    * Resolve the given `name` string against the given attribute, returning either 0 or 1 match.
+  /** Resolve the given `name` string against the given attribute, returning either 0 or 1 match.
     *
     * Different from resolveNameAsTableColumn, this assumes `name` does NOT start with a qualifier.
     * See the comment above `candidates` variable in resolve() for semantics the returned data.

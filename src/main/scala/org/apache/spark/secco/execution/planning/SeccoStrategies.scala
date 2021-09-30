@@ -27,8 +27,7 @@ import scala.collection.mutable.ArrayBuffer
 
 //TODO: DEBUG
 
-/**
-  * Converts a logical plan into zero or more SeccoPlan.
+/** Converts a logical plan into zero or more SeccoPlan.
   */
 abstract class SeccoStrategy extends GenericStrategy[SeccoPlan] {
 
@@ -76,27 +75,29 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         case s: Relation =>
           val dataManager =
             SeccoSession.currentSession.sessionState.cachedDataManager
-          dataManager(s.tableName) match {
+          dataManager(s.tableIdentifier) match {
             case Some(x) =>
               x match {
                 case r: RDD[InternalBlock] =>
-                  Seq(InMemoryScanExec(s.tableName, s.outputOld))
-                case d: String => Seq(DiskScanExec(s.tableName, s.outputOld, d))
+                  Seq(InMemoryScanExec(s.tableIdentifier, s.outputOld))
+                case d: String =>
+                  Seq(DiskScanExec(s.tableIdentifier, s.outputOld, d))
               }
-            case None => throw new Exception(s"No such table:${s.tableName}")
+            case None =>
+              throw new Exception(s"No such table:${s.tableIdentifier}")
           }
         case r @ Rename(child, attrRenameMap, _)
             if child.isInstanceOf[Relation] =>
           val s = child.asInstanceOf[Relation]
           val dataManager =
             SeccoSession.currentSession.sessionState.cachedDataManager
-          dataManager(s.tableName) match {
+          dataManager(s.tableIdentifier) match {
             case Some(x) =>
               x match {
                 case r: RDD[InternalBlock] =>
                   Seq(
                     InMemoryScanExec(
-                      s.tableName,
+                      s.tableIdentifier,
                       s.outputOld.map(attr =>
                         attrRenameMap.getOrElse(attr, attr)
                       )
@@ -105,7 +106,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
                 case d: String =>
                   Seq(
                     DiskScanExec(
-                      s.tableName,
+                      s.tableIdentifier,
                       s.outputOld.map(attr =>
                         attrRenameMap.getOrElse(attr, attr)
                       ),
@@ -113,7 +114,8 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
                     )
                   )
               }
-            case None => throw new Exception(s"No such table:${s.tableName}")
+            case None =>
+              throw new Exception(s"No such table:${s.tableIdentifier}")
           }
 
         case _ => Seq()
@@ -180,13 +182,12 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       if (isTrieNeeded) {
 
         PullPairExchangeExec(
-          partitions.zipWithIndex.map {
-            case (partition, i) =>
-              LocalPreparationExec(
-                PartitionExchangeExec(planLater(partition.child), sharedShare),
-                sharedAttributeOrder,
-                sharedPreparationTasks(i)
-              )
+          partitions.zipWithIndex.map { case (partition, i) =>
+            LocalPreparationExec(
+              PartitionExchangeExec(planLater(partition.child), sharedShare),
+              sharedAttributeOrder,
+              sharedPreparationTasks(i)
+            )
           },
           constraint,
           sharedShare
@@ -379,7 +380,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
               dummyAttributeOrder
             )
           )
-        case j @ Join(children, joinType, _, _)
+        case j @ MultiwayNaturalJoin(children, joinType, _, _)
             if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
           Seq(
             LocalJoinExec(
@@ -425,7 +426,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
             LocalSemiringAggregateExec(
               localPlanLater(child),
               groupingList,
-              a.producedOutput.head,
+              a.producedOutputOld.head,
               semiringList,
               dummyAttributeOrder
             )

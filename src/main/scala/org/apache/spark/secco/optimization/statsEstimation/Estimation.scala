@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.statsEstimation
 
 import org.apache.spark.secco.optimization.LogicalPlan
-import org.apache.spark.secco.optimization.plan.Join
+import org.apache.spark.secco.optimization.plan.MultiwayNaturalJoin
 import org.apache.spark.secco.optimization.rules.MergeAllJoin
 import org.apache.spark.secco.trees.RuleExecutor
 
@@ -16,7 +16,7 @@ trait Estimation[T] {
 object Estimation {
 
   /** Merge all consecutive joins into one join. */
-  def mergeJoin(j: Join): LogicalPlan = {
+  def mergeJoin(j: MultiwayNaturalJoin): LogicalPlan = {
     val joinMergeExecutor = new RuleExecutor[LogicalPlan] {
 
       override protected def batches: Seq[Batch] =
@@ -28,9 +28,8 @@ object Estimation {
 
   /** Check if each attribute has column stat in the corresponding statistics. */
   def columnStatsExist(statsAndAttr: (Statistics, String)*): Boolean = {
-    statsAndAttr.forall {
-      case (stats, attr) =>
-        stats.attributeStats.contains(attr)
+    statsAndAttr.forall { case (stats, attr) =>
+      stats.attributeStats.contains(attr)
     }
   }
 
@@ -40,14 +39,12 @@ object Estimation {
   def columnStatsWithCountsExist(
       statsAndAttr: (Statistics, String)*
   ): Boolean = {
-    statsAndAttr.forall {
-      case (stats, attr) =>
-        stats.attributeStats.get(attr).map(_.hasCountStats).getOrElse(false)
+    statsAndAttr.forall { case (stats, attr) =>
+      stats.attributeStats.get(attr).map(_.hasCountStats).getOrElse(false)
     }
   }
 
-  /**
-    * Updates (scales down) the number of distinct values if the number of rows decreases after
+  /** Updates (scales down) the number of distinct values if the number of rows decreases after
     * some operation (such as filter, join). Otherwise keep it unchanged.
     */
   def updateNdv(
@@ -74,8 +71,7 @@ object Estimation {
     mutable.HashMap(stats: _*)
   }
 
-  /**
-    * Returns the index of the first bin into which the given value falls for a specified
+  /** Returns the index of the first bin into which the given value falls for a specified
     * numeric equi-height histogram.
     */
   private def findFirstBinForValue(
@@ -89,8 +85,7 @@ object Estimation {
     i
   }
 
-  /**
-    * Returns the index of the last bin into which the given value falls for a specified
+  /** Returns the index of the last bin into which the given value falls for a specified
     * numeric equi-height histogram.
     */
   private def findLastBinForValue(
@@ -104,8 +99,7 @@ object Estimation {
     i
   }
 
-  /**
-    * Returns the possibility of the given histogram bin holding values within the given range
+  /** Returns the possibility of the given histogram bin holding values within the given range
     * [lowerBound, upperBound].
     */
   private def binHoldingRangePossibility(
@@ -128,8 +122,7 @@ object Estimation {
     }
   }
 
-  /**
-    * Returns the number of histogram bins holding values within the given range
+  /** Returns the number of histogram bins holding values within the given range
     * [lowerBound, upperBound].
     *
     * Note that the returned value is double type, because the range boundaries usually occupy a
@@ -187,8 +180,7 @@ object Estimation {
     }
   }
 
-  /**
-    * Returns overlapped ranges between two histograms, in the given value range
+  /** Returns overlapped ranges between two histograms, in the given value range
     * [lowerBound, upperBound].
     */
   def getOverlappedRanges(
@@ -300,8 +292,7 @@ object Estimation {
     overlappedRanges
   }
 
-  /**
-    * Given an original bin and a value range [lowerBound, upperBound], returns the trimmed part
+  /** Given an original bin and a value range [lowerBound, upperBound], returns the trimmed part
     * of the bin in that range and its number of rows.
     * @param bin the input histogram bin.
     * @param height the number of rows of the given histogram bin inside an equi-height histogram.
@@ -344,8 +335,7 @@ object Estimation {
     }
   }
 
-  /**
-    * A join between two equi-height histograms may produce multiple overlapped ranges.
+  /** A join between two equi-height histograms may produce multiple overlapped ranges.
     * Each overlapped range is produced by a part of one bin in the left histogram and a part of
     * one bin in the right histogram.
     * @param lo lower bound of this overlapped range.

@@ -3,91 +3,87 @@ package org.apache.spark.secco.optimization.rules
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan._
 
-/**
-  * A set of the basic transformation rules for optimizing the relation algebra
+/** A set of the basic transformation rules for optimizing the relation algebra
   */
 
 /** A rule that pushes down the rename operator to the leaf */
 object PushRenameToLeaf extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transformUp {
-      case r @ Rename(child, attrRenameMap, _) =>
-        child.transformUp {
-          case s: Filter =>
-            val newSelectionExprs = s.selectionExprs.map {
-              case (l, op, r) =>
-                if (attrRenameMap.contains(l) && attrRenameMap.contains(r)) {
-                  (attrRenameMap(l), op, attrRenameMap(r))
-                } else if (attrRenameMap.contains(l)) {
-                  (attrRenameMap(l), op, r)
-                } else if (attrRenameMap.contains(r)) {
-                  (l, op, attrRenameMap(r))
-                } else {
-                  (l, op, r)
-                }
+    plan transformUp { case r @ Rename(child, attrRenameMap, _) =>
+      child.transformUp {
+        case s: Filter =>
+          val newSelectionExprs = s.selectionExprs.map { case (l, op, r) =>
+            if (attrRenameMap.contains(l) && attrRenameMap.contains(r)) {
+              (attrRenameMap(l), op, attrRenameMap(r))
+            } else if (attrRenameMap.contains(l)) {
+              (attrRenameMap(l), op, r)
+            } else if (attrRenameMap.contains(r)) {
+              (l, op, attrRenameMap(r))
+            } else {
+              (l, op, r)
             }
+          }
 
-            s.copy(selectionExprs = newSelectionExprs)
-          case p: Project =>
-            val newProjectionList = p.projectionListOld.map { attr =>
+          s.copy(selectionExprs = newSelectionExprs)
+        case p: Project =>
+          val newProjectionList = p.projectionListOld.map { attr =>
+            attrRenameMap.getOrElse(attr, attr)
+          }
+          p.copy(projectionListOld = newProjectionList)
+        case t: Transform =>
+          val newOutput = t.outputOld.map { attr =>
+            attrRenameMap.getOrElse(attr, attr)
+          }
+          t.copy(outputOld = newOutput)
+        case a: Aggregate =>
+          val newGroupingList = a.groupingListOld.map { attr =>
+            attrRenameMap.getOrElse(attr, attr)
+          }
+
+          val funcExpr = a.semiringListOld._2
+          val attrExtractRegex = "\\w+".r
+          val opExtractRegex = "[\\*|+]".r
+          val newAttributes =
+            attrExtractRegex.findAllIn(funcExpr).toList.map { attr =>
               attrRenameMap.getOrElse(attr, attr)
             }
-            p.copy(projectionListOld = newProjectionList)
-          case t: Transform =>
-            val newOutput = t.outputOld.map { attr =>
-              attrRenameMap.getOrElse(attr, attr)
-            }
-            t.copy(outputOld = newOutput)
-          case a: Aggregate =>
-            val newGroupingList = a.groupingListOld.map { attr =>
-              attrRenameMap.getOrElse(attr, attr)
-            }
+          val opStrings = opExtractRegex.findAllIn(funcExpr).toList
+          val newFuncExpr = newAttributes.size == 1 match {
+            case true => newAttributes(0)
+            case false =>
+              newAttributes(0) + opStrings
+                .zip(newAttributes.drop(1))
+                .map(f => f._1 + f._2)
+                .mkString("")
+          }
+          val newSemiringList = (a.semiringListOld._1, newFuncExpr)
 
-            val funcExpr = a.semiringListOld._2
-            val attrExtractRegex = "\\w+".r
-            val opExtractRegex = "[\\*|+]".r
-            val newAttributes =
-              attrExtractRegex.findAllIn(funcExpr).toList.map { attr =>
-                attrRenameMap.getOrElse(attr, attr)
-              }
-            val opStrings = opExtractRegex.findAllIn(funcExpr).toList
-            val newFuncExpr = newAttributes.size == 1 match {
-              case true => newAttributes(0)
-              case false =>
-                newAttributes(0) + opStrings
-                  .zip(newAttributes.drop(1))
-                  .map(f => f._1 + f._2)
-                  .mkString("")
-            }
-            val newSemiringList = (a.semiringListOld._1, newFuncExpr)
-
-            val newProducedOutput = attrRenameMap.getOrElse(
-              a.producedOutput.head,
-              a.producedOutput.head
+          val newProducedOutput = attrRenameMap.getOrElse(
+            a.producedOutputOld.head,
+            a.producedOutputOld.head
+          )
+          Aggregate(
+            a.child,
+            newGroupingList,
+            newSemiringList,
+            Seq(newProducedOutput),
+            a.mode
+          )
+        case r @ Rename(_, childAttrRenameMap, _) =>
+          val newAttrRenameMap = childAttrRenameMap.map { case (key, value) =>
+            (
+              attrRenameMap.getOrElse(key, key),
+              attrRenameMap.getOrElse(value, value)
             )
-            Aggregate(
-              a.child,
-              newGroupingList,
-              newSemiringList,
-              Seq(newProducedOutput),
-              a.mode
-            )
-          case r @ Rename(_, childAttrRenameMap, _) =>
-            val newAttrRenameMap = childAttrRenameMap.map {
-              case (key, value) =>
-                (
-                  attrRenameMap.getOrElse(key, key),
-                  attrRenameMap.getOrElse(value, value)
-                )
-            }
-            r.copy(attrRenameMap = newAttrRenameMap)
-          case s: Relation
-              if s.outputOld.intersect(attrRenameMap.keys.toSeq).nonEmpty =>
-            r.copy(child = s)
-          case s: Relation
-              if s.outputOld.intersect(attrRenameMap.keys.toSeq).isEmpty =>
-            s
-        }
+          }
+          r.copy(attrRenameMap = newAttrRenameMap)
+        case s: Relation
+            if s.outputOld.intersect(attrRenameMap.keys.toSeq).nonEmpty =>
+          r.copy(child = s)
+        case s: Relation
+            if s.outputOld.intersect(attrRenameMap.keys.toSeq).isEmpty =>
+          s
+      }
     }
 }
 
@@ -95,7 +91,12 @@ object PushRenameToLeaf extends Rule[LogicalPlan] {
 object PushSelectionThroughJoin extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
-      case Filter(Join(children, joinType, mode1, _), expr, mode2, _) => {
+      case Filter(
+            MultiwayNaturalJoin(children, joinType, mode1, _),
+            expr,
+            mode2,
+            _
+          ) => {
         val filteredChildren = children.map { child =>
           val output = child.outputOld
           val validSelectionExpr =
@@ -108,7 +109,7 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] {
           }
         }
 
-        Join(filteredChildren, joinType, mode1)
+        MultiwayNaturalJoin(filteredChildren, joinType, mode1)
       }
     }
 }
@@ -118,7 +119,7 @@ object PushProjectionThroughJoin extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
       case p @ Project(
-            Join(children, joinType, mode1, _),
+            MultiwayNaturalJoin(children, joinType, mode1, _),
             expr,
             mode2,
             _
@@ -145,10 +146,10 @@ object PushProjectionThroughJoin extends Rule[LogicalPlan] {
 
         //check if the last projection is necessary
         if (projectedChildren.forall(p => p.outputOld == expr)) {
-          Join(projectedChildren, joinType, mode1)
+          MultiwayNaturalJoin(projectedChildren, joinType, mode1)
         } else {
           Project(
-            Join(projectedChildren, joinType, mode1),
+            MultiwayNaturalJoin(projectedChildren, joinType, mode1),
             expr,
             mode2
           )
@@ -217,36 +218,57 @@ object PushSemiringAggregationAlongGHDTree extends Rule[LogicalPlan] {
     val lPlan = aggregatedPlan(lChild)
     val rPlan = aggregatedPlan(rChild)
 
-    if (lPlan.producedOutput.isEmpty) {
+    if (lPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${rPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        ("sum", s"${rPlan.producedOutputOld.head}"),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
-    } else if (rPlan.producedOutput.isEmpty) {
+    } else if (rPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${lPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        ("sum", s"${lPlan.producedOutputOld.head}"),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
-    } else if (lPlan.producedOutput.isEmpty && lPlan.producedOutput.isEmpty) {
+    } else if (
+      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+    ) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
         ("count", s"${semiringAttribute}"),
-        aggregate.producedOutput,
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
     } else {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${lPlan.producedOutput.head}*${rPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        (
+          "sum",
+          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
+        ),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
     }
@@ -301,29 +323,43 @@ object PushSemiringAggregationAlongGHDTree extends Rule[LogicalPlan] {
     val lPlan = aggregatedPlan(lChild)
     val rPlan = aggregatedPlan(rChild)
 
-    if (lPlan.producedOutput.isEmpty) {
+    if (lPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        (semiringOp, s"${rPlan.producedOutput.head}"),
+        (semiringOp, s"${rPlan.producedOutputOld.head}"),
         producedOutput,
         ExecMode.Coupled
       )
-    } else if (rPlan.producedOutput.isEmpty) {
+    } else if (rPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        (semiringOp, s"${lPlan.producedOutput.head}"),
+        (semiringOp, s"${lPlan.producedOutputOld.head}"),
         producedOutput,
         ExecMode.Coupled
       )
-    } else if (lPlan.producedOutput.isEmpty && lPlan.producedOutput.isEmpty) {
+    } else if (
+      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+    ) {
       throw new Exception("error occurs when pushing min/max down")
     } else {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        (semiringOp, s"${lPlan.producedOutput.head}"),
+        (semiringOp, s"${lPlan.producedOutputOld.head}"),
         producedOutput,
         ExecMode.Coupled
       )
@@ -379,36 +415,57 @@ object PushSemiringAggregationAlongGHDTree extends Rule[LogicalPlan] {
     //    println(lPlan.treeString)
     //    println(rPlan.treeString)
 
-    if (lPlan.producedOutput.isEmpty) {
+    if (lPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${rPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        ("sum", s"${rPlan.producedOutputOld.head}"),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
-    } else if (rPlan.producedOutput.isEmpty) {
+    } else if (rPlan.producedOutputOld.isEmpty) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${lPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        ("sum", s"${lPlan.producedOutputOld.head}"),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
-    } else if (lPlan.producedOutput.isEmpty && lPlan.producedOutput.isEmpty) {
+    } else if (
+      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+    ) {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
         ("count", s"*"),
-        aggregate.producedOutput,
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
     } else {
       Aggregate(
-        Join(lPlan :: rPlan :: Nil, JoinType.GHDFKFK, ExecMode.Coupled),
+        MultiwayNaturalJoin(
+          lPlan :: rPlan :: Nil,
+          JoinType.GHDFKFK,
+          ExecMode.Coupled
+        ),
         groupingList,
-        ("sum", s"${lPlan.producedOutput.head}*${rPlan.producedOutput.head}"),
-        aggregate.producedOutput,
+        (
+          "sum",
+          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
+        ),
+        aggregate.producedOutputOld,
         ExecMode.Coupled
       )
     }
@@ -417,7 +474,7 @@ object PushSemiringAggregationAlongGHDTree extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
       case a @ Aggregate(
-            Join(children, JoinType.GHDFKFK, mode1, _),
+            MultiwayNaturalJoin(children, JoinType.GHDFKFK, mode1, _),
             groupingList,
             semiringList,
             producedOutput,
@@ -452,7 +509,7 @@ object PushSemiringAggregationAlongGHDTree extends Rule[LogicalPlan] {
 
 object CleanRoot extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case r: RootNode => r.child
+    plan transform { case r: RootNode =>
+      r.child
     }
 }

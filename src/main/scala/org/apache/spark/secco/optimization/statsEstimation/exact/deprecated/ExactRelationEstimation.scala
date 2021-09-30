@@ -40,7 +40,7 @@ object ExactRelationEstimation extends Estimation[Relation] {
         )
       )
     } else {
-      val cardinalityOpt = _cardinalityMap.get.get(x.tableName)
+      val cardinalityOpt = _cardinalityMap.get.get(x.tableIdentifier)
 
       if (cardinalityOpt.isEmpty) {
         throw new NoExactCardinalityException(x)

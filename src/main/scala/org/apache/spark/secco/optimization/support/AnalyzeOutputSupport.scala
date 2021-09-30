@@ -3,8 +3,7 @@ package org.apache.spark.secco.optimization.support
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
 
-/**
-  * A trait to add heuristic to analyze the output of [[LogicalPlan]].
+/** A trait to add heuristic to analyze the output of [[LogicalPlan]].
   */
 trait AnalyzeOutputSupport {
 
@@ -16,11 +15,12 @@ trait AnalyzeOutputSupport {
 
     plan
       .collect {
-        case s: Relation if deltaTableIdentifiers.contains(s.tableName) =>
+        case s: Relation if deltaTableIdentifiers.contains(s.tableIdentifier) =>
           Seq(s)
         case l: LocalStage =>
           l.localPlan.collect {
-            case s: Relation if deltaTableIdentifiers.contains(s.tableName) =>
+            case s: Relation
+                if deltaTableIdentifiers.contains(s.tableIdentifier) =>
               s
           }
       }
@@ -37,7 +37,7 @@ trait AnalyzeOutputSupport {
       case u: Union                                          => u.children.forall(isOutputSmall)
       case pk: PKFKJoin                                      => true
       case d: Diff                                           => isOutputSmall(d.left) && isOutputSmall(d.right)
-      case j: Join                                           => false
+      case j: MultiwayNaturalJoin                            => false
       case p: Partition                                      => isMaterializable(p.child)
       case sc: Relation                                      => true
       case re: Rename                                        => isMaterializable(re.child)
@@ -54,7 +54,7 @@ trait AnalyzeOutputSupport {
   private def isOutputSmall(plan: LogicalPlan) = {
 
     val attrs = plan match {
-      case a: Aggregate => a.outputOld.diff(a.producedOutput)
+      case a: Aggregate => a.outputOld.diff(a.producedOutputOld)
       case p: Project   => plan.outputOld
     }
 

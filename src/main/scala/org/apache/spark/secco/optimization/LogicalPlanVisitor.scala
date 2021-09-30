@@ -3,27 +3,26 @@ package org.apache.spark.secco.optimization
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
-  Join,
+  MultiwayNaturalJoin,
   LocalStage,
   Partition,
   Project,
   Union
 }
 
-/**
-  * A visitor pattern for traversing a [[LogicalPlan]] tree and computing some properties.
+/** A visitor pattern for traversing a [[LogicalPlan]] tree and computing some properties.
   */
 trait LogicalPlanVisitor[T] {
   def visit(p: LogicalPlan): T =
     p match {
-      case p: Aggregate   => visitAggregate(p)
-      case p: Filter      => visitFilter(p)
-      case p: Join        => visitJoin(p)
-      case p: Project     => visitProject(p)
-      case p: Union       => visitUnion(p)
-      case p: Partition   => visitPartition(p)
-      case p: LocalStage  => visitLocalStage(p)
-      case p: LogicalPlan => default(p)
+      case p: Aggregate           => visitAggregate(p)
+      case p: Filter              => visitFilter(p)
+      case p: MultiwayNaturalJoin => visitJoin(p)
+      case p: Project             => visitProject(p)
+      case p: Union               => visitUnion(p)
+      case p: Partition           => visitPartition(p)
+      case p: LocalStage          => visitLocalStage(p)
+      case p: LogicalPlan         => default(p)
 
     }
 
@@ -33,7 +32,7 @@ trait LogicalPlanVisitor[T] {
 
   def visitFilter(p: Filter): T
 
-  def visitJoin(p: Join): T
+  def visitJoin(p: MultiwayNaturalJoin): T
 
   def visitProject(p: Project): T
 

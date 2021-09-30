@@ -32,7 +32,10 @@ object TestCase {
     }
 
     scans.foreach { scan =>
-      TestDataGenerator.assignDataForScan(scan, arrayOfScans(scan.tableName))
+      TestDataGenerator.assignDataForScan(
+        scan,
+        arrayOfScans(scan.tableIdentifier)
+      )
     }
 
     plan
@@ -47,7 +50,10 @@ object TestCase {
     }
 
     scans.foreach { scan =>
-      TestDataGenerator.assignDataForScan(scan, rddOfScans(scan.tableName))
+      TestDataGenerator.assignDataForScan(
+        scan,
+        rddOfScans(scan.tableIdentifier)
+      )
     }
 
     plan

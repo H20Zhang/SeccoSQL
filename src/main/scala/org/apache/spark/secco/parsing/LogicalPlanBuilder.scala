@@ -57,7 +57,7 @@ object LogicalPlanBuilder {
           case other: LogicalPlan              => other
         }
 
-        L.Join(
+        L.MultiwayNaturalJoin(
           Seq(leftTable, rightTable),
           JoinType.Natural,
           ExecMode.Coupled,

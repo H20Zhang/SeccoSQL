@@ -92,7 +92,7 @@ class RelationAlgebraWithAnalysisSuite extends SeccoFunSuite {
 
     val expr1 =
       rename(
-        s"V/A,W1/${agg.producedOutput.head}",
+        s"V/A,W1/${agg.producedOutputOld.head}",
         agg
       )
 

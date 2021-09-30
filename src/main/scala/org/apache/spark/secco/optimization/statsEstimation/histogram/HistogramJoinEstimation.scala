@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.statsEstimation.histogram
 
 import org.apache.spark.secco.execution.OldInternalDataType
-import org.apache.spark.secco.optimization.plan.Join
+import org.apache.spark.secco.optimization.plan.MultiwayNaturalJoin
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
   Estimation,
@@ -13,8 +13,8 @@ import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-object HistogramJoinEstimation extends Estimation[Join] {
-  override def estimate(join: Join): Option[Statistics] = {
+object HistogramJoinEstimation extends Estimation[MultiwayNaturalJoin] {
+  override def estimate(join: MultiwayNaturalJoin): Option[Statistics] = {
 
     if (join.children.size == 2) {
       estimateBinaryJoin(join.children(0), join.children(1))
@@ -25,7 +25,10 @@ object HistogramJoinEstimation extends Estimation[Join] {
       val leaf2 = join.children
         .filter(_.outputOld.intersect(leaf1.outputOld).nonEmpty)
         .head
-      val leafJoin = Join(children = Seq(leaf1, leaf2), mode = ExecMode.Coupled)
+      val leafJoin = MultiwayNaturalJoin(
+        children = Seq(leaf1, leaf2),
+        mode = ExecMode.Coupled
+      )
 
       var remainingChildren =
         join.children.filter(f => f != leaf1 || f != leaf2)
@@ -34,8 +37,10 @@ object HistogramJoinEstimation extends Estimation[Join] {
         val nextLeaf = remainingChildren
           .filter(_.outputOld.intersect(rootJoin.outputOld).nonEmpty)
           .head
-        rootJoin =
-          Join(children = Seq(rootJoin, nextLeaf), mode = ExecMode.Coupled)
+        rootJoin = MultiwayNaturalJoin(
+          children = Seq(rootJoin, nextLeaf),
+          mode = ExecMode.Coupled
+        )
         remainingChildren = remainingChildren.filter(f => f != nextLeaf)
       }
 

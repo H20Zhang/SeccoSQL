@@ -14,8 +14,7 @@ import org.apache.spark.secco.optimization.plan._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-/**
-  * This files defines a set of rules for optimizing join
+/** This files defines a set of rules for optimizing join
   *
   *   1. MergeJoin: a rule that merges consecutive binary (multi-way) join into single multi-way join
   *   2. MergeAllJoin: a rule that merges consecutive joins into one multiway join
@@ -31,17 +30,17 @@ import scala.collection.mutable.ArrayBuffer
 object MergeDelayedJoin extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
-      case j1 @ Join(children, joinType, mode, _)
+      case j1 @ MultiwayNaturalJoin(children, joinType, mode, _)
           if (joinType == JoinType.GHD || joinType == JoinType.Natural) => {
         val joinInputs = children.flatMap { f =>
           f match {
-            case j2 @ Join(grandsons, _, _, _)
+            case j2 @ MultiwayNaturalJoin(grandsons, _, _, _)
                 if j2.joinType == joinType && j2.mode == ExecMode.CoupledWithComputationDelay =>
               grandsons
             case _ => f :: Nil
           }
         }
-        Join(joinInputs, joinType, mode)
+        MultiwayNaturalJoin(joinInputs, joinType, mode)
       }
     }
 }
@@ -49,16 +48,15 @@ object MergeDelayedJoin extends Rule[LogicalPlan] {
 /** A rule that merges consecutive joins into one multiway join */
 object MergeAllJoin extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case j1 @ Join(children, _, mode, _) =>
-        val joinInputs = children.flatMap { f =>
-          f match {
-            case j2 @ Join(grandsons, _, _, _) =>
-              grandsons
-            case _ => f :: Nil
-          }
+    plan transform { case j1 @ MultiwayNaturalJoin(children, _, mode, _) =>
+      val joinInputs = children.flatMap { f =>
+        f match {
+          case j2 @ MultiwayNaturalJoin(grandsons, _, _, _) =>
+            grandsons
+          case _ => f :: Nil
         }
-        Join(joinInputs, JoinType.Natural, mode)
+      }
+      MultiwayNaturalJoin(joinInputs, JoinType.Natural, mode)
 
     }
 }
@@ -78,13 +76,13 @@ object ExtractPKFKJoin extends Rule[LogicalPlan] {
         val intersectionAttributeSet = l.outputOld.intersect(r.outputOld).toSet
 
         if (
-          l.primaryKeys.nonEmpty && l.primaryKeys.toSet.subsetOf(
+          l.primaryKeyOld.nonEmpty && l.primaryKeyOld.toSet.subsetOf(
             intersectionAttributeSet
           )
         ) {
           Some(r, l)
         } else if (
-          r.primaryKeys.nonEmpty && r.primaryKeys.toSet.subsetOf(
+          r.primaryKeyOld.nonEmpty && r.primaryKeyOld.toSet.subsetOf(
             intersectionAttributeSet
           )
         ) {
@@ -138,25 +136,28 @@ object ExtractPKFKJoin extends Rule[LogicalPlan] {
     if (nonPKFKNodes.isEmpty && rootPKFKNodesSet.size == 1) {
       rootPKFKNodesSet.head
     } else {
-      Join(nonPKFKNodes ++ rootPKFKNodesSet, JoinType.FKFK, ExecMode.Coupled)
+      MultiwayNaturalJoin(
+        nonPKFKNodes ++ rootPKFKNodesSet,
+        JoinType.FKFK,
+        ExecMode.Coupled
+      )
     }
 
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transformUp {
-      case Join(children, JoinType.Natural, mode, _) =>
+      case MultiwayNaturalJoin(children, JoinType.Natural, mode, _) =>
         extractPrimaryKeyForeignKeyJoin(children)
     }
 }
 
-/**
-  * A rule that reorder multi-way join into binary join such that the join is consecutive, i.e., two consecutive join
+/** A rule that reorder multi-way join into binary join such that the join is consecutive, i.e., two consecutive join
   * must shares some attributes.
   */
 object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
 
-  def findConsecutiveJoin(join: Join): Join = {
+  def findConsecutiveJoin(join: MultiwayNaturalJoin): MultiwayNaturalJoin = {
 
     //we assume there is no cartesian product and numbers of children > 2
     assert(join.children.size > 2)
@@ -166,7 +167,7 @@ object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
       .drop(1)
       .filter(_.outputOld.intersect(leaf1.outputOld).nonEmpty)
       .head
-    val leafJoin = Join(
+    val leafJoin = MultiwayNaturalJoin(
       children = Seq(leaf1, leaf2),
       joinType = join.joinType,
       mode = join.mode
@@ -179,7 +180,7 @@ object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
       val nextLeaf = remainingChildren
         .filter(_.outputOld.intersect(rootJoin.outputOld).nonEmpty)
         .head
-      rootJoin = Join(
+      rootJoin = MultiwayNaturalJoin(
         children = Seq(rootJoin, nextLeaf),
         joinType = join.joinType,
         mode = join.mode
@@ -192,7 +193,8 @@ object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
 
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
-      case j: Join if j.children.size > 2 => findConsecutiveJoin(j)
+      case j: MultiwayNaturalJoin if j.children.size > 2 =>
+        findConsecutiveJoin(j)
     }
 }
 
@@ -244,15 +246,13 @@ object GHDBasedJoinReorder extends Rule[LogicalPlan] {
       decomposer
         .decomposeTree(schema2Plan.keys.toSeq)
         .filter { tree =>
-          tree.nodes.exists {
-            case (_, schemas) =>
-              rootAttributeSet.subsetOf(schemas.flatMap(_.attributeNames).toSet)
+          tree.nodes.exists { case (_, schemas) =>
+            rootAttributeSet.subsetOf(schemas.flatMap(_.attributeNames).toSet)
           }
         }
         .head
-    val rootNode = optimalGHD.nodes.find {
-      case (_, schemas) =>
-        rootAttributeSet.subsetOf(schemas.flatMap(_.attributeNames).toSet)
+    val rootNode = optimalGHD.nodes.find { case (_, schemas) =>
+      rootAttributeSet.subsetOf(schemas.flatMap(_.attributeNames).toSet)
     }.get
 
     val rootNodeID = rootNode._1
@@ -334,7 +334,11 @@ object GHDBasedJoinReorder extends Rule[LogicalPlan] {
             }
           val lambda = chi.flatMap(_.outputOld).distinct
           val ghdnode = GHDNode(chi, lambda, ExecMode.Coupled)
-          Join(subTree :: ghdnode :: Nil, JoinType.GHDFKFK, ExecMode.Coupled)
+          MultiwayNaturalJoin(
+            subTree :: ghdnode :: Nil,
+            JoinType.GHDFKFK,
+            ExecMode.Coupled
+          )
       }
     } else {
       //DEBUG
@@ -347,14 +351,14 @@ object GHDBasedJoinReorder extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
       case p @ Project(
-            Join(children, JoinType.FKFK, mode1, _),
+            MultiwayNaturalJoin(children, JoinType.FKFK, mode1, _),
             projectionList,
             mode2,
             _
           ) =>
         p.copy(child = constructGHDJoinTree(children, projectionList))
       case a @ Aggregate(
-            Join(children, JoinType.FKFK, mode1, _),
+            MultiwayNaturalJoin(children, JoinType.FKFK, mode1, _),
             groupingList,
             _,
             _,
@@ -363,17 +367,17 @@ object GHDBasedJoinReorder extends Rule[LogicalPlan] {
             _
           ) =>
         a.copy(child = constructGHDJoinTree(children, groupingList))
-      case Join(children, JoinType.FKFK, mode, _) =>
+      case MultiwayNaturalJoin(children, JoinType.FKFK, mode, _) =>
         constructGHDJoinTree(children, Seq())
       case p @ Project(
-            Join(children, JoinType.PKFK, mode1, _),
+            MultiwayNaturalJoin(children, JoinType.PKFK, mode1, _),
             projectionList,
             mode2,
             _
           ) =>
         p
       case a @ Aggregate(
-            Join(children, JoinType.PKFK, mode1, _),
+            MultiwayNaturalJoin(children, JoinType.PKFK, mode1, _),
             groupingList,
             _,
             _,
@@ -388,12 +392,11 @@ object GHDBasedJoinReorder extends Rule[LogicalPlan] {
 /** a rule that expands GHDNode into LogicalPlan for constructing a plan from GHDTree */
 object ExpandGHDNode extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case GHDNode(chi, lambda, mode) =>
-        if (chi.size > 1) {
-          Join(chi, JoinType.GHD, mode)
-        } else {
-          chi.head
-        }
+    plan transform { case GHDNode(chi, lambda, mode) =>
+      if (chi.size > 1) {
+        MultiwayNaturalJoin(chi, JoinType.GHD, mode)
+      } else {
+        chi.head
+      }
     }
 }

@@ -8,37 +8,33 @@ import org.apache.spark.secco.optimization.support.AnalyzeOutputSupport
 object AddCache extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case i: Iterative =>
-        val updatePlans = i.collect {
-          case u: Update => u
+    plan transform { case i: Iterative =>
+      val updatePlans = i.collect { case u: Update =>
+        u
+      }
+
+      val assignPlans = i.collect { case a: Assign =>
+        a
+      }
+
+      val deltaTableIdentifiers = updatePlans.map(
+        _.deltaTableIdentifier
+      ) ++ assignPlans.map(_.tableIdentifier)
+
+      val newChild = i.child transformUp { case l: LogicalPlan =>
+        if (l.mode != ExecMode.Atomic && isStatic(l, deltaTableIdentifiers)) {
+
+          if (isMaterializable(l)) {
+            Cache(l)
+          } else {
+            l
+          }
+        } else {
+          l
         }
+      }
 
-        val assignPlans = i.collect {
-          case a: Assign => a
-        }
-
-        val deltaTableIdentifiers = updatePlans.map(
-          _.deltaTableName
-        ) ++ assignPlans.map(_.tableIdentifier)
-
-        val newChild = i.child transformUp {
-          case l: LogicalPlan =>
-            if (
-              l.mode != ExecMode.Atomic && isStatic(l, deltaTableIdentifiers)
-            ) {
-
-              if (isMaterializable(l)) {
-                Cache(l)
-              } else {
-                l
-              }
-            } else {
-              l
-            }
-        }
-
-        i.copy(child = newChild)
+      i.copy(child = newChild)
     }
 }
 
@@ -49,11 +45,10 @@ object RemoveRedundantCache
     extends Rule[LogicalPlan]
     with AnalyzeOutputSupport {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case c: Cache =>
-        val newChild = c.child transform {
-          case ca: Cache => ca.child
-        }
-        c.copy(child = newChild)
+    plan transform { case c: Cache =>
+      val newChild = c.child transform { case ca: Cache =>
+        ca.child
+      }
+      c.copy(child = newChild)
     }
 }

@@ -4,7 +4,7 @@ import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
-  Join,
+  MultiwayNaturalJoin,
   LeafNode,
   LocalStage,
   Partition,
@@ -19,8 +19,7 @@ class NoExactCardinalityException(
     @transient val plan: LogicalPlan
 ) extends Exception(s"There is no exact cardinality for ${plan}")
 
-/**
-  * An estimator that returns the exact cardinality of the estimated operator.
+/** An estimator that returns the exact cardinality of the estimated operator.
   *
   * Ideally, it should support two modes to returns the exact cardinality estimation.
   *
@@ -58,7 +57,7 @@ object ExactStatsPlanVisitor
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))
 
-  override def visitJoin(p: Join): Statistics = default(p)
+  override def visitJoin(p: MultiwayNaturalJoin): Statistics = default(p)
 //    ExactJoinEstimation
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))

@@ -189,7 +189,7 @@ object RelationAlgebraWithAnalysis {
   }
 
   def join(children: LogicalPlan*) = {
-    Join(children, JoinType.Natural, ExecMode.Coupled)
+    MultiwayNaturalJoin(children, JoinType.Natural, ExecMode.Coupled)
   }
 
   def cartesianProduct(children: LogicalPlan*) = {

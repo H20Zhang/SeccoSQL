@@ -21,6 +21,7 @@ import scala.collection.mutable
   */
 object HistogramStatisticComputer {
 
+  //TODO: [change] attributes:Seq[String] -> attributes:Seq[Attributes]
   def compute(
       attributes: Seq[String],
       content: RDD[InternalBlock]

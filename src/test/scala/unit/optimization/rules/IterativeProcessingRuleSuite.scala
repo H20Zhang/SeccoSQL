@@ -33,7 +33,7 @@ class IterativeProcessingRuleSuite extends SeccoFunSuite {
 
     val expr1 =
       rename(
-        s"V/A,W/${agg.producedOutput.head}",
+        s"V/A,W/${agg.producedOutputOld.head}",
         agg
       )
 
