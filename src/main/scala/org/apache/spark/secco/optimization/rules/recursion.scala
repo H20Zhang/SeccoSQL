@@ -4,6 +4,14 @@ import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.support.AnalyzeOutputSupport
 
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This file contains rules for optimizing iterative computations.
+ *
+ *  0. AddCache: add cache for logical operators during iterative computations.
+ *  1. RemoveRedundantCache: remove redundant cache.
+ *---------------------------------------------------------------------------------------------------------------------
+ */
+
 /** A rule that adds the cache for a logical plan if its output size is small and it is static */
 object AddCache extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 

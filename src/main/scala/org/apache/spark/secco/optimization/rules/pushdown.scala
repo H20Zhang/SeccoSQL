@@ -3,8 +3,18 @@ package org.apache.spark.secco.optimization.rules
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan._
 
-/** A set of the basic transformation rules for optimizing the relation algebra
-  */
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This file contains rules for pushing logical operators down.
+ *
+ *  0. PushRenameToLeaf: push rename operator along the operator tree.
+ *  1. PushSelectionThroughJoin: push selection through join.
+ *  2. PushProjectionThroughJoin: push projection through join.
+ *  3. PushSelectionThroughUnion: push selection through union.
+ *  4. PushProjectionThroughUnion: push projection through union.
+ *  5. PushSemiringAggregationAlongGHDTree: push aggregation through GHD.
+ *  6. CleanRoot: remove RootNode operator.
+ *---------------------------------------------------------------------------------------------------------------------
+ */
 
 /** A rule that pushes down the rename operator to the leaf */
 object PushRenameToLeaf extends Rule[LogicalPlan] {

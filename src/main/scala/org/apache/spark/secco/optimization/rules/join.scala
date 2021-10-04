@@ -14,17 +14,19 @@ import org.apache.spark.secco.optimization.plan._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-/** This files defines a set of rules for optimizing join
-  *
-  *   1. MergeJoin: a rule that merges consecutive binary (multi-way) join into single multi-way join
-  *   2. MergeAllJoin: a rule that merges consecutive joins into one multiway join
-  *   3. ExtractPFKFJoin: a rule that extracts PK-FK join from the rest of the join
-  *   4. GHDBasedJoinReordering: a rule that transforms join into GHDTree by GHD(generalized hypertree decomposition),
-  *       where the join between GHDNode is acyclic join and the join inside GHDNode is cyclic join.
-  *   5. ConsecutiveJoinReorder: A rule that reorders multi-way join into binary join such that the join is consecutive,
-  *       i.e., two consecutive join must shares some attributes.
-  *   6. ExpandGHDNode: a rule that expands GHDNode into join.
-  */
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This files defines a set of rules for optimizing join
+ *
+ *  0. MergeDelayedJoin: a rule that merges consecutive binary (multi-way) join into single multi-way join
+ *  1. MergeAllJoin: a rule that merges consecutive joins into one multiway join
+ *  2. ExtractPFKFJoin: a rule that extracts PK-FK join from the rest of the join
+ *  3. GHDBasedJoinReordering: a rule that transforms join into GHDTree by GHD(generalized hypertree decomposition),
+ *       where the join between GHDNode is acyclic join and the join inside GHDNode is cyclic join.
+ *  4. ConsecutiveJoinReorder: A rule that reorders multi-way join into binary join such that the join is consecutive,
+ *       i.e., two consecutive join must shares some attributes.
+ *  5. ExpandGHDNode: a rule that expands GHDNode into join.
+ * ---------------------------------------------------------------------------------------------------------------------
+ */
 
 /** A rule that merges consecutive natural joins (JoinType is Natural or GHD) with same joinType and mode into one multiway join */
 object MergeDelayedJoin extends Rule[LogicalPlan] {

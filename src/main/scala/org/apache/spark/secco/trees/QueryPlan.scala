@@ -19,7 +19,9 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
   }
 
   /** The output attributes */
-  def output: Seq[Attribute]
+  def output: Seq[Attribute] = {
+    throw new NotImplementedError()
+  }
 
   /** Returns the set of attributes that are output by this node.
     */

@@ -17,6 +17,8 @@ import scala.collection.mutable.ArrayBuffer
  * This file contains logical plans with multiple children, i.e., n > 2.
  *
  * 0.  MultiNode: base class of logical plan with multiple children.
+ * 1.  MultiwayNaturalJoin: logical plan that performs multiway natural join between children.
+ * 2.  With: logical plan that represent CTE(common table expressions).
  *
  * ---------------------------------------------------------------------------------------------------------------------
  */

@@ -65,7 +65,7 @@ case class Transform(
   override def primaryKey: Seq[Attribute] = child.primaryKey
 }
 
-/** RootNode of the logical plan
+/** A [[LogicalPlan]] that marks the root node of the operator tree.
   *
   * @param child child logical plan
   * @param mode execution mode

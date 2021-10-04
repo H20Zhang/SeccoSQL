@@ -13,6 +13,19 @@ import org.apache.spark.secco.trees.RuleExecutor
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This files defines a set of rules for separating communication from computation.
+ *
+ *  0. MarkDelay: mark the logical operators whose computation should be delayed.
+ *  1. DecoupleOperators: separate communication from computation for a single logical operator.
+ *  2. PackLocalComputationIntoLocalStage: pack separated local computation logical operator into LocalStage operator.
+ *  3. UnpackLocalStage: unpack local computation from LocalStage operator.
+ *  4. MergeLocalStage: merge consecutive LocalStage operator.
+ *  5. SelectivelyPushCommunicationThroughComputation: selectively push communication past computation (i.e., delay
+ *  computation).
+ *---------------------------------------------------------------------------------------------------------------------
+ */
+
 object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   def dlSession = SeccoSession.currentSession

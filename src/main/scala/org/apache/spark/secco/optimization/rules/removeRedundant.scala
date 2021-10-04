@@ -3,6 +3,16 @@ package org.apache.spark.secco.optimization.rules
 import org.apache.spark.secco.optimization.{LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan.{Filter, Project, Union}
 
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This file contains rules for removing redundant logical operators.
+ *
+ *  0. MergeUnion: merge consecutive union into one union.
+ *  1. MergeProjection: merge consecutive projection into one projection.
+ *  2. MergeSelection: merge consecutive selection into one selection.
+ *  3. RemoveRedundantSelection: remove redundant selection predicates.
+ *  4. RemoveRedundantProjection: remove redundant projection functions.
+ */
+
 /** A rule that merges consecutive union into one union */
 object MergeUnion extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
