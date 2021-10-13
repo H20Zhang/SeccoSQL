@@ -5,18 +5,16 @@ import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
-import org.apache.spark.secco.optimization.plan.JoinType.JoinType
 
 /* ---------------------------------------------------------------------------------------------------------------------
  * This file contains logical plans with two children.
  *
  * 0.  BinaryNode: base class of logical plan with two children.
- * 1.  Union: union the results of left child and right child.
- * 2.  Intersection: intersect the results of left child and right child.
- * 3.  Diff: perform difference between results of left child and right child.
- * 4.  BinaryJoin: perform join between left child and right child.
- * 5.  PKFKJoin: perform primary-key foreign-key join between left child and right child.
- * 6.  UnionByUpdate: update results of left child by results of right child.
+ * 1.  Intersection: intersect the results of left child and right child.
+ * 2.  Diff: perform difference between results of left child and right child.
+ * 3.  BinaryJoin: perform join between left child and right child.
+ * 4.  PKFKJoin: perform primary-key foreign-key join between left child and right child.
+ * 5.  UnionByUpdate: update results of left child by results of right child.
  *
  * ---------------------------------------------------------------------------------------------------------------------
  */
@@ -27,27 +25,6 @@ abstract class BinaryNode extends LogicalPlan {
   def right: LogicalPlan
 
   override final def children: Seq[LogicalPlan] = Seq(left, right)
-}
-
-/** A [[LogicalPlan]] that computes the union between tuples of left child and tuples of right child.
-  * @param left left child [[LogicalPlan]]
-  * @param right right child [[LogicalPlan]]
-  * @param mode execution mode
-  */
-case class Union(
-    left: LogicalPlan,
-    right: LogicalPlan,
-    mode: ExecMode = ExecMode.Coupled
-) extends BinaryNode {
-
-  //ensure left and right child has same attributes
-  assert(left.outputSet == right.outputSet)
-
-  override def primaryKey: Seq[Attribute] = left.primaryKey
-
-  override def output: Seq[Attribute] = left.output
-
-  override def relationalSymbol: String = s"⋃"
 }
 
 /** A [[LogicalPlan]] that computes the intersection between tuples of left child and tuples of right child.
@@ -76,7 +53,7 @@ case class Intersection(
   * @param right right child [[LogicalPlan]]
   * @param mode execution mode
   */
-case class Diff(
+case class Except(
     left: LogicalPlan,
     right: LogicalPlan,
     mode: ExecMode = ExecMode.Coupled
@@ -122,42 +99,8 @@ case class BinaryJoin(
     left: LogicalPlan,
     right: LogicalPlan,
     joinType: JoinType,
-    condition: Expression,
-    mode: ExecMode = ExecMode.Coupled
-) extends BinaryNode {
-
-  override def primaryKey: Seq[Attribute] = {
-    if (
-      (left.outputSet
-        .intersect(
-          right.outputSet
-        ) == AttributeSet(left.primaryKey)) && (AttributeSet(
-        left.primaryKey
-      ) == AttributeSet(right.primaryKey))
-    ) {
-      left.primaryKey
-    } else {
-      Seq()
-    }
-  }
-
-  override def output: Seq[Attribute] =
-    children.flatMap(_.output)
-
-  override def relationalSymbol: String = s"⧓"
-}
-
-/** A [[LogicalPlan]] that performs Primary-Key Foreign-Key join between tuples of left child and tuples of right child.
-  * @param left left child [[LogicalPlan]]
-  * @param right right child [[LogicalPlan]]
-  * @param joinType join types = Primary-Key Foreign-Key Join.
-  * @param mode execution mode
-  */
-case class PKFKJoin(
-    left: LogicalPlan,
-    right: LogicalPlan,
-    joinType: JoinType = JoinType.PKFK,
-    condition: Option[Expression] = None,
+    condition: Option[Expression],
+    property: Set[JoinProperty] = Set(),
     mode: ExecMode = ExecMode.Coupled
 ) extends BinaryNode {
 

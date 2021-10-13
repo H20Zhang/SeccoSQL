@@ -1,13 +1,13 @@
 package org.apache.spark.secco.optimization.statsEstimation.exact.deprecated
 
-import org.apache.spark.secco.optimization.plan.{MultiwayNaturalJoin, Relation}
+import org.apache.spark.secco.optimization.plan.{MultiwayJoin, Relation}
 import org.apache.spark.secco.optimization.statsEstimation.exact.NoExactCardinalityException
 import org.apache.spark.secco.optimization.statsEstimation.{
   Estimation,
   Statistics
 }
 
-object ExactJoinEstimation extends Estimation[MultiwayNaturalJoin] {
+object ExactJoinEstimation extends Estimation[MultiwayJoin] {
 
   private var _defaultCardinality = 1L
   private var _cardinalityMap: Option[Map[Set[String], Long]] =
@@ -31,7 +31,7 @@ object ExactJoinEstimation extends Estimation[MultiwayNaturalJoin] {
     _defaultCardinality
   }
 
-  override def estimate(x: MultiwayNaturalJoin): Option[Statistics] = {
+  override def estimate(x: MultiwayJoin): Option[Statistics] = {
 
     if (_cardinalityMap.isEmpty) {
       Some(
@@ -41,8 +41,8 @@ object ExactJoinEstimation extends Estimation[MultiwayNaturalJoin] {
       )
     } else {
       val mergedPlan = Estimation.mergeJoin(x)
-      assert(mergedPlan.isInstanceOf[MultiwayNaturalJoin])
-      val mergedJoin = mergedPlan.asInstanceOf[MultiwayNaturalJoin]
+      assert(mergedPlan.isInstanceOf[MultiwayJoin])
+      val mergedJoin = mergedPlan.asInstanceOf[MultiwayJoin]
 
       assert(
         mergedJoin.children.forall(_.isInstanceOf[Relation]),

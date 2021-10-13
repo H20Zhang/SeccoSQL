@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.statsEstimation
 
 import org.apache.spark.secco.optimization.LogicalPlan
-import org.apache.spark.secco.optimization.plan.MultiwayNaturalJoin
+import org.apache.spark.secco.optimization.plan.MultiwayJoin
 import org.apache.spark.secco.optimization.rules.MergeAllJoin
 import org.apache.spark.secco.trees.RuleExecutor
 
@@ -16,7 +16,7 @@ trait Estimation[T] {
 object Estimation {
 
   /** Merge all consecutive joins into one join. */
-  def mergeJoin(j: MultiwayNaturalJoin): LogicalPlan = {
+  def mergeJoin(j: MultiwayJoin): LogicalPlan = {
     val joinMergeExecutor = new RuleExecutor[LogicalPlan] {
 
       override protected def batches: Seq[Batch] =

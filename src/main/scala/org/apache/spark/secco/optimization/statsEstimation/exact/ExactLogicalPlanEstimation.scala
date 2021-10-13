@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.statsEstimation.exact
 
 import org.apache.spark.secco.optimization.LogicalPlan
-import org.apache.spark.secco.optimization.plan.MultiwayNaturalJoin
+import org.apache.spark.secco.optimization.plan.MultiwayJoin
 import org.apache.spark.secco.optimization.statsEstimation.{
   Estimation,
   Statistics

@@ -1,13 +1,15 @@
 package org.apache.spark.secco.optimization.util.ghd
 
-import org.apache.spark.secco.catalog.AbstractCatalogTable
+import org.apache.spark.secco.expression.Attribute
 
 import scala.collection.mutable.ArrayBuffer
 
+/** A trait for classes that have id. */
 trait HasID {
   def id: Int
 }
 
+/** A trait for the node of the graph. */
 trait Node extends HasID {
   def id: Int
 
@@ -16,6 +18,7 @@ trait Node extends HasID {
   }
 }
 
+/** A trait for the edge of the graph. */
 trait Edge[V <: Node] {
   def nodes: Array[V]
   lazy val nodeSet: Set[V] = Set(nodes: _*)
@@ -26,11 +29,21 @@ trait Edge[V <: Node] {
   }
 }
 
+/** A graph that with nodes and edges.
+  * @param nodes nodes of the graph
+  * @param edges edges of the graph
+  * @tparam V node type
+  * @tparam E edge type
+  */
 class Graph[V <: Node, E <: Edge[V]](val nodes: Array[V], val edges: Array[E]) {
 
   lazy val nodeSet = nodes.toSet
   lazy val edgeSet = edges.toSet
 
+  /** Return the node induced subgraph.
+    * @param nodes nodes of the subgraph
+    * @return a node induced subgraph
+    */
   def nodeInducedSubgraph(nodes: Array[V]): Graph[V, E] = {
 
     val nodeSet = nodes.toSet
@@ -41,11 +54,12 @@ class Graph[V <: Node, E <: Edge[V]](val nodes: Array[V], val edges: Array[E]) {
     Graph(nodes, inducedEdges)
   }
 
+  /** test if the graph is empty. */
   def isEmpty(): Boolean = {
     nodes.isEmpty && edges.isEmpty
   }
 
-  //Check if the undirected version of the graph is connected
+  /** test if the undirected version of the graph is connected */
   def isWeaklyConnected(): Boolean = {
 
     import scala.collection.mutable
@@ -85,14 +99,35 @@ class Graph[V <: Node, E <: Edge[V]](val nodes: Array[V], val edges: Array[E]) {
     nodes.toSet.diff(visited).isEmpty
   }
 
+  /** Test if the given node exists in this graph.
+    * @param node the node to test
+    * @return whether the given node is in the graph
+    */
   def containNode(node: V): Boolean = nodeSet.contains(node)
+
+  /** Test if the given edge exists in this graph.
+    * @param edge the node to test
+    * @return whether the given edge is in the graph
+    */
   def containEdge(edge: E): Boolean = edgeSet.contains(edge)
+
+  /** Test if all given nodes exists in this graph.
+    * @param nodes all nodes to test
+    * @return whether all given nodes is in the graph
+    */
   def containAnyNodes(nodes: Array[V]): Boolean = nodes.exists(containNode)
 
-  lazy val width: Double = WidthCalculator.width(this)
+  /** Test if the given subgraph is contained in this graph.
+    * @param subgraph the subgraph to test
+    * @return whether the given subgraph is contained in the graph
+    */
   def containSubgraph(subgraph: Graph[V, E]): Boolean = {
     subgraph.nodes.forall(containNode) && subgraph.edges.forall(containEdge)
   }
+
+  /** Width (fractional edge cover number) of the graph. */
+  lazy val width: Double = WidthCalculator.width(this)
+
   override def toString: String = {
     s"V:${nodes.mkString("[", ",", "]")}\nE:${edges.mkString("[", ",", "]")}"
   }
@@ -108,14 +143,18 @@ object Graph {
 // Relation Graph.
 // We assume RelationGraph is undirected graph, thus the nodes in edges won't distinguish directions.
 
-case class RelationNode(id: Int, attr: String) extends Node
+/** A node in the [[RelationGraph]], which actually represents an attribute.
+  * @param id id of the node
+  * @param attr attributes of the node
+  */
+case class RelationNode(id: Int, attr: Attribute) extends Node
 
 object RelationNode {
 
   private var counter = 0
-  private val attrToId = scala.collection.mutable.HashMap[String, Int]()
+  private val attrToId = scala.collection.mutable.HashMap[Attribute, Int]()
 
-  def apply(attr: String): RelationNode = {
+  def apply(attr: Attribute): RelationNode = {
     attrToId.get(attr) match {
       case Some(id) => RelationNode(id, attr)
       case None =>
@@ -124,11 +163,19 @@ object RelationNode {
   }
 }
 
-case class RelationEdge(attrs: Set[String]) extends Edge[RelationNode] {
+/** A edge in the [[RelationGraph]], which actually represents a relation.
+  * @param attrs schemas of the relation.
+  */
+case class RelationEdge(attrs: Set[Attribute]) extends Edge[RelationNode] {
   override val nodes: Array[RelationNode] =
     attrs.map(attr => RelationNode(attr)).toArray
 }
 
+/** A graph that represents a join query, where each node is an attribute and each edge is an relation.
+  * @param id id of the graph
+  * @param nodes nodes of the graph
+  * @param edges edges of the graph
+  */
 case class RelationGraph(
     id: Int,
     override val nodes: Array[RelationNode],
@@ -159,18 +206,23 @@ object RelationGraph {
     graph
   }
 
-  def apply(schemas: Array[AbstractCatalogTable]): RelationGraph = {
-    val nodes = schemas.flatMap(_.attributeNames).distinct.map(RelationNode(_))
-    val edges = schemas.map(f => RelationEdge(f.attributeNames.toSet))
+  def apply(schemas: Array[Array[Attribute]]): RelationGraph = {
+    val nodes = schemas.flatten.distinct.map(RelationNode(_))
+    val edges = schemas.map(f => RelationEdge(f.toSet))
     RelationGraph(nodes, edges)
   }
 }
 
 //  HyperNodes that are isomoprhic are given the same id
+
+/** A hypernode of the [[HyperTree]], where contains join query represented in [[RelationGraph]].
+  * @param g the join graph
+  */
 case class HyperNode(g: RelationGraph) extends Node {
 
   val id = g.id
-  //    Construct induced hyper-node according to the nodeset of current hypernode
+
+  /** Construct induced hyper-node according to the nodeset of current hypernode */
   def toInducedHyperNode(supG: RelationGraph): HyperNode = {
     HyperNode(supG.nodeInducedSubgraph(g.nodes))
   }
@@ -180,20 +232,34 @@ case class HyperNode(g: RelationGraph) extends Node {
   }
 }
 
+/** A hyperedge of the [[HyperTree]].
+  * @param src source node
+  * @param dst destination node
+  */
 case class HyperEdge(src: HyperNode, dst: HyperNode) extends Edge[HyperNode] {
   override def nodes: Array[HyperNode] = Array(src, dst)
 }
 
 // We regard GHD as a special kinds of hypertree
+
+/** A hypertree
+  * @param nodes hypernodes
+  * @param edges hyperedges
+  */
 case class HyperTree(
     override val nodes: Array[HyperNode],
     override val edges: Array[HyperEdge]
 ) extends Graph(nodes, edges) {
 
+  /** fractional tree width */
   lazy val fractionalHyperNodeWidth = nodes.map(_.g.width).max
 
-  //  By adding one hypernode to existing hypertree with one edge connected,
-  //  we ensure the result graph is always a hypertree.
+  /** By adding one hypernode to existing hypertree with one edge connected,
+    * we ensure the result graph is always a hypertree.
+    * @param newNode new hypernode to be added to the tree.
+    * @return possible new [[HyperTree]] with the given newNode added, if no such [[HyperTree]] exists,
+    *         an empty array is returned.
+    */
   def addHyperNode(newNode: HyperNode): Array[HyperTree] = {
     if (isEmpty()) {
       return Array(HyperTree(nodes :+ newNode, edges))
@@ -217,9 +283,11 @@ case class HyperTree(
     hypertreeBuffer.toArray
   }
 
-  //  Determine whether current GHD satisfies running path property.
-  //  We assume all tree are constructed using function `addHyperTreeNode`, which means
-  //  tree condition is automatically satisfied
+  /** Determine whether current GHD satisfies running path property.
+    *
+    * Note that: We assume all tree are constructed using function `addHyperTreeNode`, which means
+    * tree condition is automatically satisfied
+    */
   def isGHD(): Boolean = {
 
     //  return the subgraph of the hypertree based on the running path induced subgraph

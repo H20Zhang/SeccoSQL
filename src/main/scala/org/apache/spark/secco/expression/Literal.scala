@@ -1,8 +1,8 @@
 package org.apache.spark.secco.expression
 
 import org.apache.spark.secco.types._
-import java.util.Objects
 
+import java.util.Objects
 import org.apache.spark.secco.codegen.{
   CodeGenerator,
   CodegenContext,
@@ -10,6 +10,7 @@ import org.apache.spark.secco.codegen.{
   JavaCode
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.types.TypeConverters.convertToSecco
 
 case class Literal(value: Any, dataType: DataType) extends LeafExpression {
 
@@ -53,8 +54,7 @@ case class Literal(value: Any, dataType: DataType) extends LeafExpression {
       case v: (String, StringType) => v._1
     }
 
-  /**
-    * Returns Java source code that can be compiled to evaluate this expression.
+  /** Returns Java source code that can be compiled to evaluate this expression.
     * The default behavior is to call the eval method of the expression. Concrete expression
     * implementations should override this to do actual code generation.
     *
@@ -127,4 +127,20 @@ object Literal {
           "Unsupported literal type " + v.getClass + " " + v
         )
     }
+
+  def create(v: Any, dataType: DataType): Literal = {
+
+    Literal(TypeConverters.convertToSecco(v), dataType)
+  }
+
+  def default(dataType: DataType): Literal = dataType match {
+    case IntegerType => Literal(0)
+    case LongType    => Literal(0L)
+    case DoubleType  => Literal(0.0)
+    case FloatType   => Literal(0.0f)
+    case StringType  => Literal("")
+    case BooleanType => Literal(false)
+    case _ =>
+      throw new RuntimeException(s"no default for type $dataType")
+  }
 }

@@ -6,8 +6,7 @@ import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.optimization.rules._
 import org.apache.spark.secco.trees.RuleExecutor
 
-/**
-  * The optimizer of the Secco, which accepts a series of [[org.apache.spark.secco.optimization.Rule]]
+/** The optimizer of the Secco, which accepts a series of [[org.apache.spark.secco.optimization.Rule]]
   * and apply the rules to transform the plan
   *
   * @param conf current session's configuration
@@ -21,8 +20,7 @@ class SeccoOptimizer(
   def containsBatch(batchName: String): Boolean =
     validBatches.filter(_._1.name == batchName).nonEmpty
 
-  /**
-    * disable batches with `batchNames`
+  /** disable batches with `batchNames`
     * @param batchNames name of batches to disable
     * @return self
     */
@@ -45,8 +43,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * enable batches with `batchNames`
+  /** enable batches with `batchNames`
     * @param batchNames name of batches to enable
     * @return self
     */
@@ -69,8 +66,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * Disable all batches.
+  /** Disable all batches.
     * @return self
     */
   def setAllBatchDisabled(): SeccoOptimizer = {
@@ -78,8 +74,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * Enable all batches.
+  /** Enable all batches.
     * @return self
     */
   def setAllBatchEnabled(): SeccoOptimizer = {
@@ -87,8 +82,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * The batches of rules that are enabled
+  /** The batches of rules that are enabled
     * @return self
     */
   private var validBatches = defaultBatches.map(f => (f, true)).toMap
@@ -117,17 +111,17 @@ class SeccoOptimizer(
     )
 
     val advanceRules = Seq(
-      Batch("ExtractPKFKJoin", fixedPoint, ExtractPKFKJoin),
+      Batch("ExtractPKFKJoin", fixedPoint, OptimizePKFKJoin),
       Batch(
         "GHD-Based Join Reorder",
         fixedPoint,
-        GHDBasedJoinReorder,
+        OptimizeMultiwayJoin,
         ExpandGHDNode
       ),
       Batch(
         "Aggregation Push-Down",
         Once,
-        PushSemiringAggregationAlongGHDTree
+        PushDownAggregation
       ),
       Batch(
         "Projection Push-Down",

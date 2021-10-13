@@ -16,8 +16,7 @@ import org.apache.spark.secco.trees.TreeNode
 import org.apache.spark.secco.types.{AbstractDataType, DataType}
 import org.apache.spark.util.Utils
 
-/**
-  * An expression in Catalyst.
+/** An expression in Catalyst.
   *
   * If an expression wants to be exposed in the function registry (so users can call it with
   * "name(arguments...)", the concrete implementation must be a case class whose constructor
@@ -34,12 +33,10 @@ import org.apache.spark.util.Utils
   * - [[BinaryExpression]]: an expression that has two children.
   * - [[BinaryOperator]]: a special case of [[BinaryExpression]] that requires two children to have
   *                       the same output data type.
-  *
   */
 abstract class Expression extends TreeNode[Expression] {
 
-  /**
-    * Returns true when an expression is a candidate for static evaluation before the query is
+  /** Returns true when an expression is a candidate for static evaluation before the query is
     * executed.
     *
     * The following conditions are used to determine suitability for constant folding:
@@ -51,8 +48,7 @@ abstract class Expression extends TreeNode[Expression] {
     */
   def foldable: Boolean = false
 
-  /**
-    * Returns true when the current expression always return the same result for fixed inputs from
+  /** Returns true when the current expression always return the same result for fixed inputs from
     * children.
     *
     * Note that this means that an expression should be considered as non-deterministic if:
@@ -74,8 +70,7 @@ abstract class Expression extends TreeNode[Expression] {
   /** Returns the result of evaluating this expression on a given input Row */
   def eval(input: InternalRow = null): Any
 
-  /**
-    * Returns an [[ExprCode]], that contains the Java source code to generate the result of
+  /** Returns an [[ExprCode]], that contains the Java source code to generate the result of
     * evaluating the expression on an input row.
     *
     * @param ctx a [[CodegenContext]]
@@ -105,8 +100,7 @@ abstract class Expression extends TreeNode[Expression] {
 //    }
   }
 
-  /**
-    * Returns Java source code that can be compiled to evaluate this expression.
+  /** Returns Java source code that can be compiled to evaluate this expression.
     * The default behavior is to call the eval method of the expression. Concrete expression
     * implementations should override this to do actual code generation.
     *
@@ -116,8 +110,7 @@ abstract class Expression extends TreeNode[Expression] {
     */
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode
 
-  /**
-    * Returns `true` if this expression and all its children have been resolved to a specific schema
+  /** Returns `true` if this expression and all its children have been resolved to a specific schema
     * and input data types checking passed, and `false` if it still contains any unresolved
     * placeholders or has data types mismatch.
     * Implementations of expressions should override this if the resolution of this type of
@@ -126,34 +119,29 @@ abstract class Expression extends TreeNode[Expression] {
   lazy val resolved: Boolean = childrenResolved
 //  && checkInputDataTypes().isSuccess
 
-  /**
-    * Returns the [[DataType]] of the result of evaluating this expression.  It is
+  /** Returns the [[DataType]] of the result of evaluating this expression.  It is
     * invalid to query the dataType of an unresolved expression (i.e., when `resolved` == false).
     */
   def dataType: DataType
 
-  /**
-    * Returns true if  all the children of this expression have been resolved to a specific schema
+  /** Returns true if  all the children of this expression have been resolved to a specific schema
     * and false if any still contains any unresolved placeholders.
     */
   def childrenResolved: Boolean = children.forall(_.resolved)
 
-  /**
-    * Returns an expression where a best effort attempt has been made to transform `this` in a way
+  /** Returns an expression where a best effort attempt has been made to transform `this` in a way
     * that preserves the result but removes cosmetic variations (case sensitivity, ordering for
     * commutative operations, etc.)  See [[Canonicalize]] for more details.
     *
     * `deterministic` expressions where `this.canonicalized == other.canonicalized` will always
     * evaluate to the same result.
     */
-//  lazy val canonicalized: Expression = {
-//    val canonicalizedChildren = children.map(_.canonicalized)
-//    Canonicalize.execute(withNewChildren(canonicalizedChildren))
-//  }
-  lazy val canonicalized: Expression = ???
+  lazy val canonicalized: Expression = {
+    val canonicalizedChildren = children.map(_.canonicalized)
+    Canonicalize.execute(withNewChildren(canonicalizedChildren))
+  }
 
-  /**
-    * Returns true when two expressions will always compute the same result, even if they differ
+  /** Returns true when two expressions will always compute the same result, even if they differ
     * cosmetically (i.e. capitalization of names in attributes may be different).
     *
     * See [[Canonicalize]] for more details.
@@ -161,8 +149,7 @@ abstract class Expression extends TreeNode[Expression] {
   def semanticEquals(other: Expression): Boolean =
     deterministic && other.deterministic && canonicalized == other.canonicalized
 
-  /**
-    * Returns a `hashCode` for the calculation performed by this expression. Unlike the standard
+  /** Returns a `hashCode` for the calculation performed by this expression. Unlike the standard
     * `hashCode`, an attempt has been made to eliminate cosmetic differences.
     *
     * See [[Canonicalize]] for more details.
@@ -176,8 +163,7 @@ abstract class Expression extends TreeNode[Expression] {
 //    */
 //  def checkInputDataTypes(): TypeCheckResult = TypeCheckResult.TypeCheckSuccess
 
-  /**
-    * Returns a user-facing string representation of this expression's name.
+  /** Returns a user-facing string representation of this expression's name.
     * This should usually match the name of the function in SQL.
     */
   def prettyName: String = nodeName.toLowerCase(Locale.ROOT)
@@ -197,8 +183,7 @@ abstract class Expression extends TreeNode[Expression] {
   override def toString: String =
     prettyName + Utils.truncatedString(flatArguments.toSeq, "(", ", ", ")")
 
-  /**
-    * Returns SQL representation of this expression.  For expressions extending [[NonSQLExpression]],
+  /** Returns SQL representation of this expression.  For expressions extending [[NonSQLExpression]],
     * this method may return an arbitrary user facing string.
     */
   def sql: String = {
@@ -208,8 +193,7 @@ abstract class Expression extends TreeNode[Expression] {
 
 }
 
-/**
-  * An expression that cannot be evaluated. Some expressions don't live past analysis or optimization
+/** An expression that cannot be evaluated. Some expressions don't live past analysis or optimization
   * time (e.g. Star). This trait is used by those expressions.
   */
 trait Unevaluable extends Expression {
@@ -227,15 +211,13 @@ trait Unevaluable extends Expression {
     )
 }
 
-/**
-  * A leaf expression, i.e. one without any child expressions.
+/** A leaf expression, i.e. one without any child expressions.
   */
 abstract class LeafExpression extends Expression {
   override final def children: Seq[Expression] = Nil
 }
 
-/**
-  * An expression with one input and one output. The output is by default evaluated to null
+/** An expression with one input and one output. The output is by default evaluated to null
   * if the input is evaluated to null.
   */
 abstract class UnaryExpression extends Expression {
@@ -247,8 +229,7 @@ abstract class UnaryExpression extends Expression {
   override def foldable: Boolean = child.foldable
   override def nullable: Boolean = child.nullable
 
-  /**
-    * Default behavior of evaluation according to the default nullability of UnaryExpression.
+  /** Default behavior of evaluation according to the default nullability of UnaryExpression.
     * If subclass of UnaryExpression override nullable, probably should also override this.
     */
   override def eval(input: InternalRow): Any = {
@@ -260,16 +241,14 @@ abstract class UnaryExpression extends Expression {
     }
   }
 
-  /**
-    * Called by default [[eval]] implementation.  If subclass of UnaryExpression keep the default
+  /** Called by default [[eval]] implementation.  If subclass of UnaryExpression keep the default
     * nullability, they can override this method to save null-check code.  If we need full control
     * of evaluation process, we should override [[eval]].
     */
   protected def nullSafeEval(input: Any): Any =
     sys.error(s"UnaryExpressions must override either eval or nullSafeEval")
 
-  /**
-    * Called by unary expressions to generate a code block that returns null if its parent returns
+  /** Called by unary expressions to generate a code block that returns null if its parent returns
     * null, and if not null, use `f` to generate the expression.
     *
     * As an example, the following does a boolean inversion (i.e. NOT).
@@ -293,8 +272,7 @@ abstract class UnaryExpression extends Expression {
     )
   }
 
-  /**
-    * Called by unary expressions to generate a code block that returns null if its parent returns
+  /** Called by unary expressions to generate a code block that returns null if its parent returns
     * null, and if not null, use `f` to generate the expression.
     *
     * @param f function that accepts the non-null evaluation result name of child and returns Java
@@ -342,8 +320,7 @@ abstract class BinaryExpression extends Expression {
 
   override def nullable: Boolean = left.nullable || right.nullable
 
-  /**
-    * Default behavior of evaluation according to the default nullability of BinaryExpression.
+  /** Default behavior of evaluation according to the default nullability of BinaryExpression.
     * If subclass of BinaryExpression override nullable, probably should also override this.
     */
   override def eval(input: InternalRow): Any = {
@@ -360,16 +337,14 @@ abstract class BinaryExpression extends Expression {
     }
   }
 
-  /**
-    * Called by default [[eval]] implementation.  If subclass of BinaryExpression keep the default
+  /** Called by default [[eval]] implementation.  If subclass of BinaryExpression keep the default
     * nullability, they can override this method to save null-check code.  If we need full control
     * of evaluation process, we should override [[eval]].
     */
   protected def nullSafeEval(input1: Any, input2: Any): Any =
     sys.error(s"BinaryExpressions must override either eval or nullSafeEval")
 
-  /**
-    * Short hand for generating binary evaluation code.
+  /** Short hand for generating binary evaluation code.
     * If either of the sub-expressions is null, the result of this computation
     * is assumed to be null.
     *
@@ -389,8 +364,7 @@ abstract class BinaryExpression extends Expression {
     )
   }
 
-  /**
-    * Short hand for generating binary evaluation code.
+  /** Short hand for generating binary evaluation code.
     * If either of the sub-expressions is null, the result of this computation
     * is assumed to be null.
     *
@@ -437,8 +411,7 @@ abstract class BinaryExpression extends Expression {
   }
 }
 
-/**
-  * TODO: add type check
+/** TODO: add type check
   *
   * A [[BinaryExpression]] that is an operator, with two properties:
   *
@@ -449,8 +422,7 @@ abstract class BinaryExpression extends Expression {
   */
 abstract class BinaryOperator extends BinaryExpression {
 
-  /**
-    * Expected input type from both left/right child expressions, similar to the
+  /** Expected input type from both left/right child expressions, similar to the
     * [[ImplicitCastInputTypes]] trait.
     */
   def inputType: AbstractDataType

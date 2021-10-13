@@ -59,7 +59,7 @@ case class Cache(child: LogicalPlan, mode: ExecMode = ExecMode.Atomic)
 case class Transform(
     child: LogicalPlan,
     f: Seq[String],
-    output: Seq[Attribute],
+    override val output: Seq[Attribute],
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
   override def primaryKey: Seq[Attribute] = child.primaryKey
@@ -88,7 +88,7 @@ case class RootNode(
   */
 case class Filter(
     child: LogicalPlan,
-    condition: Option[Expression] = None,
+    condition: Expression,
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
@@ -97,11 +97,7 @@ case class Filter(
   override def output: Seq[Attribute] = child.output
 
   override def relationalSymbol: String = {
-    if (condition.isDefined) {
-      s"𝜎[${condition.get}]"
-    } else {
-      s""
-    }
+    s"𝜎[${condition}]"
   }
 }
 
@@ -195,7 +191,7 @@ case class Sort(
 case class Aggregate(
     child: LogicalPlan,
     aggregateExpressions: Seq[NamedExpression],
-    groupingExpressions: Seq[Expression] = Seq(),
+    groupingExpressions: Seq[NamedExpression] = Seq(),
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 

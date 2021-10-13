@@ -26,20 +26,101 @@ import scala.util.{Failure, Success, Try}
  *---------------------------------------------------------------------------------------------------------------------
  */
 
+/** A rule that merges consecutive natural joins (JoinType is Natural or GHD) with same joinType and mode into one multiway join */
+object MergeDelayedJoin extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan =
+    plan transform {
+      case j1 @ MultiwayJoin(children, joinType, mode, _)
+          if (joinType == JoinType.GHD || joinType == JoinType.Natural) => {
+        val joinInputs = children.flatMap { f =>
+          f match {
+            case j2 @ MultiwayJoin(grandsons, _, _, _)
+                if j2.joinType == joinType && j2.mode == ExecMode.CoupledWithComputationDelay =>
+              grandsons
+            case _ => f :: Nil
+          }
+        }
+        MultiwayJoin(joinInputs, joinType, mode)
+      }
+    }
+}
+
+/** A rule that merges consecutive joins into one multiway join */
+object MergeAllJoin extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan =
+    plan transform { case j1 @ MultiwayJoin(children, _, mode, _) =>
+      val joinInputs = children.flatMap { f =>
+        f match {
+          case j2 @ MultiwayJoin(grandsons, _, _, _) =>
+            grandsons
+          case _ => f :: Nil
+        }
+      }
+      MultiwayJoin(joinInputs, JoinType.Natural, mode)
+
+    }
+}
+
+/** A rule that reorder multi-way join into binary join such that the join is consecutive, i.e., two consecutive join
+  * must shares some attributes.
+  */
+object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
+
+  def findConsecutiveJoin(join: MultiwayJoin): MultiwayJoin = {
+
+    //we assume there is no cartesian product and numbers of children > 2
+    assert(join.children.size > 2)
+
+    val leaf1 = join.children.head
+    val leaf2 = join.children
+      .drop(1)
+      .filter(_.outputOld.intersect(leaf1.outputOld).nonEmpty)
+      .head
+    val leafJoin = MultiwayJoin(
+      children = Seq(leaf1, leaf2),
+      joinType = join.joinType,
+      mode = join.mode
+    )
+
+    var remainingChildren =
+      join.children.filter(f => f != leaf1 && f != leaf2)
+    var rootJoin = leafJoin
+    while (remainingChildren.nonEmpty) {
+      val nextLeaf = remainingChildren
+        .filter(_.outputOld.intersect(rootJoin.outputOld).nonEmpty)
+        .head
+      rootJoin = MultiwayJoin(
+        children = Seq(rootJoin, nextLeaf),
+        joinType = join.joinType,
+        mode = join.mode
+      )
+      remainingChildren = remainingChildren.filter(f => f != nextLeaf)
+    }
+
+    rootJoin
+  }
+
+  override def apply(plan: LogicalPlan): LogicalPlan =
+    plan transform {
+      case j: MultiwayJoin if j.children.size > 2 =>
+        findConsecutiveJoin(j)
+    }
+}
+
 object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   def dlSession = SeccoSession.currentSession
 
   private def newPlanWithMode(plan: LogicalPlan, newMode: ExecMode) =
     plan match {
-      case p: Project             => p.copy(mode = newMode)
-      case a: Aggregate           => a.copy(mode = newMode)
-      case d: Diff                => d.copy(mode = newMode)
-      case pk: PKFKJoin           => pk.copy(mode = newMode)
-      case u: Union               => u.copy(mode = newMode)
-      case j: MultiwayNaturalJoin => j.copy(mode = newMode)
-      case c: CartesianProduct    => c.copy(mode = newMode)
-      case f: Filter              => f.copy(mode = newMode)
+      case p: Project          => p.copy(mode = newMode)
+      case a: Aggregate        => a.copy(mode = newMode)
+      case d: Except           => d.copy(mode = newMode)
+      case pk: PKFKJoin        => pk.copy(mode = newMode)
+      case u: Union            => u.copy(mode = newMode)
+      case j: MultiwayJoin     => j.copy(mode = newMode)
+      case c: CartesianProduct => c.copy(mode = newMode)
+      case f: Filter           => f.copy(mode = newMode)
       case _ =>
         throw new Exception(
           s"not supported plan:${plan.nodeName} for mutating ExecMode"
@@ -50,7 +131,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   /** Not delaying any computation */
   def noDelay(rootPlan: LogicalPlan): LogicalPlan =
-    rootPlan transform { case j: MultiwayNaturalJoin =>
+    rootPlan transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -70,12 +151,12 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
       case pkfk: PKFKJoin =>
-        MultiwayNaturalJoin(
+        MultiwayJoin(
           Seq(pkfk.left, pkfk.right),
           JoinType.GHD,
           ExecMode.CoupledWithComputationDelay
         )
-      case j: MultiwayNaturalJoin =>
+      case j: MultiwayJoin =>
         newPlanWithMode(j, ExecMode.CoupledWithComputationDelay)
     }
 
@@ -91,7 +172,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   def heuristicSizeDelay(rootPlan: LogicalPlan): LogicalPlan =
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
-      case j @ MultiwayNaturalJoin(children, _, _, _) =>
+      case j @ MultiwayJoin(children, _, _, _) =>
         val inputSize = children
           .map(f => StatsPlanVisitor.visit(f).rowCount)
           .sum
@@ -416,7 +497,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     }
   }
 
-  private def handleDiff(d: Diff) = {
+  private def handleDiff(d: Except) = {
     val l = d.left
     val r = d.right
     val restriction = mutable.HashMap[String, Int]()
@@ -427,9 +508,9 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     d.mode match {
       case ExecMode.Coupled =>
-        Diff(lPartition, rPartition, ExecMode.Computation)
+        Except(lPartition, rPartition, ExecMode.Computation)
       case ExecMode.CoupledWithComputationDelay =>
-        Diff(lPartition, rPartition, ExecMode.DelayComputation)
+        Except(lPartition, rPartition, ExecMode.DelayComputation)
     }
   }
 
@@ -479,7 +560,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     }
   }
 
-  private def handleJoin(j: MultiwayNaturalJoin) = {
+  private def handleJoin(j: MultiwayJoin) = {
     val children = j.children
     val restriction = mutable.HashMap[String, Int]()
     val sharedRestriction = SharedParameter(restriction)
@@ -488,13 +569,13 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     j.mode match {
       case ExecMode.Coupled =>
-        MultiwayNaturalJoin(
+        MultiwayJoin(
           childrenPartitions,
           j.joinType,
           ExecMode.Computation
         )
       case ExecMode.CoupledWithComputationDelay =>
-        MultiwayNaturalJoin(
+        MultiwayJoin(
           childrenPartitions,
           j.joinType,
           ExecMode.DelayComputation
@@ -518,7 +599,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       case a: Aggregate
           if a.mode == ExecMode.Coupled || a.mode == ExecMode.CoupledWithComputationDelay =>
         handleAggregate(a)
-      case d: Diff
+      case d: Except
           if d.mode == ExecMode.Coupled || d.mode == ExecMode.CoupledWithComputationDelay =>
         handleDiff(d)
       case pk: PKFKJoin
@@ -527,7 +608,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       case u: Union
           if u.mode == ExecMode.Coupled || u.mode == ExecMode.CoupledWithComputationDelay =>
         handleUnion(u)
-      case j: MultiwayNaturalJoin
+      case j: MultiwayJoin
           if j.mode == ExecMode.Coupled || j.mode == ExecMode.CoupledWithComputationDelay =>
         handleJoin(j)
       case c: CartesianProduct
@@ -555,13 +636,13 @@ object PackLocalComputationIntoLocalStage extends Rule[LogicalPlan] {
       case pk: PKFKJoin
           if pk.mode == ExecMode.Computation || pk.mode == ExecMode.DelayComputation =>
         LocalStage.box(pk.children, pk)
-      case d: Diff
+      case d: Except
           if d.mode == ExecMode.Computation || d.mode == ExecMode.DelayComputation =>
         LocalStage.box(d.children, d)
       case u: Union
           if u.mode == ExecMode.Computation || u.mode == ExecMode.DelayComputation =>
         LocalStage.box(u.children, u)
-      case j: MultiwayNaturalJoin
+      case j: MultiwayJoin
           if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
         LocalStage.box(j.children, j)
       case c: CartesianProduct

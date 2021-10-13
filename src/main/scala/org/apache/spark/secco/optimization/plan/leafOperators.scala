@@ -36,6 +36,8 @@ abstract class LeafNode extends LogicalPlan {
   def computeStats(): Statistics = throw new UnsupportedOperationException
 }
 
+//case class LocalRelation
+
 /** An operator that output table specified by [[tableIdentifier]]
   * @param tableIdentifier identifier of the table
   * @param mode execution mode
@@ -123,7 +125,8 @@ case class GHDNode(
   * @param pos i
   * @param output output attributes
   */
-case class PlaceHolder(pos: Int, output: Seq[Attribute]) extends LeafNode {
+case class PlaceHolder(pos: Int, override val output: Seq[Attribute])
+    extends LeafNode {
   override def mode: ExecMode = ExecMode.Atomic
 
   override def relationalSymbol: String = s"[${pos.toString}]"

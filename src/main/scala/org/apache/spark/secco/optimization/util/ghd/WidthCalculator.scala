@@ -5,12 +5,12 @@ import com.joptimizer.optimizers.{LPOptimizationRequest, LPPrimalDualMethod}
 
 import scala.math.BigDecimal.RoundingMode
 
+/** A helper class for computing the width (fractional edge cover number) of the graph. */
 object WidthCalculator {
 
-  //  compute the fractional width of the graph
+  /** Compute the fractional width of the graph. */
   def width[V <: Node, E <: Edge[V]](g: Graph[V, E]) = {
 
-//    Logger.getRootLogger.setLevel(Level.ERROR)
     val edges = g.edges
     val nodes = g.nodes
 

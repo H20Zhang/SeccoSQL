@@ -15,6 +15,7 @@ import org.apache.spark.secco.optimization.support.{
 }
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
+import org.apache.spark.secco.expression.utils.AttributeSet
 
 /** An abstract logical plan class
   */
@@ -42,6 +43,8 @@ abstract class LogicalPlan
 
   /** The primary key of the output, using Seq() to denote no output key exists */
   def primaryKey: Seq[Attribute] = Seq()
+
+  def primaryKeySet: AttributeSet = AttributeSet(primaryKey)
 
   /** The attributes that do not existed in database but are generated in operator */
   @deprecated

@@ -4,7 +4,7 @@ import org.apache.spark.secco.Dataset
 import org.apache.spark.secco.execution.SharedParameter
 import org.apache.spark.secco.optimization.ExecMode
 import org.apache.spark.secco.optimization.plan.{
-  MultiwayNaturalJoin,
+  MultiwayJoin,
   LocalStage,
   Partition,
   RootNode
@@ -51,7 +51,7 @@ class DecoupleOptimizationRulesSuite extends SeccoFunSuite {
     //localStage
     val l1 = LocalStage.box(
       Seq(p1, p2),
-      MultiwayNaturalJoin(Seq(p1, p2), mode = ExecMode.Computation)
+      MultiwayJoin(Seq(p1, p2), mode = ExecMode.Computation)
     )
     println(l1)
 
@@ -59,7 +59,7 @@ class DecoupleOptimizationRulesSuite extends SeccoFunSuite {
     val p3 = Partition(R3, restriction2)
     val l2 = LocalStage.box(
       Seq(p3, l1),
-      MultiwayNaturalJoin(Seq(p3, l1), mode = ExecMode.Computation)
+      MultiwayJoin(Seq(p3, l1), mode = ExecMode.Computation)
     )
     println(l2)
 

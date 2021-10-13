@@ -380,7 +380,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
               dummyAttributeOrder
             )
           )
-        case j @ MultiwayNaturalJoin(children, joinType, _, _)
+        case j @ MultiwayJoin(children, joinType, _, _)
             if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
           Seq(
             LocalJoinExec(

@@ -1,22 +1,27 @@
 package org.apache.spark.secco.optimization.plan
 
+import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import org.apache.spark.secco.expression.{
   Attribute,
+  AttributeReference,
+  EqualTo,
   Expression,
   NamedExpression
 }
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.plan.JoinType.{JoinType, Natural}
+import org.apache.spark.secco.optimization.util.ghd.GHDDecomposer
 import org.apache.spark.secco.util.`extension`.SeqExtension.posOf
 import org.json4s.scalap.scalasig.AttributeInfo
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /* ---------------------------------------------------------------------------------------------------------------------
  * This file contains logical plans with multiple children, i.e., n > 2.
  *
  * 0.  MultiNode: base class of logical plan with multiple children.
+ * 1.  Union: logical plan that union results of multiple children.
  * 1.  MultiwayNaturalJoin: logical plan that performs multiway natural join between children.
  * 2.  With: logical plan that represent CTE(common table expressions).
  *
@@ -26,17 +31,36 @@ import scala.collection.mutable.ArrayBuffer
 /** A [[LogicalPlan]] with multiple children */
 abstract class MultiNode extends LogicalPlan {}
 
-/** A [[LogicalPlan]] that performs multiway natural join between [[children]]
+/** A [[LogicalPlan]] that computes the union of results of children.
+  * @param mode execution mode
+  */
+case class Union(children: Seq[LogicalPlan], mode: ExecMode = ExecMode.Coupled)
+    extends MultiNode {
+
+  //TODO: ensure children are compatible.
+
+  override def primaryKey: Seq[Attribute] = children.head.primaryKey
+
+  override def output: Seq[Attribute] = children.head.output
+
+  override def relationalSymbol: String = s"⋃"
+}
+
+/** A [[LogicalPlan]] that performs multiway equi-join between [[children]].
   *
   * @param children children logical plan
-  * @param joinType join type = Natural
+  * @param condition equi-join condition
+  * @param property additioal property that describes the join
   * @param mode     execution mode
   */
-case class MultiwayNaturalJoin(
+case class MultiwayJoin(
     children: Seq[LogicalPlan],
-    joinType: JoinType = Natural,
+    condition: Seq[Expression],
+    property: Set[JoinProperty] = Set(),
     mode: ExecMode = ExecMode.Coupled
 ) extends MultiNode {
+
+  val joinType: JoinType = Inner
 
   override def output: Seq[Attribute] = {
     val attributeBuffer = ArrayBuffer[(Attribute, String)]()
@@ -54,6 +78,73 @@ case class MultiwayNaturalJoin(
       val right = children(1)
       left.outputSet.intersect(right.outputSet).isEmpty
     }
+
+  /** Test if this multiway join is a cyclic multiway join */
+  def isCyclic(): Boolean = {
+    GHDDecomposer.decomposeTree(hypergraph()._1).head.fhtw != 1.0
+  }
+
+  /** Hypergraph that represents the multiway join
+    * @return returns a triplet that contains (hypergraph which represents a multiway natural join, a map from attribute in children
+    *         to attributes of the hypergraph, map from seq[attribute] to child logical plan)
+    */
+  def hypergraph(): (
+      Seq[Seq[Attribute]],
+      AttributeMap[Attribute],
+      Map[Seq[Attribute], LogicalPlan]
+  ) = {
+    val equivSet = {
+      val equivSetArr = ArrayBuffer[AttributeSet]()
+      val equiv = condition.map { f =>
+        f match {
+          case EqualTo(a: AttributeReference, b: AttributeReference) => (a, b)
+          case _ =>
+            throw new Exception(
+              s"only equi-join is allowed in multiway join's condition, found invalid condition ${f}"
+            )
+        }
+      }
+      equiv.foreach { case (a, b) =>
+        var i = 0
+        while (i < equivSetArr.size) {
+          var equivSet = equivSetArr(i)
+          if (!equivSet.contains(a) && !equivSet.contains(b)) { //add a new equivSet
+            equivSetArr += AttributeSet(a :: b :: Nil)
+            i = equivSetArr.size // end the iteration of equiSetArr
+          } else if (equivSet.contains(a)) { // add to existing equivSet
+            equivSet = equivSet ++ b
+            equivSetArr(i) = equivSet
+            i = equivSetArr.size // end the iteration of equiSetArr
+          } else if (equivSet.contains(b)) { // add to existing equivSet
+            equivSet = equivSet ++ a
+            equivSetArr(i) = equivSet
+            i = equivSetArr.size // end the iteration of equiSetArr
+          } else { // proceed to next equiSet
+            i += 1
+          }
+        }
+      }
+      equivSetArr.toSeq
+    }
+
+    val newAttrsInHyperGraph = equivSet.map(_.head.newInstance())
+
+    val attrInConditions2AttrInHyperGraph =
+      AttributeMap(newAttrsInHyperGraph.zip(equivSet).flatMap {
+        case (attrInHyperGraph, equivSet) =>
+          equivSet.toSeq.map(attr => (attr, attrInHyperGraph))
+      })
+
+    val hyperedge2LogicalPlan = children
+      .map(child =>
+        (child.output.map(attrInConditions2AttrInHyperGraph), child)
+      )
+      .toMap
+
+    val hypergraph = hyperedge2LogicalPlan.keys.toSeq
+
+    (hypergraph, attrInConditions2AttrInHyperGraph, hyperedge2LogicalPlan)
+  }
 
 //  //warning: this method assume we are handling natural join
 //  override def resolveAttributeByChildren(

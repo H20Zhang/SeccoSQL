@@ -138,7 +138,7 @@ object RelationAlgebraWithAnalysis {
   }
 
   def diff(left: LogicalPlan, right: LogicalPlan) = {
-    Diff(left, right, ExecMode.Coupled)
+    Except(left, right, ExecMode.Coupled)
   }
 
   def iterative(
@@ -189,7 +189,7 @@ object RelationAlgebraWithAnalysis {
   }
 
   def join(children: LogicalPlan*) = {
-    MultiwayNaturalJoin(children, JoinType.Natural, ExecMode.Coupled)
+    MultiwayJoin(children, JoinType.Natural, ExecMode.Coupled)
   }
 
   def cartesianProduct(children: LogicalPlan*) = {

@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.statsEstimation.exact.deprecated
 
 import org.apache.spark.secco.optimization.plan.{
-  MultiwayNaturalJoin,
+  MultiwayJoin,
   Project,
   Relation
 }
@@ -78,13 +78,13 @@ object ExactProjectEstimation extends Estimation[Project] {
           )
         )
       }
-    } else if (x.child.isInstanceOf[MultiwayNaturalJoin]) {
-      assert(x.child.isInstanceOf[MultiwayNaturalJoin])
-      val j = x.child.asInstanceOf[MultiwayNaturalJoin]
+    } else if (x.child.isInstanceOf[MultiwayJoin]) {
+      assert(x.child.isInstanceOf[MultiwayJoin])
+      val j = x.child.asInstanceOf[MultiwayJoin]
 
       val mergedPlan = Estimation.mergeJoin(j)
-      assert(mergedPlan.isInstanceOf[MultiwayNaturalJoin])
-      val mergedJoin = mergedPlan.asInstanceOf[MultiwayNaturalJoin]
+      assert(mergedPlan.isInstanceOf[MultiwayJoin])
+      val mergedJoin = mergedPlan.asInstanceOf[MultiwayJoin]
 
       assert(mergedJoin.children.forall(_.isInstanceOf[Relation]))
       val relationNameSet =

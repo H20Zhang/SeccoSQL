@@ -7,8 +7,13 @@ import org.apache.spark.secco.util.`extension`.SeqExtension
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+/** A hypertree decomposer that decomposes a [[RelationGraph]] into [[HyperTree]] */
 object HyperTreeDecomposer {
 
+  /** Find all GHD of a [[RelationGraph]]
+    * @param g the relation graph
+    * @return an [[Array]] of [[HyperTree]]
+    */
   def genAllGHDs(g: RelationGraph): Array[HyperTree] = {
     //    if (g.E().size > (g.V().size + 2)) {
     genAllGHDsByEnumeratingNode(g)
@@ -17,8 +22,11 @@ object HyperTreeDecomposer {
     //    }
   }
 
-  //  Find all GHD decomposition
-  def genAllGHDsByEnumeratingNode(g: RelationGraph) = {
+  /** Find all GHD by enumerating nodes of [[HyperTree]].
+    * @param g the relation graph
+    * @return an [[Array]] of [[HyperTree]]
+    */
+  private def genAllGHDsByEnumeratingNode(g: RelationGraph) = {
 
     val numEdges = g.edges.size
     val numNodes = g.nodes.size
@@ -34,42 +42,39 @@ object HyperTreeDecomposer {
       val newExtendableTree =
         new ConcurrentLinkedQueue[(HyperTree, Array[RelationNode])]()
       extendableTree
-        .filter {
-          case (hypertree, coveredNodes) =>
-            if (coveredNodes.size == numNodes) {
+        .filter { case (hypertree, coveredNodes) =>
+          if (coveredNodes.size == numNodes) {
 
-              val coveredEdgeSets = mutable.HashSet[RelationEdge]()
-              hypertree.nodes.foreach { hv =>
-                val E = hv.g.edges
-                E.foreach(e => coveredEdgeSets.add(e))
-              }
-
-              if (coveredEdgeSets.size == numEdges) {
-                GHDs.add(hypertree)
-              }
-
-              false
-            } else {
-              true
+            val coveredEdgeSets = mutable.HashSet[RelationEdge]()
+            hypertree.nodes.foreach { hv =>
+              val E = hv.g.edges
+              E.foreach(e => coveredEdgeSets.add(e))
             }
+
+            if (coveredEdgeSets.size == numEdges) {
+              GHDs.add(hypertree)
+            }
+
+            false
+          } else {
+            true
+          }
         }
-        .foreach {
-          case (hypertree, coveredNodes) =>
-            val newNodes =
-              genPotentialHyperNodesByEnumeratingNode(
-                g,
-                hypertree,
-                coveredNodes,
-                potentialConnectedInducedSubgraphs
-              )
+        .foreach { case (hypertree, coveredNodes) =>
+          val newNodes =
+            genPotentialHyperNodesByEnumeratingNode(
+              g,
+              hypertree,
+              coveredNodes,
+              potentialConnectedInducedSubgraphs
+            )
 
-            newNodes.foreach {
-              case (hyperNode, coveredNodes) =>
-                val hypertrees = hypertree.addHyperNode(hyperNode)
-                hypertrees.foreach { hypertree =>
-                  newExtendableTree.add((hypertree, coveredNodes))
-                }
+          newNodes.foreach { case (hyperNode, coveredNodes) =>
+            val hypertrees = hypertree.addHyperNode(hyperNode)
+            hypertrees.foreach { hypertree =>
+              newExtendableTree.add((hypertree, coveredNodes))
             }
+          }
         }
 
       newExtendableTree.toArray

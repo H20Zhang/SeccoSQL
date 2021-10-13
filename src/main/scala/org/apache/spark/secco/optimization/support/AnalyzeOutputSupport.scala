@@ -36,8 +36,8 @@ trait AnalyzeOutputSupport {
       case a: Aggregate                                      => isOutputSmall(a) || a.groupingListOld.size == 1
       case u: Union                                          => u.children.forall(isOutputSmall)
       case pk: PKFKJoin                                      => true
-      case d: Diff                                           => isOutputSmall(d.left) && isOutputSmall(d.right)
-      case j: MultiwayNaturalJoin                            => false
+      case d: Except                                         => isOutputSmall(d.left) && isOutputSmall(d.right)
+      case j: MultiwayJoin                                   => false
       case p: Partition                                      => isMaterializable(p.child)
       case sc: Relation                                      => true
       case re: Rename                                        => isMaterializable(re.child)

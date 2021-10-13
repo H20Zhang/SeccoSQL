@@ -3,7 +3,7 @@ package org.apache.spark.secco.benchmark.testcases
 import org.apache.spark.secco.Dataset
 import org.apache.spark.secco.benchmark.{SQLBenchmark}
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
-import org.apache.spark.secco.optimization.plan.{MultiwayNaturalJoin, JoinType}
+import org.apache.spark.secco.optimization.plan.{MultiwayJoin, JoinType}
 import org.apache.spark.secco.optimization.statsEstimation.exact.ExactLogicalPlanEstimation
 
 abstract class ControlledCardinalityEstimationSQLBenchmark
@@ -73,7 +73,7 @@ object W1 extends ControlledCardinalityEstimationSQLBenchmark {
     val R5 = inputData("R5")
 
     val res = R1.naturalJoin(R2).naturalJoin(R3).naturalJoin(R4).naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -171,7 +171,7 @@ object W2 extends ControlledCardinalityEstimationSQLBenchmark {
     val R5 = inputData("R5")
 
     val res = R1.naturalJoin(R2).naturalJoin(R3).naturalJoin(R4).naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -268,7 +268,7 @@ object W3 extends ControlledCardinalityEstimationSQLBenchmark {
     val R5 = inputData("R5")
 
     val res = R1.naturalJoin(R2).naturalJoin(R3).naturalJoin(R4).naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -365,7 +365,7 @@ object W4 extends ControlledCardinalityEstimationSQLBenchmark {
     val R5 = inputData("R5")
 
     val res = R1.naturalJoin(R2).naturalJoin(R3).naturalJoin(R4).naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -462,7 +462,7 @@ object W5 extends ControlledCardinalityEstimationSQLBenchmark {
     val R5 = inputData("R5")
 
     val res = R1.naturalJoin(R2).naturalJoin(R3).naturalJoin(R4).naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -549,7 +549,7 @@ object W6 extends ControlledCardinalityEstimationSQLBenchmark {
     val R3 = inputData("R3")
 
     val res = R1.thetaJoin("B < C", R2).thetaJoin("D < E", R3)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -652,7 +652,7 @@ object W7 extends ControlledCardinalityEstimationSQLBenchmark {
     val R3 = inputData("R3")
 
     val res = R1.thetaJoin("B < C", R2).project("A, D").thetaJoin("D < E", R3)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -773,7 +773,7 @@ object W8 extends ControlledCardinalityEstimationSQLBenchmark {
       .thetaJoin("B < C", R2)
       .aggregate("count(*) by A,D")
       .thetaJoin("D < E", R3)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -906,7 +906,7 @@ object W9 extends ControlledCardinalityEstimationSQLBenchmark {
       .project("A, D")
       .naturalJoin(R4)
       .naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 
@@ -1032,7 +1032,7 @@ object W10 extends ControlledCardinalityEstimationSQLBenchmark {
       .aggregate("count(*) by A, D")
       .naturalJoin(R4)
       .naturalJoin(R5)
-    val plan = res.logical transform { case j: MultiwayNaturalJoin =>
+    val plan = res.logical transform { case j: MultiwayJoin =>
       j.copy(joinType = JoinType.GHDFKFK)
     }
 

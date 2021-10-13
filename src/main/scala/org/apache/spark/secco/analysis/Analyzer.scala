@@ -19,7 +19,7 @@ import org.apache.spark.secco.optimization.{LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Distinct,
-  MultiwayNaturalJoin,
+  MultiwayJoin,
   JoinType,
   Project,
   Relation

@@ -5,8 +5,8 @@ import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.rules.{
   ConsecutiveJoinReorder,
   ExpandGHDNode,
-  ExtractPKFKJoin,
-  GHDBasedJoinReorder
+  OptimizePKFKJoin,
+  OptimizeMultiwayJoin
 }
 import util.{SeccoFunSuite, UnitTestTag}
 
@@ -43,7 +43,7 @@ class JoinOptimizationRulesSuite extends SeccoFunSuite {
 
     val expr = R1.naturalJoin(R2, R3, R4, R5, R6).logical
 
-    val optimizedExpr = ExtractPKFKJoin(expr)
+    val optimizedExpr = OptimizePKFKJoin(expr)
 
     println(optimizedExpr)
   }
@@ -55,7 +55,7 @@ class JoinOptimizationRulesSuite extends SeccoFunSuite {
       R1.naturalJoin(R2, R3, R4, R5, R6, R7, R8).logical
 
     val optimizedExpr =
-      ExpandGHDNode(GHDBasedJoinReorder(ExtractPKFKJoin(expr)))
+      ExpandGHDNode(OptimizeMultiwayJoin(OptimizePKFKJoin(expr)))
 
     println(optimizedExpr)
   }
@@ -65,7 +65,7 @@ class JoinOptimizationRulesSuite extends SeccoFunSuite {
       R1
         .naturalJoin(R2, R3, R4, R5, R6, R7, R8)
         .logical
-        .transform { case j: MultiwayNaturalJoin =>
+        .transform { case j: MultiwayJoin =>
           j.copy(joinType = JoinType.GHD)
         }
 

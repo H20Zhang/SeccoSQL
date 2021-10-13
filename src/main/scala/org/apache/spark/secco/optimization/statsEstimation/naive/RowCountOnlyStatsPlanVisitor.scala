@@ -49,7 +49,7 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
 
   override def visitFilter(p: Filter): Statistics = visitUnaryNode(p)
 
-  override def visitJoin(p: MultiwayNaturalJoin): Statistics = {
+  override def visitJoin(p: MultiwayJoin): Statistics = {
     p.joinType match {
       case _ =>
         // Make sure we don't propagate isBroadcastable in other joins, because
