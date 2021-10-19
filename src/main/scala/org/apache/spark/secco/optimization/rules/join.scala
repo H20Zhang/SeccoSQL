@@ -662,3 +662,87 @@ object OptimizeMultiwayJoin extends Rule[LogicalPlan] with PredicateHelper {
 object OptimizeJoinTree extends Rule[LogicalPlan] with PredicateHelper {
   override def apply(plan: LogicalPlan): LogicalPlan = plan
 }
+
+//TODO: implement this rule
+/** A rule that merges consecutive natural joins (JoinType is Natural or GHD) with same joinType and mode into one multiway join */
+//object MergeDelayedJoin extends Rule[LogicalPlan] {
+//  override def apply(plan: LogicalPlan): LogicalPlan =
+//    plan transform {
+//      case j1 @ MultiwayJoin(children, joinType, mode, _)
+//          if (joinType == JoinType.GHD || joinType == JoinType.Natural) => {
+//        val joinInputs = children.flatMap { f =>
+//          f match {
+//            case j2 @ MultiwayJoin(grandsons, _, _, _)
+//                if j2.joinType == joinType && j2.mode == ExecMode.CoupledWithComputationDelay =>
+//              grandsons
+//            case _ => f :: Nil
+//          }
+//        }
+//        MultiwayJoin(joinInputs, joinType, mode)
+//      }
+//    }
+//}
+
+//TODO: implement this rule
+/** A rule that merges consecutive joins into one multiway join */
+//object MergeAllJoin extends Rule[LogicalPlan] {
+//  override def apply(plan: LogicalPlan): LogicalPlan =
+//    plan transform { case j1 @ MultiwayJoin(children, _, mode, _) =>
+//      val joinInputs = children.flatMap { f =>
+//        f match {
+//          case j2 @ MultiwayJoin(grandsons, _, _, _) =>
+//            grandsons
+//          case _ => f :: Nil
+//        }
+//      }
+//      MultiwayJoin(joinInputs, JoinType.Natural, mode)
+//
+//    }
+//}
+
+//TODO: implement this rule
+/** A rule that reorder multi-way join into binary join such that the join is consecutive, i.e., two consecutive join
+  * must shares some attributes, such that it makes the choice of [[MarkDelay]] wider.
+  */
+//object ConsecutiveJoinReorder extends Rule[LogicalPlan] {
+//
+//  def findConsecutiveJoin(join: MultiwayJoin): MultiwayJoin = {
+//
+//    //we assume there is no cartesian product and numbers of children > 2
+//    assert(join.children.size > 2)
+//
+//    val leaf1 = join.children.head
+//    val leaf2 = join.children
+//      .drop(1)
+//      .filter(_.outputOld.intersect(leaf1.outputOld).nonEmpty)
+//      .head
+//    val leafJoin = MultiwayJoin(
+//      children = Seq(leaf1, leaf2),
+//      joinType = join.joinType,
+//      mode = join.mode
+//    )
+//
+//    var remainingChildren =
+//      join.children.filter(f => f != leaf1 && f != leaf2)
+//    var rootJoin = leafJoin
+//    while (remainingChildren.nonEmpty) {
+//      val nextLeaf = remainingChildren
+//        .filter(_.outputOld.intersect(rootJoin.outputOld).nonEmpty)
+//        .head
+//      rootJoin = MultiwayJoin(
+//        children = Seq(rootJoin, nextLeaf),
+//        joinType = join.joinType,
+//        mode = join.mode
+//      )
+//      remainingChildren = remainingChildren.filter(f => f != nextLeaf)
+//    }
+//
+//    rootJoin
+//  }
+//
+//  override def apply(plan: LogicalPlan): LogicalPlan =
+//    plan transform {
+//      case j: MultiwayJoin if j.children.size > 2 =>
+//        findConsecutiveJoin(j)
+//    }
+//}

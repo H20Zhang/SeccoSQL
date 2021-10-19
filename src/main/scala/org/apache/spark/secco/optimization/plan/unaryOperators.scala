@@ -213,6 +213,13 @@ object Aggregate {
     .getOrCreateCounter("plan", "aggregate")
 }
 
+//TODO: this class should be refactored
+case class SharedRestriction(
+    restriction: SharedParameter[mutable.HashMap[Attribute, Int]]
+) {
+  def res: mutable.HashMap[Attribute, Int] = restriction.res
+}
+
 /** A [[LogicalPlan]] that partitions output of [[child]]
   *
   * @param child child plan to partition
@@ -223,12 +230,12 @@ object Aggregate {
 // where current sharedRestriction cannot work properly.
 case class Partition(
     child: LogicalPlan,
-    sharedRestriction: SharedParameter[mutable.HashMap[String, Int]],
+    sharedRestriction: SharedRestriction,
     mode: ExecMode = ExecMode.Communication
 ) extends UnaryNode {
 
   /** shared restrictions for hash functions for partitioning */
-  def restriction: Map[String, Int] = sharedRestriction.res.toMap
+  def restriction: Map[Attribute, Int] = sharedRestriction.restriction.res.toMap
 
   override def primaryKey: Seq[Attribute] = child.primaryKey
 

@@ -147,7 +147,7 @@ object PushSelectionIntoJoin extends Rule[LogicalPlan] with PredicateHelper {
         right,
         innerJoinType,
         joinConditions.reduceLeftOption(And),
-        mode
+        mode = mode
       )
       if (others.nonEmpty) {
         Filter(join, others.reduceLeft(And))
@@ -177,7 +177,7 @@ object PushSelectionIntoJoin extends Rule[LogicalPlan] with PredicateHelper {
         right,
         innerJoinType,
         joinConditions.reduceLeftOption(And),
-        mode
+        mode = mode
       )
 
       // should not have reference to same logical plan
@@ -264,10 +264,17 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     // push the where condition down into join filter
     case f @ Filter(
-          BinaryJoin(left, right, joinType, joinCondition, childMode),
+          BinaryJoin(
+            left,
+            right,
+            joinType,
+            joinCondition,
+            joinProperty,
+            childMode
+          ),
           filterCondition,
-          mode
-        ) if childMode == mode =>
+          execMode
+        ) if childMode == execMode =>
       val (leftFilterConditions, rightFilterConditions, commonFilterCondition) =
         split(splitConjunctivePredicates(filterCondition), left, right)
       joinType match {
@@ -286,7 +293,13 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
           val newJoinCond =
             (newJoinConditions ++ joinCondition).reduceLeftOption(And)
 
-          val join = BinaryJoin(newLeft, newRight, joinType, newJoinCond, mode)
+          val join = BinaryJoin(
+            newLeft,
+            newRight,
+            joinType,
+            newJoinCond,
+            mode = execMode
+          )
           if (others.nonEmpty) {
             Filter(join, others.reduceLeft(And))
           } else {
@@ -301,7 +314,13 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
             .getOrElse(right)
           val newJoinCond = joinCondition
           val newJoin =
-            BinaryJoin(newLeft, newRight, RightOuter, newJoinCond, mode)
+            BinaryJoin(
+              newLeft,
+              newRight,
+              RightOuter,
+              newJoinCond,
+              mode = execMode
+            )
 
           (leftFilterConditions ++ commonFilterCondition)
             .reduceLeftOption(And)
@@ -316,7 +335,13 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
           val newRight = right
           val newJoinCond = joinCondition
           val newJoin =
-            BinaryJoin(newLeft, newRight, joinType, newJoinCond, mode)
+            BinaryJoin(
+              newLeft,
+              newRight,
+              joinType,
+              newJoinCond,
+              mode = execMode
+            )
 
           (rightFilterConditions ++ commonFilterCondition)
             .reduceLeftOption(And)
@@ -328,7 +353,14 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
       }
 
     // push down the join filter into sub query scanning if applicable
-    case j @ BinaryJoin(left, right, joinType, joinCondition, mode) =>
+    case j @ BinaryJoin(
+          left,
+          right,
+          joinType,
+          joinCondition,
+          joinProperties,
+          execMode
+        ) =>
       val (leftJoinConditions, rightJoinConditions, commonJoinCondition) =
         split(
           joinCondition.map(splitConjunctivePredicates).getOrElse(Nil),
@@ -349,7 +381,7 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
             .getOrElse(right)
           val newJoinCond = commonJoinCondition.reduceLeftOption(And)
 
-          BinaryJoin(newLeft, newRight, joinType, newJoinCond, mode)
+          BinaryJoin(newLeft, newRight, joinType, newJoinCond, mode = execMode)
         case RightOuter =>
           // push down the left side only join filter for left side sub query
           val newLeft = leftJoinConditions
@@ -360,7 +392,13 @@ object PushSelectionThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
           val newJoinCond =
             (rightJoinConditions ++ commonJoinCondition).reduceLeftOption(And)
 
-          BinaryJoin(newLeft, newRight, RightOuter, newJoinCond, mode)
+          BinaryJoin(
+            newLeft,
+            newRight,
+            RightOuter,
+            newJoinCond,
+            mode = execMode
+          )
         case LeftOuter | LeftAnti | ExistenceJoin(_) =>
           // push down the right side only join filter for right sub query
           val newLeft = left
@@ -530,325 +568,325 @@ object PushDownProjection extends Rule[LogicalPlan] {
 
 //TODO: make the aggregation push-down work.
 /** A rule that pushes aggregation along the GHD Tree */
-object PushDownAggregation extends Rule[LogicalPlan] {
-
-  // handle the case where aggregation involves count
-  private def handleCount(
-      aggregate: Aggregate,
-      plans: Seq[LogicalPlan],
-      groupingList: Seq[String],
-      semiringList: (String, String)
-  ): LogicalPlan = {
-    val lChild = plans(0)
-    val rChild = plans(1)
-    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
-    val semiringAttribute = semiringList._2
-
-    def aggregatedPlan(plan: LogicalPlan) =
-      (groupingList ++ joinAttributes).distinct.toSet == plan.outputOld.toSet match {
-        case true => { plan }
-        case false => {
-          Aggregate(
-            plan,
-            (groupingList ++ joinAttributes).intersect(plan.outputOld).distinct,
-            ("count", s"${semiringAttribute}"),
-            Seq(),
-            ExecMode.Coupled
-          )
-        }
-      }
-
-    val lPlan = aggregatedPlan(lChild)
-    val rPlan = aggregatedPlan(rChild)
-
-    if (lPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("sum", s"${rPlan.producedOutputOld.head}"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else if (rPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("sum", s"${lPlan.producedOutputOld.head}"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else if (
-      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
-    ) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("count", s"${semiringAttribute}"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        (
-          "sum",
-          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
-        ),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    }
-  }
-
-  // handle the case where aggregation involves min or max
-  private def handleMinMax(
-      plans: Seq[LogicalPlan],
-      groupingList: Seq[String],
-      semiringList: (String, String),
-      producedOutput: Seq[String],
-      isMin: Boolean
-  ): LogicalPlan = {
-
-    val semiringOp = isMin match {
-      case true  => "min"
-      case false => "max"
-    }
-
-    val lChild = plans(0)
-    val rChild = plans(1)
-    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
-    val semiringAttribute = semiringList._2
-
-    def aggregatedPlan(plan: LogicalPlan) =
-      plan.outputOld.contains(semiringAttribute) match {
-        case true =>
-          Aggregate(
-            plan,
-            (groupingList ++ joinAttributes).intersect(plan.outputOld),
-            semiringList,
-            Seq(),
-            ExecMode.Coupled
-          )
-        case false =>
-          if (
-            (groupingList ++ joinAttributes)
-              .intersect(plan.outputOld)
-              .toSet == plan.outputOld.toSet
-          ) {
-            plan
-          } else {
-            Project(
-              plan,
-              (groupingList ++ joinAttributes).intersect(plan.outputOld),
-              ExecMode.Coupled
-            )
-          }
-
-      }
-
-    val lPlan = aggregatedPlan(lChild)
-    val rPlan = aggregatedPlan(rChild)
-
-    if (lPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        (semiringOp, s"${rPlan.producedOutputOld.head}"),
-        producedOutput,
-        ExecMode.Coupled
-      )
-    } else if (rPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        (semiringOp, s"${lPlan.producedOutputOld.head}"),
-        producedOutput,
-        ExecMode.Coupled
-      )
-    } else if (
-      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
-    ) {
-      throw new Exception("error occurs when pushing min/max down")
-    } else {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        (semiringOp, s"${lPlan.producedOutputOld.head}"),
-        producedOutput,
-        ExecMode.Coupled
-      )
-    }
-  }
-
-  // handle the case where aggregation involves sum
-  private def handleSum(
-      aggregate: Aggregate,
-      plans: Seq[LogicalPlan],
-      groupingList: Seq[String],
-      semiringList: (String, String)
-  ): LogicalPlan = {
-    val lChild = plans(0)
-    val rChild = plans(1)
-    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
-    val semiringAttribute = semiringList._2
-
-    def aggregatedPlan(plan: LogicalPlan) =
-      plan.outputOld.contains(semiringAttribute) match {
-        case true =>
-          Aggregate(
-            plan,
-            (groupingList ++ joinAttributes).intersect(plan.outputOld),
-            semiringList,
-            Seq(),
-            ExecMode.Coupled
-          )
-        case false =>
-          if (
-            (groupingList ++ joinAttributes)
-              .intersect(plan.outputOld)
-              .toSet != plan.outputOld.toSet
-          ) {
-            Aggregate(
-              plan,
-              (groupingList ++ joinAttributes).intersect(plan.outputOld),
-              ("count", "*"),
-              Seq(),
-              ExecMode.Coupled
-            )
-          } else {
-            plan
-          }
-      }
-
-    val lPlan = aggregatedPlan(lChild)
-    val rPlan = aggregatedPlan(rChild)
-
-    //DEBUG
-    //    println(lPlan.producedOutput)
-    //    println(rPlan.producedOutput)
-    //    println(lPlan.treeString)
-    //    println(rPlan.treeString)
-
-    if (lPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("sum", s"${rPlan.producedOutputOld.head}"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else if (rPlan.producedOutputOld.isEmpty) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("sum", s"${lPlan.producedOutputOld.head}"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else if (
-      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
-    ) {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        ("count", s"*"),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    } else {
-      Aggregate(
-        MultiwayJoin(
-          lPlan :: rPlan :: Nil,
-          JoinType.GHDFKFK,
-          ExecMode.Coupled
-        ),
-        groupingList,
-        (
-          "sum",
-          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
-        ),
-        aggregate.producedOutputOld,
-        ExecMode.Coupled
-      )
-    }
-  }
-
-  override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case a @ Aggregate(
-            MultiwayJoin(children, JoinType.GHDFKFK, mode1, _),
-            groupingList,
-            semiringList,
-            producedOutput,
-            mode2,
-            _,
-            _
-          ) => {
-        semiringList match {
-          case ("min", _) =>
-            handleMinMax(
-              children,
-              groupingList,
-              semiringList,
-              producedOutput,
-              true
-            )
-          case ("max", _) =>
-            handleMinMax(
-              children,
-              groupingList,
-              semiringList,
-              producedOutput,
-              false
-            )
-          case ("count", _) =>
-            handleCount(a, children, groupingList, semiringList)
-          case ("sum", _) => handleSum(a, children, groupingList, semiringList)
-        }
-      }
-    }
-}
+//object PushDownAggregation extends Rule[LogicalPlan] {
+//
+//  // handle the case where aggregation involves count
+//  private def handleCount(
+//      aggregate: Aggregate,
+//      plans: Seq[LogicalPlan],
+//      groupingList: Seq[String],
+//      semiringList: (String, String)
+//  ): LogicalPlan = {
+//    val lChild = plans(0)
+//    val rChild = plans(1)
+//    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
+//    val semiringAttribute = semiringList._2
+//
+//    def aggregatedPlan(plan: LogicalPlan) =
+//      (groupingList ++ joinAttributes).distinct.toSet == plan.outputOld.toSet match {
+//        case true => { plan }
+//        case false => {
+//          Aggregate(
+//            plan,
+//            (groupingList ++ joinAttributes).intersect(plan.outputOld).distinct,
+//            ("count", s"${semiringAttribute}"),
+//            Seq(),
+//            ExecMode.Coupled
+//          )
+//        }
+//      }
+//
+//    val lPlan = aggregatedPlan(lChild)
+//    val rPlan = aggregatedPlan(rChild)
+//
+//    if (lPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("sum", s"${rPlan.producedOutputOld.head}"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else if (rPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("sum", s"${lPlan.producedOutputOld.head}"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else if (
+//      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+//    ) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("count", s"${semiringAttribute}"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        (
+//          "sum",
+//          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
+//        ),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    }
+//  }
+//
+//  // handle the case where aggregation involves min or max
+//  private def handleMinMax(
+//      plans: Seq[LogicalPlan],
+//      groupingList: Seq[String],
+//      semiringList: (String, String),
+//      producedOutput: Seq[String],
+//      isMin: Boolean
+//  ): LogicalPlan = {
+//
+//    val semiringOp = isMin match {
+//      case true  => "min"
+//      case false => "max"
+//    }
+//
+//    val lChild = plans(0)
+//    val rChild = plans(1)
+//    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
+//    val semiringAttribute = semiringList._2
+//
+//    def aggregatedPlan(plan: LogicalPlan) =
+//      plan.outputOld.contains(semiringAttribute) match {
+//        case true =>
+//          Aggregate(
+//            plan,
+//            (groupingList ++ joinAttributes).intersect(plan.outputOld),
+//            semiringList,
+//            Seq(),
+//            ExecMode.Coupled
+//          )
+//        case false =>
+//          if (
+//            (groupingList ++ joinAttributes)
+//              .intersect(plan.outputOld)
+//              .toSet == plan.outputOld.toSet
+//          ) {
+//            plan
+//          } else {
+//            Project(
+//              plan,
+//              (groupingList ++ joinAttributes).intersect(plan.outputOld),
+//              ExecMode.Coupled
+//            )
+//          }
+//
+//      }
+//
+//    val lPlan = aggregatedPlan(lChild)
+//    val rPlan = aggregatedPlan(rChild)
+//
+//    if (lPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        (semiringOp, s"${rPlan.producedOutputOld.head}"),
+//        producedOutput,
+//        ExecMode.Coupled
+//      )
+//    } else if (rPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        (semiringOp, s"${lPlan.producedOutputOld.head}"),
+//        producedOutput,
+//        ExecMode.Coupled
+//      )
+//    } else if (
+//      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+//    ) {
+//      throw new Exception("error occurs when pushing min/max down")
+//    } else {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        (semiringOp, s"${lPlan.producedOutputOld.head}"),
+//        producedOutput,
+//        ExecMode.Coupled
+//      )
+//    }
+//  }
+//
+//  // handle the case where aggregation involves sum
+//  private def handleSum(
+//      aggregate: Aggregate,
+//      plans: Seq[LogicalPlan],
+//      groupingList: Seq[String],
+//      semiringList: (String, String)
+//  ): LogicalPlan = {
+//    val lChild = plans(0)
+//    val rChild = plans(1)
+//    val joinAttributes = lChild.outputOld.intersect(rChild.outputOld)
+//    val semiringAttribute = semiringList._2
+//
+//    def aggregatedPlan(plan: LogicalPlan) =
+//      plan.outputOld.contains(semiringAttribute) match {
+//        case true =>
+//          Aggregate(
+//            plan,
+//            (groupingList ++ joinAttributes).intersect(plan.outputOld),
+//            semiringList,
+//            Seq(),
+//            ExecMode.Coupled
+//          )
+//        case false =>
+//          if (
+//            (groupingList ++ joinAttributes)
+//              .intersect(plan.outputOld)
+//              .toSet != plan.outputOld.toSet
+//          ) {
+//            Aggregate(
+//              plan,
+//              (groupingList ++ joinAttributes).intersect(plan.outputOld),
+//              ("count", "*"),
+//              Seq(),
+//              ExecMode.Coupled
+//            )
+//          } else {
+//            plan
+//          }
+//      }
+//
+//    val lPlan = aggregatedPlan(lChild)
+//    val rPlan = aggregatedPlan(rChild)
+//
+//    //DEBUG
+//    //    println(lPlan.producedOutput)
+//    //    println(rPlan.producedOutput)
+//    //    println(lPlan.treeString)
+//    //    println(rPlan.treeString)
+//
+//    if (lPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("sum", s"${rPlan.producedOutputOld.head}"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else if (rPlan.producedOutputOld.isEmpty) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("sum", s"${lPlan.producedOutputOld.head}"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else if (
+//      lPlan.producedOutputOld.isEmpty && lPlan.producedOutputOld.isEmpty
+//    ) {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        ("count", s"*"),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    } else {
+//      Aggregate(
+//        MultiwayJoin(
+//          lPlan :: rPlan :: Nil,
+//          JoinType.GHDFKFK,
+//          ExecMode.Coupled
+//        ),
+//        groupingList,
+//        (
+//          "sum",
+//          s"${lPlan.producedOutputOld.head}*${rPlan.producedOutputOld.head}"
+//        ),
+//        aggregate.producedOutputOld,
+//        ExecMode.Coupled
+//      )
+//    }
+//  }
+//
+//  override def apply(plan: LogicalPlan): LogicalPlan =
+//    plan transform {
+//      case a @ Aggregate(
+//            MultiwayJoin(children, JoinType.GHDFKFK, mode1, _),
+//            groupingList,
+//            semiringList,
+//            producedOutput,
+//            mode2,
+//            _,
+//            _
+//          ) => {
+//        semiringList match {
+//          case ("min", _) =>
+//            handleMinMax(
+//              children,
+//              groupingList,
+//              semiringList,
+//              producedOutput,
+//              true
+//            )
+//          case ("max", _) =>
+//            handleMinMax(
+//              children,
+//              groupingList,
+//              semiringList,
+//              producedOutput,
+//              false
+//            )
+//          case ("count", _) =>
+//            handleCount(a, children, groupingList, semiringList)
+//          case ("sum", _) => handleSum(a, children, groupingList, semiringList)
+//        }
+//      }
+//    }
+//}
 
 ///** A rule that pushes down the rename operator to the leaf */
 //@deprecated

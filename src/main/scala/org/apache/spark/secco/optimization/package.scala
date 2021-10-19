@@ -2,8 +2,7 @@ package org.apache.spark.secco
 
 package object optimization {
 
-  /**
-    * Execution mode of the logical plan.
+  /** Execution mode of the logical plan.
     *   <ul>
     *     <li> Coupled: op that whose computation and communication can be decoupled </li>
     *     <li> CoupledWithComputationDelay: op that whose computation and communication can be decoupled, and
@@ -17,8 +16,8 @@ package object optimization {
   object ExecMode extends Enumeration {
     type ExecMode = Value
 
-    val Coupled, CoupledWithComputationDelay, Communication, Computation,
-        DelayComputation, Atomic =
+    val Atomic, Coupled, MarkedDelay, Communication, Computation,
+        DelayComputation =
       Value
 
   }

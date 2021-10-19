@@ -1,5 +1,6 @@
 package org.apache.spark.secco.optimization.support
 
+import org.apache.spark.secco.catalog.TableIdentifier
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
 
@@ -10,7 +11,7 @@ trait AnalyzeOutputSupport {
   /** check if an logical plan is static */
   def isStatic(
       plan: LogicalPlan,
-      deltaTableIdentifiers: Seq[String]
+      deltaTableIdentifiers: Seq[TableIdentifier]
   ): Boolean = {
 
     plan
@@ -31,11 +32,13 @@ trait AnalyzeOutputSupport {
   /** check if output is materializable */
   def isMaterializable(plan: LogicalPlan): Boolean = {
     plan match {
-      case s: Filter                                         => true && !s.child.isInstanceOf[CartesianProduct]
-      case p: Project                                        => isOutputSmall(p) || p.projectionListOld.size == 1
-      case a: Aggregate                                      => isOutputSmall(a) || a.groupingListOld.size == 1
-      case u: Union                                          => u.children.forall(isOutputSmall)
-      case pk: PKFKJoin                                      => true
+      case s: Filter    => true && !s.child.isInstanceOf[CartesianProduct]
+      case p: Project   => isOutputSmall(p) || p.projectionList.size == 1
+      case a: Aggregate => isOutputSmall(a) || a.groupingExpressions.size == 1
+      case u: Union     => u.children.forall(isOutputSmall)
+      case bj: BinaryJoin
+          if bj.property.contains(PrimaryKeyForeignKeyJoinConstraintProperty) =>
+        true
       case d: Except                                         => isOutputSmall(d.left) && isOutputSmall(d.right)
       case j: MultiwayJoin                                   => false
       case p: Partition                                      => isMaterializable(p.child)
