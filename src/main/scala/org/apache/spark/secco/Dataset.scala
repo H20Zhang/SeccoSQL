@@ -5,10 +5,10 @@ import java.util.concurrent.atomic.AtomicLong
 import org.apache.spark.secco.analysis.RelationAlgebraWithAnalysis
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
 import org.apache.spark.secco.execution.{
-  InternalBlock,
+  OldInternalBlock,
   OldInternalRow,
   QueryExecution,
-  RowBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.secco.expression.Attribute
@@ -288,7 +288,7 @@ object Dataset {
       .mapPartitions { it =>
         val blockContent = RowBlockContent(it.toArray)
         val rowBlock =
-          RowBlock(schema, blockContent).asInstanceOf[InternalBlock]
+          RowBlockOld(schema, blockContent).asInstanceOf[OldInternalBlock]
         Iterator(rowBlock)
       }
       .persist(dlSession.sessionState.conf.rddCacheLevel)

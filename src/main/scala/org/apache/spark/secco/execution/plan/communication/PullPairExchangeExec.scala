@@ -13,8 +13,8 @@ import org.apache.spark.secco.execution.plan.support.PairExchangeSupport
 import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
-  MultiTableIndexedBlock,
+  OldInternalBlock,
+  MultiTableIndexedBlockOld,
   SharedParameter
 }
 import org.apache.spark.rdd.RDD
@@ -42,7 +42,7 @@ case class PullPairExchangeExec(
   /** generate the partition for [[PullPairExchangeExec]] */
   def genPullPairPartitions(
       children: Seq[SeccoPlan],
-      inputs: Seq[RDD[InternalBlock]]
+      inputs: Seq[RDD[OldInternalBlock]]
   ): Array[PullPairRDDPartition] = {
 
     val attrs = outputOld
@@ -62,9 +62,8 @@ case class PullPairExchangeExec(
             pos.map(shareVector).toArray
           }
           .zipWithIndex
-          .map {
-            case (subShareVector, relationPos) =>
-              partitioners(relationPos).getPartition(subShareVector)
+          .map { case (subShareVector, relationPos) =>
+            partitioners(relationPos).getPartition(subShareVector)
           }
 
         val taskID = taskPartitioner.getPartition(shareVector)
@@ -126,12 +125,11 @@ case class PullPairExchangeExec(
     }
   }
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     //gen inputRDDs
     val inputRDDs = children.map(_.cachedExecuteResult.get)
@@ -244,13 +242,13 @@ class PullPairRDDPartition(
     }
 }
 
-class PullPairRDD[A <: InternalBlock: Manifest](
+class PullPairRDD[A <: OldInternalBlock: Manifest](
     output: Seq[String],
     sc: SparkContext,
     pairedPartitions: Array[PullPairRDDPartition],
     _partitioner: Partitioner,
-    var rdds: Seq[RDD[InternalBlock]]
-) extends RDD[InternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
+    var rdds: Seq[RDD[OldInternalBlock]]
+) extends RDD[OldInternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
   override val partitioner: Option[Partitioner] = Some(_partitioner)
 
   //reorder the subTaskPartitions according to their idx
@@ -270,7 +268,7 @@ class PullPairRDD[A <: InternalBlock: Manifest](
   override def compute(
       split: Partition,
       context: TaskContext
-  ): Iterator[InternalBlock] = {
+  ): Iterator[OldInternalBlock] = {
     val subTaskPartition = split.asInstanceOf[PullPairRDDPartition]
     val blockList = subTaskPartition.partitionValues.par.map { f =>
       val iterator1 = rdds(f._1).iterator(f._2, context)
@@ -282,7 +280,7 @@ class PullPairRDD[A <: InternalBlock: Manifest](
     val shareVector =
       partitioner.get.asInstanceOf[PairPartitioner].getCoordinate(split.index)
 
-    Iterator(MultiTableIndexedBlock(output, shareVector, blockList))
+    Iterator(MultiTableIndexedBlockOld(output, shareVector, blockList))
   }
 
 }

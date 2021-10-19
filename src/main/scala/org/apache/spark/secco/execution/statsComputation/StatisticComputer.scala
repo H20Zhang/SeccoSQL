@@ -3,9 +3,9 @@ package org.apache.spark.secco.execution.statsComputation
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.execution.{
-  InternalBlock,
+  OldInternalBlock,
   OldInternalDataType,
-  RowBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.secco.optimization.statsEstimation.{
@@ -30,6 +30,6 @@ trait StatisticComputer {
     */
   def compute(
       attributes: Seq[String],
-      content: RDD[InternalBlock]
+      content: RDD[OldInternalBlock]
   ): Statistics
 }

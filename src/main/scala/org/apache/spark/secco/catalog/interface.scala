@@ -1,7 +1,7 @@
 package org.apache.spark.secco.catalog
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.{SeccoPlan, InternalBlock}
+import org.apache.spark.secco.execution.{SeccoPlan, OldInternalBlock}
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
   Statistics
@@ -12,8 +12,7 @@ import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * A function defined in the catalog.
+/** A function defined in the catalog.
   *
   * @param identifier name of the function
   * @param className fully qualified class name, e.g. "org.apache.spark.util.MyFunc"
@@ -30,8 +29,7 @@ object CatalogFunction {
     new CatalogFunction(FunctionIdentifier(functionName), className)
 }
 
-/**
-  * A column of table in the catalog
+/** A column of table in the catalog
   * @param columnName name of the column
   * @param dataType type of the data in the column, i.e., DoubleType, IntType
   * @param stat statistic of the column
@@ -44,8 +42,7 @@ case class CatalogColumn(
   override def toString: String = s"$columnName"
 }
 
-/**
-  * A table in the catalog
+/** A table in the catalog
   */
 abstract class AbstractCatalogTable extends Serializable {
 
@@ -94,7 +91,7 @@ case class CatalogTable(
     stats: Option[Statistics]
 ) extends AbstractCatalogTable {
 
-  def attachData(content: RDD[InternalBlock]) = {
+  def attachData(content: RDD[OldInternalBlock]) = {
     val dataManager =
       SeccoSession.currentSession.sessionState.cachedDataManager
     dataManager.storeRelation(identifier.toString, content)
@@ -197,8 +194,7 @@ object CatalogView {
   }
 }
 
-/**
-  * A database defined in the catalog.
+/** A database defined in the catalog.
   */
 case class CatalogDatabase(
     name: String,

@@ -24,7 +24,7 @@ abstract class SeccoPlan
     with Serializable {
 
   @transient lazy val statisticKeeper = StatisticKeeper(this)
-  @transient var cachedExecuteResult: Option[RDD[InternalBlock]] = None
+  @transient var cachedExecuteResult: Option[RDD[OldInternalBlock]] = None
   @transient val dataManager =
     SeccoSession.currentSession.sessionState.cachedDataManager
 
@@ -58,8 +58,8 @@ abstract class SeccoPlan
     val time1 = System.currentTimeMillis()
     val rows = internalBlockRDD
       .flatMap { block =>
-        if (block.isInstanceOf[RowBlock]) {
-          val rowBlock = block.asInstanceOf[RowBlock]
+        if (block.isInstanceOf[RowBlockOld]) {
+          val rowBlock = block.asInstanceOf[RowBlockOld]
           rowBlock.blockContent.content
         } else {
           throw new Exception(
@@ -107,7 +107,7 @@ abstract class SeccoPlan
     *
     * Concrete implementations of SparkPlan should override `doExecute`.
     */
-  final def execute(): RDD[InternalBlock] = {
+  final def execute(): RDD[OldInternalBlock] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
@@ -137,8 +137,8 @@ abstract class SeccoPlan
     cachedExecuteResult match {
       case Some(rdd) =>
         rdd.flatMap {
-          case r: RowBlock => r.blockContent.content
-          case t: InternalBlock =>
+          case r: RowBlockOld => r.blockContent.content
+          case t: OldInternalBlock =>
             throw new Exception(s"${t.getClass} not supported.")
         }
       case None =>
@@ -170,7 +170,7 @@ abstract class SeccoPlan
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doExecute(): RDD[InternalBlock]
+  protected def doExecute(): RDD[OldInternalBlock]
 
   /** Perform the computation for computing the result of the query as an `RDD[InternalRow]`,
     * which allows very large result to be output in iterator form
@@ -179,9 +179,9 @@ abstract class SeccoPlan
     */
   protected def doRDD(): RDD[OldInternalRow] = {
     doExecute().flatMap {
-      case r: RowBlock            => r.blockContent.content.iterator
-      case c: ConsecutiveRowBlock => c.blockContent.content.iterator
-      case b: InternalBlock =>
+      case r: RowBlockOld            => r.blockContent.content.iterator
+      case c: ConsecutiveRowBlockOld => c.blockContent.content.iterator
+      case b: OldInternalBlock =>
         throw new Exception(s"${b.getClass} not supported.")
     }
   }

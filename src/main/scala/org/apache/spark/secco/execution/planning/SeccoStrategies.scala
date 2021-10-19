@@ -15,7 +15,7 @@ import org.apache.spark.secco.execution.plan.communication.{
 import org.apache.spark.secco.execution.plan.io.{DiskScanExec, InMemoryScanExec}
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
+  OldInternalBlock,
   LeafExecNode,
   SharedParameter,
   Strategy
@@ -27,8 +27,7 @@ import scala.collection.mutable.ArrayBuffer
 
 //TODO: DEBUG
 
-/**
-  * Converts a logical plan into zero or more SeccoPlan.
+/** Converts a logical plan into zero or more SeccoPlan.
   */
 abstract class SeccoStrategy extends GenericStrategy[SeccoPlan] {
 
@@ -46,7 +45,7 @@ case class PlanLater(plan: LogicalPlan) extends LeafExecNode {
 
   override def outputOld: Seq[String] = plan.outputOld
 
-  protected override def doExecute(): RDD[InternalBlock] = {
+  protected override def doExecute(): RDD[OldInternalBlock] = {
     throw new UnsupportedOperationException()
   }
 }
@@ -79,7 +78,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
           dataManager(s.tableName) match {
             case Some(x) =>
               x match {
-                case r: RDD[InternalBlock] =>
+                case r: RDD[OldInternalBlock] =>
                   Seq(InMemoryScanExec(s.tableName, s.outputOld))
                 case d: String => Seq(DiskScanExec(s.tableName, s.outputOld, d))
               }
@@ -93,7 +92,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
           dataManager(s.tableName) match {
             case Some(x) =>
               x match {
-                case r: RDD[InternalBlock] =>
+                case r: RDD[OldInternalBlock] =>
                   Seq(
                     InMemoryScanExec(
                       s.tableName,
@@ -180,13 +179,12 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       if (isTrieNeeded) {
 
         PullPairExchangeExec(
-          partitions.zipWithIndex.map {
-            case (partition, i) =>
-              LocalPreparationExec(
-                PartitionExchangeExec(planLater(partition.child), sharedShare),
-                sharedAttributeOrder,
-                sharedPreparationTasks(i)
-              )
+          partitions.zipWithIndex.map { case (partition, i) =>
+            LocalPreparationExec(
+              PartitionExchangeExec(planLater(partition.child), sharedShare),
+              sharedAttributeOrder,
+              sharedPreparationTasks(i)
+            )
           },
           constraint,
           sharedShare

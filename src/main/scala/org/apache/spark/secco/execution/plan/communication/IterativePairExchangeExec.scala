@@ -11,8 +11,8 @@ import org.apache.spark.secco.execution.plan.communication.utils.{
 import org.apache.spark.secco.execution.plan.support.PairExchangeSupport
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
-  MultiTableIndexedBlock,
+  OldInternalBlock,
+  MultiTableIndexedBlockOld,
   SharedParameter
 }
 import org.apache.spark.rdd.RDD
@@ -38,8 +38,8 @@ case class IterativePairExchangeExec(
   /** child of uncached [[PartitionExchangeExec]] */
   val uncachedChildren: Seq[SeccoPlan] = children.drop(1)
 
-  /** cached RDD of [[MultiTableIndexedBlock]], which stores block of cached [[PartitionExchangeExec]] */
-  var cachedRDD: Option[RDD[InternalBlock]] = None
+  /** cached RDD of [[MultiTableIndexedBlockOld]], which stores block of cached [[PartitionExchangeExec]] */
+  var cachedRDD: Option[RDD[OldInternalBlock]] = None
 
   /** make sure the first child is of type [[PullPairExchangeExec]] */
   assert(cachedChild.isInstanceOf[PullPairExchangeExec])
@@ -47,7 +47,7 @@ case class IterativePairExchangeExec(
   /** generate the partition for [[PullPairRDD]] */
   def genPullPairPartitions(
       children: Seq[SeccoPlan],
-      inputs: Seq[RDD[InternalBlock]]
+      inputs: Seq[RDD[OldInternalBlock]]
   ): Array[IterativePullPairRDDPartition] = {
 
     val attrs = outputOld
@@ -67,9 +67,8 @@ case class IterativePairExchangeExec(
             pos.map(shareVector).toArray
           }
           .zipWithIndex
-          .map {
-            case (subShareVector, relationPos) =>
-              partitioners(relationPos).getPartition(subShareVector)
+          .map { case (subShareVector, relationPos) =>
+            partitioners(relationPos).getPartition(subShareVector)
           }
 
         val taskID = taskPartitioner.getPartition(shareVector)
@@ -122,12 +121,11 @@ case class IterativePairExchangeExec(
 
   }
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     //gen inputRDDs
     val inputRDDs =
@@ -248,14 +246,14 @@ class IterativePullPairRDDPartition(
     }
 }
 
-class IterativePullPairRDD[A <: InternalBlock: Manifest](
+class IterativePullPairRDD[A <: OldInternalBlock: Manifest](
     output: Seq[String],
     sc: SparkContext,
     orderRearrange: Seq[Int],
     pairedPartitions: Array[IterativePullPairRDDPartition],
     _partitioner: Partitioner,
-    var rdds: Seq[RDD[InternalBlock]]
-) extends RDD[InternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
+    var rdds: Seq[RDD[OldInternalBlock]]
+) extends RDD[OldInternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
   override val partitioner: Option[Partitioner] = Some(_partitioner)
 
   //reorder the subTaskPartitions according to their idx
@@ -275,7 +273,7 @@ class IterativePullPairRDD[A <: InternalBlock: Manifest](
   override def compute(
       split: Partition,
       context: TaskContext
-  ): Iterator[InternalBlock] = {
+  ): Iterator[OldInternalBlock] = {
     val subTaskPartition = split.asInstanceOf[IterativePullPairRDDPartition]
     val blockList = subTaskPartition.partitionValues.par
       .map { f =>
@@ -286,8 +284,8 @@ class IterativePullPairRDD[A <: InternalBlock: Manifest](
       }
       .toArray
       .flatMap {
-        case mthb: MultiTableIndexedBlock => mthb.subBlocks
-        case b: InternalBlock             => Seq(b)
+        case mthb: MultiTableIndexedBlockOld => mthb.subBlocks
+        case b: OldInternalBlock             => Seq(b)
       }
 
     //we need to rearrange the position of block list based on orderRearrange
@@ -296,7 +294,9 @@ class IterativePullPairRDD[A <: InternalBlock: Manifest](
     val shareVector =
       partitioner.get.asInstanceOf[PairPartitioner].getCoordinate(split.index)
 
-    Iterator(MultiTableIndexedBlock(output, shareVector, rearrangedBlockList))
+    Iterator(
+      MultiTableIndexedBlockOld(output, shareVector, rearrangedBlockList)
+    )
   }
 
 }

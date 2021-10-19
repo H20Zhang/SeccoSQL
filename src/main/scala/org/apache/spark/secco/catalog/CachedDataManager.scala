@@ -1,7 +1,7 @@
 package org.apache.spark.secco.catalog
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.InternalBlock
+import org.apache.spark.secco.execution.OldInternalBlock
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
@@ -14,10 +14,10 @@ class CachedDataManager {
     store(tableName) = dataAddress
   }
 
-  def storeRelation(tableName: String, data: RDD[InternalBlock]): Unit = {
+  def storeRelation(tableName: String, data: RDD[OldInternalBlock]): Unit = {
     store.get(tableName) match {
       case Some(x) =>
-        val oldBlock = x.asInstanceOf[RDD[InternalBlock]]
+        val oldBlock = x.asInstanceOf[RDD[OldInternalBlock]]
         data.persist(
           SeccoSession.currentSession.sessionState.conf.rddCacheLevel
         )

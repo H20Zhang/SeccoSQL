@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.io
 
 import org.apache.spark.secco.catalog.CachedDataManager
-import org.apache.spark.secco.execution.{SeccoPlan, InternalBlock}
+import org.apache.spark.secco.execution.{SeccoPlan, OldInternalBlock}
 import org.apache.spark.secco.execution.sources.DataLoader
 import org.apache.spark.rdd.RDD
 
@@ -17,12 +17,11 @@ case class DiskScanExec(
     dataAddress: String
 ) extends ScanExec {
 
-  /**
-    * Produces the result of the query as an `RDD[InternalBlock]`
+  /** Produces the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     val loader = new DataLoader()
     loader.loadTable(dataAddress, ",", outputOld)
   }
@@ -34,14 +33,13 @@ case class InMemoryScanExec(
     outputOld: Seq[String]
 ) extends ScanExec {
 
-  /**
-    * Produces the result of the query as an `RDD[InternalBlock]`
+  /** Produces the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     dataManager(tableName) match {
-      case Some(x) => x.asInstanceOf[RDD[InternalBlock]]
+      case Some(x) => x.asInstanceOf[RDD[OldInternalBlock]]
       case None =>
         throw new Exception(s"no such table:${tableName} in dataManager")
     }

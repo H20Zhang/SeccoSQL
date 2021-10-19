@@ -7,8 +7,8 @@ import org.apache.spark.secco.execution.plan.communication.{
   PullPairExchangeExec
 }
 import org.apache.spark.secco.execution.{
-  MultiTableIndexedBlock,
-  RowIndexedBlock,
+  MultiTableIndexedBlockOld,
+  RowIndexedBlockOld,
   SharedParameter
 }
 import org.apache.spark.secco.util.misc.Timer
@@ -68,34 +68,33 @@ class IterativePairExchangeExecSuite extends SeccoFunSuite {
       iterativePullPairExchangeExec.execute().foreachPartition { it =>
         val block = it.next()
         block match {
-          case MultiTableIndexedBlock(output, shareVector, blockContents) =>
+          case MultiTableIndexedBlockOld(output, shareVector, blockContents) =>
             //DEBUG
             // println(s"output:${output}, shareVector:${shareVector.toSeq}")
 
             blockContents
-              .map(_.asInstanceOf[RowIndexedBlock])
+              .map(_.asInstanceOf[RowIndexedBlockOld])
               .zipWithIndex
-              .foreach {
-                case (indexedRowBlock, index) =>
-                  //DEBUG
-                  //                println(
-                  //                  s"localOutput:${rowHCubeBlock.output},localShareVector:${rowHCubeBlock.shareVector.toSeq},blockContents:${rowHCubeBlock.blockContent.content
-                  //                    .map(_.mkString("(", ",", ")"))
-                  //                    .toSeq}"
-                  //                )
-                  val partitioners =
-                    children
-                      .map(f =>
-                        new PairPartitioner(
-                          f.outputOld.map(sharedShare.res).toArray
-                        )
+              .foreach { case (indexedRowBlock, index) =>
+                //DEBUG
+                //                println(
+                //                  s"localOutput:${rowHCubeBlock.output},localShareVector:${rowHCubeBlock.shareVector.toSeq},blockContents:${rowHCubeBlock.blockContent.content
+                //                    .map(_.mkString("(", ",", ")"))
+                //                    .toSeq}"
+                //                )
+                val partitioners =
+                  children
+                    .map(f =>
+                      new PairPartitioner(
+                        f.outputOld.map(sharedShare.res).toArray
                       )
-                  indexedRowBlock.blockContent.content.forall(row =>
-                    partitioners(index).getPartition(row) == partitioners(index)
-                      .getPartition(
-                        indexedRowBlock.index
-                      )
-                  )
+                    )
+                indexedRowBlock.blockContent.content.forall(row =>
+                  partitioners(index).getPartition(row) == partitioners(index)
+                    .getPartition(
+                      indexedRowBlock.index
+                    )
+                )
               }
         }
 

@@ -5,9 +5,9 @@ import org.apache.spark.secco.catalog.CachedDataManager
 import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.execution.plan.io.InMemoryScanExec
 import org.apache.spark.secco.execution.{
-  InternalBlock,
+  OldInternalBlock,
   OldInternalRow,
-  RowBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.secco.optimization.LogicalPlan
@@ -46,14 +46,14 @@ object TestDataGenerator {
       attrs: Seq[String],
       cardinality: Int,
       upperBound: Int
-  ): RDD[InternalBlock] = {
+  ): RDD[OldInternalBlock] = {
 
     val arity = attrs.size
     val rowRDD = genRandomInternalRowRDD(cardinality, arity, upperBound)
     rowRDD.mapPartitions { it =>
       val blockContent = RowBlockContent(it.toArray)
       val rowBlock =
-        RowBlock(attrs, blockContent).asInstanceOf[InternalBlock]
+        RowBlockOld(attrs, blockContent).asInstanceOf[OldInternalBlock]
       Iterator(rowBlock)
     }
   }
@@ -117,7 +117,8 @@ object TestDataGenerator {
       .mapPartitions { it =>
         val blockContent = RowBlockContent(it.toArray)
         val rowBlock =
-          RowBlock(scan.outputOld, blockContent).asInstanceOf[InternalBlock]
+          RowBlockOld(scan.outputOld, blockContent)
+            .asInstanceOf[OldInternalBlock]
         Iterator(rowBlock)
       }
       .cache()
@@ -138,7 +139,8 @@ object TestDataGenerator {
       .mapPartitions { it =>
         val blockContent = RowBlockContent(it.toArray)
         val rowBlock =
-          RowBlock(scan.outputOld, blockContent).asInstanceOf[InternalBlock]
+          RowBlockOld(scan.outputOld, blockContent)
+            .asInstanceOf[OldInternalBlock]
         Iterator(rowBlock)
       }
       .cache()

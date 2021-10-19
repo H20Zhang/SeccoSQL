@@ -1,6 +1,6 @@
 package unit.execution.plan.atomic
 
-import org.apache.spark.secco.execution.RowBlock
+import org.apache.spark.secco.execution.RowBlockOld
 import org.apache.spark.secco.execution.plan.atomic._
 import org.apache.spark.secco.execution.plan.io.InMemoryScanExec
 import util.{SeccoFunSuite, TestDataGenerator, UnitTestTag}
@@ -23,9 +23,8 @@ class AtomicExecSuite extends SeccoFunSuite {
     val scanSeq = scanExec.collectSeq()
     val transformSeq = transformExec.collectSeq()
 
-    val isAllEqual = scanSeq.zip(transformSeq).forall {
-      case (t1, t2) =>
-        (t1(0) == t2(0)) && (0.85 * t1(1) + 0.001 == t2(1))
+    val isAllEqual = scanSeq.zip(transformSeq).forall { case (t1, t2) =>
+      (t1(0) == t2(0)) && (0.85 * t1(1) + 0.001 == t2(1))
     }
 
     assert(isAllEqual)
@@ -109,7 +108,7 @@ class AtomicExecSuite extends SeccoFunSuite {
       pprint.pprintln(
         scanExec
           .execute()
-          .flatMap(f => f.asInstanceOf[RowBlock].blockContent.content)
+          .flatMap(f => f.asInstanceOf[RowBlockOld].blockContent.content)
           .collect()
       )
 
@@ -119,7 +118,7 @@ class AtomicExecSuite extends SeccoFunSuite {
       pprint.pprintln(
         deltaScanExec
           .execute()
-          .flatMap(f => f.asInstanceOf[RowBlock].blockContent.content)
+          .flatMap(f => f.asInstanceOf[RowBlockOld].blockContent.content)
           .collect()
       )
     }
@@ -133,7 +132,7 @@ class AtomicExecSuite extends SeccoFunSuite {
     pprint.pprintln(
       outScanExec
         .execute()
-        .flatMap(f => f.asInstanceOf[RowBlock].blockContent.content)
+        .flatMap(f => f.asInstanceOf[RowBlockOld].blockContent.content)
         .collect()
     )
 

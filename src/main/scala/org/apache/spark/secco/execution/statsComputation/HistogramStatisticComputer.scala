@@ -2,9 +2,9 @@ package org.apache.spark.secco.execution.statsComputation
 
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.execution.{
-  InternalBlock,
+  OldInternalBlock,
   OldInternalDataType,
-  RowBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.secco.optimization.statsEstimation.{
@@ -23,7 +23,7 @@ object HistogramStatisticComputer {
 
   def compute(
       attributes: Seq[String],
-      content: RDD[InternalBlock]
+      content: RDD[OldInternalBlock]
   ): Statistics = {
 
     val conf = SeccoSession.currentSession.sessionState.conf
@@ -36,14 +36,14 @@ object HistogramStatisticComputer {
     val contentInOnePartition = content
       .flatMap { block =>
         block match {
-          case RowBlock(output, blockContent) =>
+          case RowBlockOld(output, blockContent) =>
             blockContent.content
           case _ => throw new Exception("only RowBlock supports statistic")
         }
       }
       .repartition(1)
       .mapPartitions { rows =>
-        Iterator(RowBlock(Seq(), RowBlockContent(rows.toArray)))
+        Iterator(RowBlockOld(Seq(), RowBlockContent(rows.toArray)))
       }
 
     //count distinct numbers of value of attributes and
@@ -52,7 +52,7 @@ object HistogramStatisticComputer {
       .mapPartitions { blocks =>
         blocks.flatMap { block =>
           block match {
-            case RowBlock(output, blockContent) =>
+            case RowBlockOld(output, blockContent) =>
               val array = blockContent.content
 
               //compute row count

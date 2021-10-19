@@ -6,7 +6,7 @@ import org.apache.spark.secco.execution.plan.computation.utils.{
   Trie
 }
 
-abstract class InternalBlock extends Serializable {
+abstract class OldInternalBlock extends Serializable {
   def output: Seq[String]
   def blockContents: Seq[InternalBlockContent]
   def isEmpty: Boolean
@@ -24,15 +24,15 @@ case class ConsecitiveRowBlockContent(content: ConsecutiveRowArray)
 case class GeneralBlockContent[V](content: V) extends InternalBlockContent
 
 trait IndexedBlockCapability {
-  self: InternalBlock =>
+  self: OldInternalBlock =>
   def index: Array[Int]
 }
 
-case class MultiTableIndexedBlock(
+case class MultiTableIndexedBlockOld(
     output: Seq[String],
     index: Array[Int],
-    subBlocks: Seq[InternalBlock]
-) extends InternalBlock
+    subBlocks: Seq[OldInternalBlock]
+) extends OldInternalBlock
     with IndexedBlockCapability {
 
   override def blockContents: Seq[InternalBlockContent] =
@@ -41,33 +41,33 @@ case class MultiTableIndexedBlock(
   override def isEmpty: Boolean = subBlocks.forall(_.isEmpty)
 }
 
-case class RowIndexedBlock(
+case class RowIndexedBlockOld(
     output: Seq[String],
     index: Array[Int],
     blockContent: RowBlockContent
-) extends InternalBlock
+) extends OldInternalBlock
     with IndexedBlockCapability {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class HashMapIndexedBlock(
+case class HashMapIndexedBlockOld(
     output: Seq[String],
     index: Array[Int],
     blockContent: HashMapBlockContent
-) extends InternalBlock
+) extends OldInternalBlock
     with IndexedBlockCapability {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class TrieIndexedBlock(
+case class TrieIndexedBlockOld(
     output: Seq[String],
     index: Array[Int],
     blockContent: TrieBlockContent
-) extends InternalBlock
+) extends OldInternalBlock
     with IndexedBlockCapability {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
@@ -75,56 +75,56 @@ case class TrieIndexedBlock(
   override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
 }
 
-case class ConsecutiveRowIndexedBlock(
+case class ConsecutiveRowIndexedBlockOld(
     output: Seq[String],
     index: Array[Int],
     blockContent: ConsecitiveRowBlockContent
-) extends InternalBlock
+) extends OldInternalBlock
     with IndexedBlockCapability {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class HashMapBlock(
+case class HashMapBlockOld(
     output: Seq[String],
     blockContent: HashMapBlockContent
-) extends InternalBlock {
+) extends OldInternalBlock {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class TrieBlock(
+case class TrieBlockOld(
     output: Seq[String],
     blockContent: TrieBlockContent
-) extends InternalBlock {
+) extends OldInternalBlock {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   //TODO: implement more efficient version
   override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
 }
 
-case class ConsecutiveRowBlock(
+case class ConsecutiveRowBlockOld(
     output: Seq[String],
     blockContent: ConsecitiveRowBlockContent
-) extends InternalBlock {
+) extends OldInternalBlock {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class RowBlock(
+case class RowBlockOld(
     output: Seq[String],
     blockContent: RowBlockContent
-) extends InternalBlock {
+) extends OldInternalBlock {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class MultiBlock(
+case class MultiBlockOld(
     output: Seq[String],
-    subBlocks: Seq[InternalBlock]
-) extends InternalBlock {
+    subBlocks: Seq[OldInternalBlock]
+) extends OldInternalBlock {
 
   override def blockContents: Seq[InternalBlockContent] =
     subBlocks.flatMap(_.blockContents)
@@ -132,10 +132,10 @@ case class MultiBlock(
   override def isEmpty: Boolean = subBlocks.forall(_.isEmpty)
 }
 
-case class GeneralBlock[V](
+case class GeneralBlockOld[V](
     output: Seq[String],
     blockContent: GeneralBlockContent[V]
-) extends InternalBlock {
+) extends OldInternalBlock {
   override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
 
   override def isEmpty: Boolean = {

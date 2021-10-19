@@ -22,7 +22,7 @@ case class CacheExec(child: SeccoPlan) extends UnaryExecNode {
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     cachedExecuteResult match {
       case Some(rdd) => rdd
       case None =>
@@ -45,7 +45,7 @@ case class AssignExec(child: SeccoPlan, tableIdentifier: String)
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     dataManager(tableIdentifier) match {
       case Some(childRDD) =>
@@ -79,7 +79,7 @@ case class RenameExec(child: SeccoPlan, attrRenameMap: Map[String, String])
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     child.execute()
   }
 
@@ -99,7 +99,7 @@ case class IterativeExec(
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     var i = 0
     var isChanged = true
@@ -130,7 +130,7 @@ case class IterativeExec(
     }
 
     dataManager(returnTableIdentifier) match {
-      case Some(childRDD) => childRDD.asInstanceOf[RDD[InternalBlock]]
+      case Some(childRDD) => childRDD.asInstanceOf[RDD[OldInternalBlock]]
       case None =>
         new Exception(s"No such returnTable:$returnTableIdentifier")
         sparkContext.emptyRDD
@@ -165,7 +165,7 @@ case class UpdateExec(
       case "max" => Math.max
     }
 
-  private var hashMapRDDOption: Option[RDD[InternalBlock]] = None
+  private var hashMapRDDOption: Option[RDD[OldInternalBlock]] = None
 
   /** we assume first k attributes are key attributes */
   lazy val keyPos: Array[Int] = key.map(child.outputOld.indexOf).toArray
@@ -192,11 +192,11 @@ case class UpdateExec(
   }
 
   def genPartitionRDD(
-      rdd: RDD[InternalBlock],
+      rdd: RDD[OldInternalBlock],
       sentryRDD: RDD[(OldInternalRow, Boolean)]
-  ): RDD[InternalBlock] = {
+  ): RDD[OldInternalBlock] = {
     val rowRDD = rdd.flatMap {
-      case r: RowBlock => r.blockContent.content.map(f => (f, true))
+      case r: RowBlockOld => r.blockContent.content.map(f => (f, true))
       case _ =>
         throw new Exception("blockType not supported.")
     }
@@ -208,17 +208,17 @@ case class UpdateExec(
         .mapPartitions { it =>
           val content = it.filter(_._2).map(_._1).toArray
           Iterator(
-            RowBlock(outputOld, RowBlockContent(content))
-              .asInstanceOf[InternalBlock]
+            RowBlockOld(outputOld, RowBlockContent(content))
+              .asInstanceOf[OldInternalBlock]
           )
         }
 
     partitionedRDD
   }
 
-  def genHashMapRDD(rdd: RDD[InternalBlock]): RDD[InternalBlock] = {
+  def genHashMapRDD(rdd: RDD[OldInternalBlock]): RDD[OldInternalBlock] = {
     rdd.map {
-      case r: RowBlock =>
+      case r: RowBlockOld =>
         val content = r.blockContent.content
         val hashMap =
           mutable
@@ -237,36 +237,36 @@ case class UpdateExec(
           val value = row(valuePos)
           hashMap(key) = value
         }
-        GeneralBlock(outputOld, GeneralBlockContent(hashMap))
+        GeneralBlockOld(outputOld, GeneralBlockContent(hashMap))
       case _ => throw new Exception("blockType not supported.")
     }
   }
 
   def genZippedRDD(
-      rdd1: RDD[InternalBlock],
-      rdd2: RDD[InternalBlock]
-  ): RDD[InternalBlock] = {
+      rdd1: RDD[OldInternalBlock],
+      rdd2: RDD[OldInternalBlock]
+  ): RDD[OldInternalBlock] = {
     val zippedRDD = new UpdateRDD(sparkContext, Seq(rdd1, rdd2))
     zippedRDD
   }
 
   def update(
-      zippedRDD: RDD[InternalBlock]
-  ): (RDD[InternalBlock], RDD[InternalBlock]) = {
+      zippedRDD: RDD[OldInternalBlock]
+  ): (RDD[OldInternalBlock], RDD[OldInternalBlock]) = {
 
     /** cache zippedRDD */
 //    zippedRDD.cache().count()
 
     val diffRDD = zippedRDD.map {
-      case m: MultiBlock =>
+      case m: MultiBlockOld =>
         val block0 = m
           .subBlocks(0)
-          .asInstanceOf[GeneralBlock[
+          .asInstanceOf[GeneralBlockOld[
             mutable.HashMap[mutable.WrappedArray[
               OldInternalDataType
             ], OldInternalDataType]
           ]]
-        val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
+        val block1 = m.subBlocks(1).asInstanceOf[RowBlockOld]
 
         val hashMap = block0.blockContent.content
         val rows = block1.blockContent.content
@@ -292,21 +292,21 @@ case class UpdateExec(
           }
         }
 
-        RowBlock(outputOld, RowBlockContent(diffRows))
-          .asInstanceOf[InternalBlock]
+        RowBlockOld(outputOld, RowBlockContent(diffRows))
+          .asInstanceOf[OldInternalBlock]
       case _ => throw new Exception("blockType not supported")
     }
 
     val newHashMapRDD = zippedRDD.map {
-      case m: MultiBlock =>
+      case m: MultiBlockOld =>
         val block0 = m
           .subBlocks(0)
-          .asInstanceOf[GeneralBlock[
+          .asInstanceOf[GeneralBlockOld[
             mutable.HashMap[mutable.WrappedArray[
               OldInternalDataType
             ], OldInternalDataType]
           ]]
-        val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
+        val block1 = m.subBlocks(1).asInstanceOf[RowBlockOld]
 
         val hashMap = block0.blockContent.content
         val rows = block1.blockContent.content
@@ -331,7 +331,7 @@ case class UpdateExec(
           }
         }
 
-        block0.asInstanceOf[InternalBlock]
+        block0.asInstanceOf[OldInternalBlock]
       case _ => throw new Exception("blockType not supported")
     }
 
@@ -345,7 +345,7 @@ case class UpdateExec(
     val outputRDD = hashMapRDDOption match {
       case Some(hashMapRDD) =>
         hashMapRDD.map {
-          case b: GeneralBlock[
+          case b: GeneralBlockOld[
                 mutable.HashMap[mutable.WrappedArray[
                   OldInternalDataType
                 ], OldInternalDataType]
@@ -364,8 +364,8 @@ case class UpdateExec(
               mutableArray += res
             }
             val content = mutableArray.toArray
-            RowBlock(outputOld, RowBlockContent(content))
-              .asInstanceOf[InternalBlock]
+            RowBlockOld(outputOld, RowBlockContent(content))
+              .asInstanceOf[OldInternalBlock]
           case _ => throw new Exception("blockType not supported")
         }
       case None =>
@@ -379,13 +379,13 @@ case class UpdateExec(
   }
 
   private var iter = 0
-  private var checkpointRDDOption: Option[RDD[InternalBlock]] = None
+  private var checkpointRDDOption: Option[RDD[OldInternalBlock]] = None
 
   /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     val childRDD = child.execute()
 
     //TODO: find out if caching is needed
@@ -542,8 +542,8 @@ class UpdateRDDPartition(
 
 class UpdateRDD(
     sc: SparkContext,
-    var rdds: Seq[RDD[InternalBlock]]
-) extends RDD[InternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
+    var rdds: Seq[RDD[OldInternalBlock]]
+) extends RDD[OldInternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
   override val partitioner: Option[Partitioner] = rdds(0).partitioner
 
   assert(rdds.size == 2, "size of rdds should be 2 in UpdateRDD")
@@ -573,7 +573,7 @@ class UpdateRDD(
   override def compute(
       split: Partition,
       context: TaskContext
-  ): Iterator[MultiBlock] = {
+  ): Iterator[MultiBlockOld] = {
     val partitions = split.asInstanceOf[UpdateRDDPartition].partitions
     val rdd1 = rdds(0)
     val rdd2 = rdds(1)
@@ -582,7 +582,7 @@ class UpdateRDD(
     val it2 = rdd2.iterator(partitions(1), context)
 
     it1.zip(it2).map { case (block1, block2) =>
-      MultiBlock(block1.output, Seq(block1, block2))
+      MultiBlockOld(block1.output, Seq(block1, block2))
     }
   }
 

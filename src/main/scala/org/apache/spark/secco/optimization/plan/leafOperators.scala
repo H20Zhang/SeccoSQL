@@ -6,7 +6,7 @@ import org.apache.spark.secco.analysis.{
   NoSuchTableException
 }
 import org.apache.spark.secco.catalog.{CachedDataManager, Catalog}
-import org.apache.spark.secco.execution.InternalBlock
+import org.apache.spark.secco.execution.OldInternalBlock
 import org.apache.spark.secco.execution.statsComputation.HistogramStatisticComputer
 import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
@@ -21,8 +21,7 @@ abstract class LeafNode extends LogicalPlan {
   def computeStats(): Statistics = throw new UnsupportedOperationException
 }
 
-/**
-  * An operator that output table specified by [[tableName]]
+/** An operator that output table specified by [[tableName]]
   * @param tableName name of the table to scan
   * @param mode execution mode
   */
@@ -78,7 +77,7 @@ case class Relation(tableName: String, mode: ExecMode = ExecMode.Atomic)
         case Some(statistics) => statistics
         case None =>
           val rawData =
-            cachedDataManager(tableName).get.asInstanceOf[RDD[InternalBlock]]
+            cachedDataManager(tableName).get.asInstanceOf[RDD[OldInternalBlock]]
           val attributes = outputOld
           val statistics =
             HistogramStatisticComputer.compute(attributes, rawData)
@@ -94,8 +93,7 @@ case class Relation(tableName: String, mode: ExecMode = ExecMode.Atomic)
 
 }
 
-/**
-  * An operator that holds an GHD node
+/** An operator that holds an GHD node
   * @param chi attributes of the GHD node
   * @param lambda relations inside the GHD node
   * @param mode execution mode
@@ -107,8 +105,7 @@ case class GHDNode(chi: Seq[LogicalPlan], lambda: Seq[String], mode: ExecMode)
   override def outputOld: Seq[String] = lambda
 }
 
-/**
-  * An operator that acts as an placeholder to i-th input
+/** An operator that acts as an placeholder to i-th input
   * @param pos i
   * @param outputOld output attributes
   */

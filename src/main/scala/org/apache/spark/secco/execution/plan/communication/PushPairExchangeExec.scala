@@ -33,7 +33,7 @@ case class PushPairExchangeExec(
   /** generate special RDD where each line is (serverID, (relationID, row)) */
   def genCoordinateRDD(
       child: SeccoPlan,
-      rdd: RDD[InternalBlock],
+      rdd: RDD[OldInternalBlock],
       relationId: Int
   ): RDD[(Int, (Int, OldInternalRow))] = {
 
@@ -49,7 +49,7 @@ case class PushPairExchangeExec(
       attrIdsLocalPosToGlobalPos.zipWithIndex.toMap
 
     rdd.flatMap { block =>
-      block.asInstanceOf[RowBlock].blockContent.content.flatMap { tuple =>
+      block.asInstanceOf[RowBlockOld].blockContent.content.flatMap { tuple =>
         //find the hash values for each attribute of the tuple
         val hashValues = new Array[Int](arity)
         var i = 0
@@ -115,7 +115,7 @@ case class PushPairExchangeExec(
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     // increment the counter for benchmark
     val counterManager = dlSession.sessionState.counterManager
@@ -152,7 +152,7 @@ case class PushPairExchangeExec(
               relationId2LocalIndex(relationId).map(shareVector).toArray
             val localOutput = relationId2Output(relationId)
             val indexedRowBlock =
-              RowIndexedBlock(
+              RowIndexedBlockOld(
                 localOutput,
                 localShareVector,
                 rowBlock
@@ -161,7 +161,7 @@ case class PushPairExchangeExec(
           }
           .toArray
 
-        MultiTableIndexedBlock(outputOld, shareVector, receivedRowBlocks)
+        MultiTableIndexedBlockOld(outputOld, shareVector, receivedRowBlocks)
       }
 
   }

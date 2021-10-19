@@ -21,7 +21,7 @@ case class PartitionExchangeExec(
   lazy val sentryRDD: RDD[(OldInternalRow, Boolean)] =
     sparkContext.parallelize(genSentry(outputOld), 10).cache()
 
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     // do execute
     val _output = outputOld
@@ -29,7 +29,7 @@ case class PartitionExchangeExec(
     val spark = SparkSingle.getSparkSession()
 
     val relationRDD = child.execute().flatMap {
-      case RowBlock(_, blockContent) =>
+      case RowBlockOld(_, blockContent) =>
         blockContent.content.iterator.map(g => (g, false))
       case _ => throw new Exception(s"child of $this must output RowBlock")
     }
@@ -57,8 +57,8 @@ case class PartitionExchangeExec(
       }
 
       Iterator(
-        RowIndexedBlock(_output, shareVector, RowBlockContent(array))
-          .asInstanceOf[InternalBlock]
+        RowIndexedBlockOld(_output, shareVector, RowBlockContent(array))
+          .asInstanceOf[OldInternalBlock]
       )
     }
 

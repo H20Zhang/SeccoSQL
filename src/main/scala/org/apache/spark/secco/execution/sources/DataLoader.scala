@@ -2,8 +2,8 @@ package org.apache.spark.secco.execution.sources
 
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.execution.{
-  InternalBlock,
-  RowBlock,
+  OldInternalBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.secco.util.misc.SparkSingle
@@ -38,7 +38,7 @@ class DataLoader(
     csvRDD.mapPartitions { it =>
       val rowBlockContent = RowBlockContent(it.toArray)
       Iterator(
-        RowBlock(attributes, rowBlockContent).asInstanceOf[InternalBlock]
+        RowBlockOld(attributes, rowBlockContent).asInstanceOf[OldInternalBlock]
       )
     }
   }

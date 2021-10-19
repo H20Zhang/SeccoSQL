@@ -11,8 +11,7 @@ import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * A local computation physical operator.
+/** A local computation physical operator.
   */
 abstract class LocalProcessingExec extends SeccoPlan {
 
@@ -30,15 +29,15 @@ abstract class LocalProcessingExec extends SeccoPlan {
   def iterator(): SeccoIterator
 
   /** The materialized result of [[iterator()]] */
-  def result(): InternalBlock = {
+  def result(): OldInternalBlock = {
 
     val result = iterator().result()
-    RowBlock(localAttributeOrder, RowBlockContent(result))
+    RowBlockOld(localAttributeOrder, RowBlockContent(result))
 
   }
 
   /** LocalExec cannot doExecute, as it is a global operation */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     throw new Exception(
       "LocalExec does not support doExecute, which is a global operation, and Local Exec " +
         "is performed per InternalBlock. Try use result() instead."
@@ -140,90 +139,90 @@ case class LocalPlaceHolderExec(
     sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
 ) extends LocalProcessingExec {
 
-  private var optionBlock: Option[InternalBlock] = None
+  private var optionBlock: Option[OldInternalBlock] = None
 
   private lazy val block = result()
 
-  def setInternalBlock(block: InternalBlock) = {
+  def setInternalBlock(block: OldInternalBlock) = {
     this.optionBlock = Some(block)
   }
 
   /** The output iterator */
   override def iterator(): SeccoIterator = {
     block match {
-      case r: RowBlock =>
+      case r: RowBlockOld =>
         IteratorFactory.makeArrayTableIter(
           r.blockContent.content,
           localAttributeOrder.toArray
         )
-      case r: RowIndexedBlock =>
+      case r: RowIndexedBlockOld =>
         IteratorFactory.makeArrayTableIter(
           r.blockContent.content,
           localAttributeOrder.toArray
         )
-      case r: ConsecutiveRowBlock =>
+      case r: ConsecutiveRowBlockOld =>
         IteratorFactory.makeConsecutiveRowArrayTableIter(
           r.blockContent.content,
           localAttributeOrder.toArray
         )
-      case r: ConsecutiveRowIndexedBlock =>
+      case r: ConsecutiveRowIndexedBlockOld =>
         IteratorFactory.makeConsecutiveRowArrayTableIter(
           r.blockContent.content,
           localAttributeOrder.toArray
         )
-      case t: TrieIndexedBlock =>
+      case t: TrieIndexedBlockOld =>
         IteratorFactory.makeTrieTableIter(
           t.blockContent.content,
           localAttributeOrder.toArray
         )
-      case t: TrieBlock =>
+      case t: TrieBlockOld =>
         IteratorFactory.makeTrieTableIter(
           t.blockContent.content,
           localAttributeOrder.toArray
         )
-      case h: HashMapBlock =>
+      case h: HashMapBlockOld =>
         IteratorFactory.makeHashMapTableIter(
           h.blockContent.content,
           localAttributeOrder.toArray
         )
-      case h: HashMapIndexedBlock =>
+      case h: HashMapIndexedBlockOld =>
         IteratorFactory.makeHashMapTableIter(
           h.blockContent.content,
           localAttributeOrder.toArray
         )
-      case b: InternalBlock =>
+      case b: OldInternalBlock =>
         throw new Exception(s"${b.getClass} not support iterator()")
     }
 
   }
 
   /** The materialized result of [[iterator()]] */
-  override def result(): InternalBlock = {
+  override def result(): OldInternalBlock = {
     optionBlock match {
       case Some(internalBlock) =>
         internalBlock match {
-          case MultiTableIndexedBlock(output, shareVector, indexedBlocks) =>
+          case MultiTableIndexedBlockOld(output, shareVector, indexedBlocks) =>
             indexedBlocks(pos)
-          case rb @ RowBlock(output, blockContent) =>
+          case rb @ RowBlockOld(output, blockContent) =>
             assert(pos == 0, s"pos:${pos} out of range")
             rb
-          case rhb @ RowIndexedBlock(output, shareVector, blockContent) =>
+          case rhb @ RowIndexedBlockOld(output, shareVector, blockContent) =>
             assert(pos == 0, s"pos:${pos} out of range")
             rhb
-          case cb @ ConsecutiveRowBlock(output, blockContent) =>
+          case cb @ ConsecutiveRowBlockOld(output, blockContent) =>
             assert(pos == 0, s"pos:${pos} out of range")
             cb
-          case crb @ ConsecutiveRowIndexedBlock(
+          case crb @ ConsecutiveRowIndexedBlockOld(
                 output,
                 shareVector,
                 blockContent
               ) =>
             assert(pos == 0, s"pos:${pos} out of range")
             crb
-          case thb @ TrieBlock(output, blockContent) =>
+          case thb @ TrieBlockOld(output, blockContent) =>
             assert(pos == 0, s"pos:${pos} out of range")
             thb
-          case hhb @ HashMapBlock(output, blockContent) =>
+          case hhb @ HashMapBlockOld(output, blockContent) =>
             assert(pos == 0, s"pos:${pos} out of range")
             hhb
           case _ =>
@@ -333,11 +332,11 @@ case class LocalJoinExec(
       .map(_.result())
       .map { block =>
         block match {
-          case TrieIndexedBlock(output, shareVector, blockContent) =>
+          case TrieIndexedBlockOld(output, shareVector, blockContent) =>
             blockContent.content
           case _ =>
             throw new Exception(
-              s"result() of children of ${getClass} should be of ${TrieIndexedBlock.getClass}, current class is ${block.getClass}"
+              s"result() of children of ${getClass} should be of ${TrieIndexedBlockOld.getClass}, current class is ${block.getClass}"
             )
         }
       }

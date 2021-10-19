@@ -3,10 +3,10 @@ package org.apache.spark.secco.execution.plan.atomic
 import org.apache.spark.secco.execution.plan.support.FuncGenSupport
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
+  OldInternalBlock,
   OldInternalDataType,
   OldInternalRow,
-  RowBlock,
+  RowBlockOld,
   RowBlockContent
 }
 import org.apache.spark.rdd.RDD
@@ -25,9 +25,9 @@ case class TransformExec(
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
     child.execute().map {
-      case RowBlock(_, blockContent) =>
+      case RowBlockOld(_, blockContent) =>
         val content = blockContent.content
         val contentNum = content.length
         val funcNum = transformFuncs.length
@@ -44,7 +44,7 @@ case class TransformExec(
           i += 1
         }
 
-        RowBlock(outputOld, RowBlockContent(newContent))
+        RowBlockOld(outputOld, RowBlockContent(newContent))
       case _ =>
         throw new Exception(
           s"block must be of type `RowIndexedBlock` or `RowBlock`"

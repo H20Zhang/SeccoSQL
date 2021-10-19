@@ -12,7 +12,7 @@ import org.apache.spark.secco.execution.plan.io.{DiskScanExec, InMemoryScanExec}
 import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
+  OldInternalBlock,
   OldInternalRow,
   SharedParameter
 }
@@ -229,7 +229,7 @@ case class LocalStageExec(
     assignPreprocessingTasks()
   }
 
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[OldInternalBlock] = {
 
     logInfo(s"""
          |== Begin Stage ==

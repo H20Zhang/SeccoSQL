@@ -7,8 +7,8 @@ import org.apache.spark.secco.execution.plan.communication.{
   PushPairExchangeExec
 }
 import org.apache.spark.secco.execution.{
-  MultiTableIndexedBlock,
-  RowIndexedBlock,
+  MultiTableIndexedBlockOld,
+  RowIndexedBlockOld,
   SharedParameter
 }
 import util.{SeccoFunSuite, TestDataGenerator, UnitTestTag}
@@ -79,7 +79,7 @@ class PairExchangeSuite extends SeccoFunSuite {
           .execute()
           .map { f =>
             f match {
-              case r @ RowIndexedBlock(output, shareVector, blockContent) =>
+              case r @ RowIndexedBlockOld(output, shareVector, blockContent) =>
                 //DEBUG
                 //              println(
                 //                s"output:${output}, shareVector:${shareVector.toSeq}, blockContent:${blockContent.content.toSeq}"
@@ -183,34 +183,33 @@ class PairExchangeSuite extends SeccoFunSuite {
     pushPairExchangeExec.execute().foreachPartition { it =>
       val block = it.next()
       block match {
-        case MultiTableIndexedBlock(output, shareVector, blockContents) =>
+        case MultiTableIndexedBlockOld(output, shareVector, blockContents) =>
           //DEBUG
           // println(s"output:${output}, shareVector:${shareVector.toSeq}")
 
           blockContents
-            .map(_.asInstanceOf[RowIndexedBlock])
+            .map(_.asInstanceOf[RowIndexedBlockOld])
             .zipWithIndex
-            .foreach {
-              case (indexedRowBlock, index) =>
-                //DEBUG
-                println(
-                  s"localOutput:${indexedRowBlock.output},localShareVector:${indexedRowBlock.index.toSeq},blockContents:${indexedRowBlock.blockContent.content
-                    .map(_.mkString("(", ",", ")"))
-                    .toSeq}"
-                )
-                val partitioners =
-                  children
-                    .map(f =>
-                      new PairPartitioner(
-                        f.outputOld.map(sharedShare.res).toArray
-                      )
+            .foreach { case (indexedRowBlock, index) =>
+              //DEBUG
+              println(
+                s"localOutput:${indexedRowBlock.output},localShareVector:${indexedRowBlock.index.toSeq},blockContents:${indexedRowBlock.blockContent.content
+                  .map(_.mkString("(", ",", ")"))
+                  .toSeq}"
+              )
+              val partitioners =
+                children
+                  .map(f =>
+                    new PairPartitioner(
+                      f.outputOld.map(sharedShare.res).toArray
                     )
-                indexedRowBlock.blockContent.content.forall(row =>
-                  partitioners(index).getPartition(row) == partitioners(index)
-                    .getPartition(
-                      indexedRowBlock.index
-                    )
-                )
+                  )
+              indexedRowBlock.blockContent.content.forall(row =>
+                partitioners(index).getPartition(row) == partitioners(index)
+                  .getPartition(
+                    indexedRowBlock.index
+                  )
+              )
             }
       }
 
