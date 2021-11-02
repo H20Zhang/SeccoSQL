@@ -5,6 +5,7 @@ import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
+import org.apache.spark.secco.types.BooleanType
 
 /* ---------------------------------------------------------------------------------------------------------------------
  * This file contains logical plans with two children.
@@ -38,9 +39,6 @@ case class Intersection(
     mode: ExecMode = ExecMode.Coupled
 ) extends BinaryNode {
 
-  //ensure left and right child has same attributes
-  assert(left.outputSet == right.outputSet)
-
   override def primaryKey: Seq[Attribute] = left.primaryKey
 
   override def output: Seq[Attribute] = left.output
@@ -58,8 +56,6 @@ case class Except(
     right: LogicalPlan,
     mode: ExecMode = ExecMode.Coupled
 ) extends BinaryNode {
-  //ensure left and right child has same attributes
-  assert(left.outputSet == right.outputSet)
 
   override def primaryKey: Seq[Attribute] = left.primaryKey
 
@@ -78,9 +74,6 @@ case class CartesianProduct(
     right: LogicalPlan,
     mode: ExecMode = ExecMode.Coupled
 ) extends BinaryNode {
-
-  //ensure left and right child has no common attributes
-  assert(left.outputSet.intersect(right.outputSet).isEmpty)
 
   override def primaryKey: Seq[Attribute] = left.primaryKey ++ right.primaryKey
 
@@ -102,7 +95,8 @@ case class BinaryJoin(
     condition: Option[Expression],
     property: Set[JoinProperty] = Set(),
     mode: ExecMode = ExecMode.Coupled
-) extends BinaryNode {
+) extends BinaryNode
+    with Join {
 
   override def primaryKey: Seq[Attribute] = {
     if (
@@ -117,6 +111,26 @@ case class BinaryJoin(
     } else {
       Seq()
     }
+  }
+
+  def duplicateResolved: Boolean =
+    left.outputSet.intersect(right.outputSet).isEmpty
+
+  // Joins are only resolved if they don't introduce ambiguous expression ids.
+  // NaturalJoin should be ready for resolution only if everything else is resolved here
+  lazy val resolvedExceptNatural: Boolean = {
+    childrenResolved &&
+    expressions.forall(_.resolved) &&
+    duplicateResolved &&
+    condition.forall(_.dataType == BooleanType)
+  }
+
+  // if not a natural join, use `resolvedExceptNatural`. if it is a natural join or
+  // using join, we still need to eliminate natural or using before we mark it resolved.
+  override lazy val resolved: Boolean = joinType match {
+    case NaturalJoin(_)  => false
+    case UsingJoin(_, _) => false
+    case _               => resolvedExceptNatural
   }
 
   override def output: Seq[Attribute] =

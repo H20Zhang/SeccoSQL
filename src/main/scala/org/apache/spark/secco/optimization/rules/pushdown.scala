@@ -444,7 +444,7 @@ object PushDownProjection extends Rule[LogicalPlan] {
     */
   private def removeProjectBeforeFilter(plan: LogicalPlan): LogicalPlan =
     plan transformUp {
-      case p1 @ Project(f @ Filter(_, p2 @ Project(child, _, _), _), _, _)
+      case p1 @ Project(f @ Filter(p2 @ Project(child, _, _), _, _), _, _)
           if p2.outputSet.subsetOf(child.outputSet) =>
         p1.copy(child = f.copy(child = child))
     }

@@ -2,7 +2,6 @@ package org.apache.spark.secco.execution
 
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.CachedDataManager
-import org.apache.spark.secco.execution.plan.computation.LocalPlaceHolderExec
 import org.apache.spark.secco.execution.plan.computation.utils.Alg
 import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
 import org.apache.spark.secco.execution.statsComputation.{

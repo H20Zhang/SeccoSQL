@@ -2,7 +2,6 @@ package org.apache.spark.secco.optimization.statsEstimation
 
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.optimization.plan.MultiwayJoin
-import org.apache.spark.secco.optimization.rules.MergeAllJoin
 import org.apache.spark.secco.trees.RuleExecutor
 
 import scala.collection.mutable
@@ -14,17 +13,17 @@ trait Estimation[T] {
 }
 
 object Estimation {
-
-  /** Merge all consecutive joins into one join. */
-  def mergeJoin(j: MultiwayJoin): LogicalPlan = {
-    val joinMergeExecutor = new RuleExecutor[LogicalPlan] {
-
-      override protected def batches: Seq[Batch] =
-        Seq(Batch("merge all joins", FixedPoint(999), MergeAllJoin))
-    }
-
-    joinMergeExecutor.execute(j)
-  }
+//
+//  /** Merge all consecutive joins into one join. */
+//  def mergeJoin(j: MultiwayJoin): LogicalPlan = {
+//    val joinMergeExecutor = new RuleExecutor[LogicalPlan] {
+//
+//      override protected def batches: Seq[Batch] =
+//        Seq(Batch("merge all joins", FixedPoint(999), MergeAllJoin))
+//    }
+//
+//    joinMergeExecutor.execute(j)
+//  }
 
   /** Check if each attribute has column stat in the corresponding statistics. */
   def columnStatsExist(statsAndAttr: (Statistics, String)*): Boolean = {

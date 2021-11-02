@@ -48,7 +48,7 @@ case class Relation(
 ) extends LeafNode
     with MultiInstanceRelation {
 
-  override def output: Seq[Attribute] = {
+  override lazy val output: Seq[Attribute] = {
 
     val cols =
       if (
@@ -105,6 +105,7 @@ case class Relation(
     }
   }
 
+  override def newInstance(): LogicalPlan = copy()
 }
 
 /** An operator that holds an GHD node

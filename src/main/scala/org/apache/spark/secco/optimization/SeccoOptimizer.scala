@@ -89,12 +89,13 @@ class SeccoOptimizer(
 
   /** The default batches of rules */
   private def defaultBatches = {
+
+    //TODO: order the optimization rules.
+
     val basicRules = Seq(
-      Batch("Clean up", Once, PushRenameToLeaf),
       Batch(
         "Remove Redundant Operators",
         fixedPoint,
-        MergeAllJoin,
         MergeUnion,
         MergeProjection,
         MergeSelection,
@@ -104,9 +105,7 @@ class SeccoOptimizer(
         "Push Down Predicates",
         fixedPoint,
         PushSelectionThroughJoin,
-        PushSelectionThroughJoin,
-        PushSelectionThroughUnion,
-        PushProjectionThroughUnion
+        PushDownProjection
       )
     )
 
@@ -115,18 +114,7 @@ class SeccoOptimizer(
       Batch(
         "GHD-Based Join Reorder",
         fixedPoint,
-        OptimizeMultiwayJoin,
-        ExpandGHDNode
-      ),
-      Batch(
-        "Aggregation Push-Down",
-        Once,
-        PushDownAggregation
-      ),
-      Batch(
-        "Projection Push-Down",
-        Once,
-        PushProjectionThroughJoin
+        OptimizeMultiwayJoin
       ),
       Batch(
         "Projection Cleaning",
@@ -134,12 +122,11 @@ class SeccoOptimizer(
         MergeProjection,
         RemoveRedundantProjection
       ),
-      Batch("Optimize GHD Node", fixedPoint, ConsecutiveJoinReorder)
+      Batch("Optimize GHD Node", fixedPoint, OptimizeJoinTree)
     )
 
     val decouplingRules = Seq(
       Batch("Mark Delay", Once, MarkDelay),
-      Batch("Merge Join", fixedPoint, MergeDelayedJoin),
       Batch(
         "Decouple Operators",
         Once,

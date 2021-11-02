@@ -6,8 +6,9 @@ import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
-  MultiwayJoin,
+  Join,
   LocalStage,
+  MultiwayJoin,
   Partition,
   Project,
   Union
@@ -39,7 +40,9 @@ object CommunicationCostPlanVisitor extends LogicalPlanVisitor[Double] {
 
   override def visitFilter(p: Filter): Double = 0
 
-  override def visitJoin(p: MultiwayJoin): Double = fallback(p)
+  override def visitJoin(p: Join): Double = fallback(
+    p.asInstanceOf[LogicalPlan]
+  )
 
   override def visitProject(p: Project): Double = fallback(p)
 

@@ -23,7 +23,7 @@ object LocalStageCostModel extends CostModel[LocalStage] {
       val restriction = partitions.head.restriction
       val cardinalities =
         partitions.map(StatsPlanVisitor.visit(_).rowCount.toLong)
-      val schemas = partitions.map(_.outputOld)
+      val schemas = partitions.map(_.output)
       val statisticMap = schemas.zip(cardinalities).toMap
 
       val shareComputer = new EnumShareComputer(

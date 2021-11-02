@@ -8,7 +8,7 @@ class CatalogSuite extends SeccoFunSuite {
   test("basic", UnitTestTag) {
 
     //default catalog creation
-    val catalog = dlSession.sessionState.catalog
+    val catalog = seccoSession.sessionState.catalog
     assert(catalog.listDatabase().size == 1)
 
     //----------------------------

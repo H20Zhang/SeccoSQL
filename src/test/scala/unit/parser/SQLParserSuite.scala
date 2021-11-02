@@ -1,88 +1,219 @@
 package unit.parser
 
-import org.apache.spark.secco.parsing.SQLParser
+import org.apache.spark.secco.SeccoSession
+import org.apache.spark.secco.parsing.{SQLLexer, SQLParser}
 import util.{SeccoFunSuite, UnitTestTag}
+
+import scala.util.Try
 
 class SQLParserSuite extends SeccoFunSuite {
 
-  val subgraphQueryString =
-    """
-      |select count(*)
-      |from
-      |	R1 natural join R2
-      """.stripMargin
-
-  val complexSubgraphQueryString =
-    """
-      |select a, sum(weight)
-      |from
-      |	W natural join (
-      |   select distinct a, c
-      |   from R1 natural join R2
-      | ) as T
-      |group by a
-      """.stripMargin
-
-  val iterativeGraphQuery =
-    """
-      |with recursive(5) PR(ID , vw) as (
-      |   (select * from V)
-      | union by update ID
-      |   (select src as ID, 0.85*sum(PR.vw)+0.15 as vw  
-      |       from PR natural join (
-      |         select src, dst as ID
-      |         from E
-      |         ) as T
-      |     group by ID 
-      |   )
-      | ) select * from PR;
-      |
-      """.stripMargin
-
-  val complexIterativeGraphQuery =
-    """
-      |with recursive(5) PR(ID , vw) as (
-      |   (select * from V)
-      | union by update ID
-      |   (select src as ID, 0.85*sum(PR.vw)+0.15 as vw  
-      |       from PR natural join (
-      |         select src, dst as ID
-      |         from E1 natural join E2
-      |         ) as G
-      |     group by ID 
-      |   )
-      | ) select * from PR;
-      |
-      """.stripMargin
-
-  test("parser", UnitTestTag) {
-
-    val Ast1 = SQLParser.parseAST(subgraphQueryString)
-    pprint.pprintln(Ast1)
-
-    val Ast2 = SQLParser.parseAST(complexSubgraphQueryString)
-    pprint.pprintln(Ast2)
-
-    val Ast3 = SQLParser.parseAST(iterativeGraphQuery)
-    pprint.pprintln(Ast3)
-
-    val Ast4 = SQLParser.parseAST(complexIterativeGraphQuery)
-    pprint.pprintln(Ast4)
-  }
-
   test("builder", UnitTestTag) {
 
-    val plan1 = SQLParser.parsePlan(subgraphQueryString)
-    println(plan1.treeString)
+    val seccoSession = SeccoSession.currentSession
 
-    val plan2 = SQLParser.parsePlan(complexSubgraphQueryString)
-    println(plan2.treeString)
+    // make sure following query can be parsed
 
-    val plan3 = SQLParser.parsePlan(iterativeGraphQuery)
-    println(plan3.treeString)
+    // select queries
+    val selectQuery1 =
+      s"""
+         |select *
+         |from R1
+         |where R1.a < b
+         |limit 10
+         |""".stripMargin
 
-    val plan4 = SQLParser.parsePlan(complexIterativeGraphQuery)
-    println(plan4.treeString)
+    val selectQuery2 =
+      s"""
+         |select distinct *
+         |from R1
+         |where a < b and b < c
+         |""".stripMargin
+
+    val selectQuery3 =
+      s"""
+         |select *
+         |from R1
+         |where a < b and (b < c or c > d)
+         |""".stripMargin
+
+    val selectQuery4 =
+      s"""
+         |select *
+         |from R1
+         |where a < (b+1) and (b < c-1 or c > d+1)
+         |""".stripMargin
+
+    // project & aggregate queries
+    val projectQuery1 =
+      s"""
+         |select a
+         |from R1
+         |""".stripMargin
+
+    val projectQuery2 =
+      s"""
+         |select *
+         |from R1
+         |""".stripMargin
+
+    val projectQuery3 =
+      s"""
+         |select a, a, b
+         |from R1
+         |""".stripMargin
+
+    val projectQuery4 =
+      s"""
+         |select a, *
+         |from R1
+         |""".stripMargin
+
+    val projectQuery5 =
+      s"""
+         |select a, sum(b) as d
+         |from R1
+         |""".stripMargin
+
+    val projectQuery6 =
+      s"""
+         |select a, b+c+1
+         |from R1
+         |""".stripMargin
+
+    // groupby, aggregate, and having queries
+    val aggregateQuery1 =
+      s"""
+         |select a, count(*)
+         |from R1
+         |group by a
+         |""".stripMargin
+
+    val aggregateQuery2 =
+      s"""
+         |select a, sum(b+1+2+c) as m
+         |from R1
+         |group by a
+         |""".stripMargin
+
+    val aggregateQuery3 =
+      s"""
+         |select a, sum(b+1+2+c) as m
+         |from R1
+         |group by a
+         |having m > 1
+         |""".stripMargin
+
+    // join queries
+    val joinQuery1 =
+      s"""
+         |select *
+         |from R1, R2
+         |""".stripMargin
+
+    val joinQuery2 =
+      s"""
+         |select *
+         |from R1 natural join R2
+         |""".stripMargin
+
+    val joinQuery3 =
+      s"""
+         |select *
+         |from R1 e1 natural join R1 e2
+         |""".stripMargin
+
+    val joinQuery4 =
+      s"""
+         |select *
+         |from R1 join R2 on R1.a = R2.b
+         |""".stripMargin
+
+    val joinQuery5 =
+      s"""
+         |select *
+         |from R1 join R2 using (a)
+         |""".stripMargin
+
+    val joinQuery6 =
+      s"""
+         |select *
+         |from R1 left join R2 using (a)
+         |""".stripMargin
+
+    val joinQuery7 =
+      s"""
+         |select *
+         |from R1 full outer join R2 using (a)
+         |""".stripMargin
+
+    // set operation queries
+    val setQuery1 =
+      s"""
+         |(select *
+         |from R1, R2)
+         |union
+         |(select *
+         |from R1, R3)
+         |""".stripMargin
+
+    val setQuery2 =
+      s"""
+         |(select *
+         |from R1, R2)
+         |union all
+         |(select *
+         |from R1, R3)
+         |""".stripMargin
+
+    val setQuery3 =
+      s"""
+         |(select *
+         |from R1, R2)
+         |except
+         |(select *
+         |from R1, R3)
+         |""".stripMargin
+
+    val setQuery4 =
+      s"""
+         |(select *
+         |from R1, R2)
+         |intersect
+         |(select *
+         |from R1, R3)
+         |""".stripMargin
+
+    val queryList = Seq(
+      selectQuery1,
+      selectQuery2,
+      selectQuery3,
+      selectQuery4,
+      projectQuery1,
+      projectQuery2,
+      projectQuery3,
+      projectQuery4,
+      projectQuery5,
+      projectQuery6,
+      aggregateQuery1,
+      aggregateQuery2,
+      aggregateQuery3,
+      joinQuery1,
+      joinQuery2,
+      joinQuery3,
+      joinQuery4,
+      joinQuery5,
+      joinQuery6,
+      joinQuery7,
+      setQuery1,
+      setQuery2,
+      setQuery3,
+      setQuery4
+    )
+
+    queryList.foreach(query =>
+      assert(Try(seccoSession.sql(query).queryExecution.logical).isSuccess)
+    )
 
   }
 

@@ -41,6 +41,7 @@ assemblyMergeStrategy in assembly := {
 }
 
 test in assembly := {}
+//testOptions in Test += Tests.Cleanup(() => SparkSingle)
 parallelExecution in Test := false
 
 /*Custom tasks*/

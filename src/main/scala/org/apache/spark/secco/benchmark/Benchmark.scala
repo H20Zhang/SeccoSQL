@@ -290,7 +290,7 @@ abstract class SubgraphBenchmark extends GraphBenchmark {
   override protected def genQuery(inputData: Map[String, Dataset]): Dataset = {
     val datasets = inputData.values.toSeq
     val joinedTable = datasets.reduceLeft[Dataset] {
-      case (l: Dataset, r: Dataset) => l.naturalJoin(r)
+      case (l: Dataset, r: Dataset) => l.join(r)
     }
 
     joinedTable

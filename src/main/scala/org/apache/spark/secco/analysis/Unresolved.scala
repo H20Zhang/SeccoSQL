@@ -64,6 +64,8 @@ case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
       ctx: CodegenContext,
       ev: ExprCode
   ): ExprCode = ???
+
+  override def withExprId(newExprId: ExprId): Attribute = this
 }
 
 case class UnresolvedAlias(
@@ -146,6 +148,4 @@ case class UnresolvedFunction(
 case class UnresolvedRelation(
     tableName: String,
     mode: ExecMode = ExecMode.Coupled
-) extends LeafNode {
-  def outputOld = Nil
-}
+) extends LeafNode {}

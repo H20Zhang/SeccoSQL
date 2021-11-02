@@ -2,11 +2,13 @@ package org.apache.spark.secco.parsing
 import scala.util.parsing.combinator.RegexParsers
 import scala.util.parsing.input.Position
 
+/* This file defines token used for parsing. */
+
 case class LexerError(p: Position, msg: String)
 
 //RegexParsers is more suitable to implement lexer
 object SQLLexer extends RegexParsers {
-  def token = positioned { literal_ | operator | (identifier ||| keyword) }
+  def token = positioned { operator | literal_ | (identifier ||| keyword) }
 
   def literal_ =
     positioned {
@@ -83,7 +85,8 @@ object SQLLexer extends RegexParsers {
         having ||| orderBy ||| and ||| or ||| any ||| exists |||
         inner ||| in ||| not ||| isNull ||| isNotNull ||| case_ |||
         when ||| then ||| else_ ||| join ||| on ||| using ||| leftOuter |||
-        rightOuter ||| fullOuter ||| union ||| byUpdate ||| limit ||| desc ||| natural
+        rightOuter ||| fullOuter ||| union ||| intersect ||| except |||
+        byUpdate ||| limit ||| desc ||| natural
     }
   def with_ = positioned { "with" ^^^ With }
   def recursive = positioned { "recursive" ^^^ Recursive }
@@ -116,13 +119,13 @@ object SQLLexer extends RegexParsers {
   def rightOuter = positioned { "right" ~ opt("outer") ^^^ RightOuter }
   def fullOuter = positioned { "full" ~ opt("outer") ^^^ FullOuter }
   def union = positioned { "union" ^^^ Union }
+  def intersect = positioned { "intersect" ^^^ Intersect }
+  def except = positioned { "except" ^^^ Except }
   def byUpdate = positioned { "by" ~ "update" ^^^ ByUpdate }
   def orderBy = positioned { "order" ~ "by" ^^^ OrderBy }
   def limit = positioned { "limit" ^^^ Limit }
   def asc = positioned { "asc" ^^^ Asc }
   def desc = positioned { "desc" ^^^ Desc }
-
-//  val x = (for (a <- byUpdate; b <- union) yield new ~(a, b)).named("~")
 
   override val whiteSpace = """[ \t\n\r\f]+""".r
 

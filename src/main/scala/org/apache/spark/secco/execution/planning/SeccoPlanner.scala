@@ -13,16 +13,17 @@ class SeccoPlanner(
 
   def numPartitions: Int = conf.numPartition
 
-  override def strategies: Seq[Strategy] =
-    IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
+  //TODO: refactor Planner Rules
+  override def strategies: Seq[Strategy] = Nil
+//    IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
 
   override protected def collectPlaceholders(
       plan: SeccoPlan
   ): Seq[(SeccoPlan, LogicalPlan)] = {
-    plan.collect {
-      case placeholder @ PlanLater(logicalPlan) => (placeholder, logicalPlan)
-      case placeholder @ LocalPlanLater(logicalPlan) =>
-        (placeholder, logicalPlan)
+    plan.collect { case placeholder @ PlanLater(logicalPlan) =>
+      (placeholder, logicalPlan)
+//      case placeholder @ LocalPlanLater(logicalPlan) =>
+//        (placeholder, logicalPlan)
     }
   }
 

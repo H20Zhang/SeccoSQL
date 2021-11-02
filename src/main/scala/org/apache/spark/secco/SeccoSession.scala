@@ -91,7 +91,7 @@ class SeccoSession(
   def table(tableName: String): Dataset = {
     Dataset(
       self,
-      Relation(sessionState.sqlParser.parseTableIdentifier(tableName).table)
+      Relation(sessionState.sqlParser.parseTableIdentifier(tableName))
     )
   }
 

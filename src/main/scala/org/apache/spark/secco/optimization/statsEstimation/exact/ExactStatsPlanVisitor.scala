@@ -4,9 +4,10 @@ import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
-  MultiwayJoin,
+  Join,
   LeafNode,
   LocalStage,
+  MultiwayJoin,
   Partition,
   Project,
   Relation,
@@ -57,7 +58,9 @@ object ExactStatsPlanVisitor
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))
 
-  override def visitJoin(p: MultiwayJoin): Statistics = default(p)
+  override def visitJoin(p: Join): Statistics = default(
+    p.asInstanceOf[LogicalPlan]
+  )
 //    ExactJoinEstimation
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))

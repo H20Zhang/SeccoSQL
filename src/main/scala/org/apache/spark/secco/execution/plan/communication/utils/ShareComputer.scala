@@ -3,31 +3,31 @@ package org.apache.spark.secco.execution.plan.communication.utils
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.benchmark.BenchmarkResult
 import org.apache.spark.secco.config.SeccoConfiguration
+import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable.ArrayBuffer
 
 /** The case class that encapsulate the results of [[EnumShareComputer]] */
 case class ShareResults(
-    share: Map[String, Int],
+    share: Map[Attribute, Int],
     communicationCostInBytes: Long,
     loadInBytes: Double,
     communicationCostInTuples: Long,
     loadInTuples: Double
 )
 
-/**
-  * The optimizer for computing the optimal share in terms of load.
+/** The optimizer for computing the optimal share in terms of load.
   * @param schemas schema of the input relations.
   * @param constraint constraint for attributes' share
   * @param tasks minimum number of tasks.
   * @param cardinalities cardinality of the input relations.
   */
 class EnumShareComputer(
-    schemas: Seq[Seq[String]],
-    constraint: Map[String, Int],
+    schemas: Seq[Seq[Attribute]],
+    constraint: Map[Attribute, Int],
     tasks: Int,
-    cardinalities: Map[Seq[String], Long]
+    cardinalities: Map[Seq[Attribute], Long]
 ) extends LogAble {
 
   private var numTask = tasks
@@ -93,9 +93,8 @@ class EnumShareComputer(
         case (excludedAttrs, cardinality) =>
           var multiplyFactor = 1L
 
-          excludedAttrs.foreach {
-            case idx =>
-              multiplyFactor = multiplyFactor * share(idx)
+          excludedAttrs.foreach { case idx =>
+            multiplyFactor = multiplyFactor * share(idx)
           }
 
           multiplyFactor * cardinality
@@ -134,25 +133,23 @@ class EnumShareComputer(
 }
 
 class ShareEnumerator(
-    attributes: Seq[String],
-    constraint: Map[String, Int],
+    attributes: Seq[Attribute],
+    constraint: Map[Attribute, Int],
     tasks: Int
 ) {
 
   val length = attributes.size
   val filterFunc = {
     val constraintArray = constraint
-      .map {
-        case (key, value) =>
-          (attributes.indexOf(key), value)
+      .map { case (key, value) =>
+        (attributes.indexOf(key), value)
       }
       .filter(_._1 != -1)
       .toArray
 
     (shareVector: Array[Int]) => {
-      constraintArray.forall {
-        case (keyPos, value) =>
-          shareVector(keyPos) == value
+      constraintArray.forall { case (keyPos, value) =>
+        shareVector(keyPos) == value
       }
     }
   }

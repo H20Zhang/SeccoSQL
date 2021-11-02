@@ -13,7 +13,7 @@ class SeccoFunSuite
 
   def setupDB() = {}
 
-  def dlSession = SeccoSession.currentSession
+  def seccoSession = SeccoSession.currentSession
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
@@ -30,7 +30,7 @@ class SeccoFunSuite
   }
 
   override protected def afterAll(): Unit = {
-//    SparkSingle.close()
+    SparkSingle.close()
   }
 
 }

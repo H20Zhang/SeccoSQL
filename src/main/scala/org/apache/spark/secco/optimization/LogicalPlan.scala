@@ -17,6 +17,8 @@ import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.secco.expression.utils.AttributeSet
 
+import scala.util.Try
+
 /** An abstract logical plan class
   */
 abstract class LogicalPlan
@@ -72,6 +74,29 @@ abstract class LogicalPlan
   /** Returns true if all its children of this query plan have been resolved.
     */
   def childrenResolved: Boolean = children.forall(_.resolved)
+
+  /** Returns a copy of this node where `rule` has been recursively applied first to all of its
+    * children and then itself (post-order, bottom-up). When `rule` does not apply to a given node,
+    * it is left unchanged.  This function is similar to `transformUp`, but skips sub-trees that
+    * have already been marked as analyzed.
+    *
+    * @param rule the function use to transform this nodes children
+    */
+  def resolveOperatorsUp(
+      rule: PartialFunction[LogicalPlan, LogicalPlan]
+  ): LogicalPlan = {
+    if (!analyzed) {
+      val afterRuleOnChildren = mapChildren(_.resolveOperatorsUp(rule))
+      if (this fastEquals afterRuleOnChildren) {
+        rule.applyOrElse(this, identity[LogicalPlan])
+
+      } else {
+        rule.applyOrElse(afterRuleOnChildren, identity[LogicalPlan])
+      }
+    } else {
+      this
+    }
+  }
 
   /** Returns a copy of this node where `rule` has been recursively applied first to all of its
     * children and then itself (post-order). When `rule` does not apply to a given node, it is left
@@ -208,8 +233,21 @@ abstract class LogicalPlan
     }
   }
 
-  override def verboseString: String =
-    simpleString + s"-> (${outputOld.mkString(",")})"
+  override def verboseString: String = {
+
+    val _resolved = Try(resolved).getOrElse(false)
+
+    if (_resolved) {
+      try {
+        simpleString + s"-> (${output.mkString(",")})"
+      } catch {
+        case notImplementedError: NotImplementedError =>
+          simpleString + s"-> not_implemented"
+      }
+    } else {
+      simpleString + s"-> unresolved"
+    }
+  }
 
   /** The relational symbol of the operator */
   def relationalSymbol = nodeName

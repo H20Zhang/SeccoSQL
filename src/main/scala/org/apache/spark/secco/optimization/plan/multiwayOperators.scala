@@ -58,7 +58,8 @@ case class MultiwayJoin(
     condition: Seq[Expression],
     property: Set[JoinProperty] = Set(),
     mode: ExecMode = ExecMode.Coupled
-) extends MultiNode {
+) extends MultiNode
+    with Join {
 
   val joinType: JoinType = Inner
 
@@ -112,11 +113,11 @@ case class MultiwayJoin(
             equivSetArr += AttributeSet(a :: b :: Nil)
             i = equivSetArr.size // end the iteration of equiSetArr
           } else if (equivSet.contains(a)) { // add to existing equivSet
-            equivSet = equivSet ++ b
+            equivSet = equivSet ++ AttributeSet(b)
             equivSetArr(i) = equivSet
             i = equivSetArr.size // end the iteration of equiSetArr
           } else if (equivSet.contains(b)) { // add to existing equivSet
-            equivSet = equivSet ++ a
+            equivSet = equivSet ++ AttributeSet(a)
             equivSetArr(i) = equivSet
             i = equivSetArr.size // end the iteration of equiSetArr
           } else { // proceed to next equiSet

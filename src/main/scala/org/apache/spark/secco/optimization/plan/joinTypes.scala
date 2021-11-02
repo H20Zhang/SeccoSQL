@@ -1,8 +1,13 @@
 package org.apache.spark.secco.optimization.plan
 
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.optimization.LogicalPlan
 
 import java.util.Locale
+
+trait Join {
+  self: LogicalPlan =>
+}
 
 object JoinType {
   def apply(typ: String): JoinType =

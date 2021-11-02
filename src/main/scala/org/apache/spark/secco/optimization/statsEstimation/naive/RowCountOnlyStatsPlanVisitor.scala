@@ -37,9 +37,6 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
     }
 
   override def visitAggregate(p: Aggregate): Statistics = {
-    if (p.groupingListOld.isEmpty) {
-      Statistics(rowCount = 1)
-    }
     if (p.groupingExpressions.isEmpty) {
       Statistics(rowCount = 1)
     } else {
@@ -49,14 +46,9 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
 
   override def visitFilter(p: Filter): Statistics = visitUnaryNode(p)
 
-  override def visitJoin(p: MultiwayJoin): Statistics = {
-    p.joinType match {
-      case _ =>
-        // Make sure we don't propagate isBroadcastable in other joins, because
-        // they could explode the size.
-        val stats = default(p)
-        stats
-    }
+  override def visitJoin(p: Join): Statistics = {
+    val stats = default(p.asInstanceOf[LogicalPlan])
+    stats
   }
 
   override def visitProject(p: Project): Statistics = visitUnaryNode(p)

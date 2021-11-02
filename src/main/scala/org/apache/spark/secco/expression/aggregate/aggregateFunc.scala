@@ -4,7 +4,7 @@ import org.apache.spark.secco.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.secco.execution.storage.row
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Expression
-import org.apache.spark.secco.types.DataType
+import org.apache.spark.secco.types.{DataType, LongType}
 
 /** Return the minimum value of `expr`
   *
@@ -46,14 +46,12 @@ case class Max(child: Expression) extends AggregateFunction {
 /** Return the numbers of value of `expr`
   * @param child the child `expr`
   */
-case class Count(child: Expression) extends AggregateFunction {
+case class Count(children: Seq[Expression]) extends AggregateFunction {
   override def nullable: Boolean = true
 
   override def eval(input: InternalRow): Any = ???
 
-  override def dataType: DataType = child.dataType
-
-  override def children: Seq[Expression] = child :: Nil
+  override def dataType: DataType = LongType
 
   override protected def doGenCode(
       ctx: CodegenContext,

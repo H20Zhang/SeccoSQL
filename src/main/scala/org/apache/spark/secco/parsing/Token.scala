@@ -64,6 +64,8 @@ case object RightOuter extends Keyword
 case object FullOuter extends Keyword
 case object Natural extends Keyword
 case object Union extends Keyword
+case object Intersect extends Keyword
+case object Except extends Keyword
 case object ByUpdate extends Keyword
 case object OrderBy extends Keyword
 case object Limit extends Keyword

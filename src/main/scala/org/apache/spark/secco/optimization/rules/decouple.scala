@@ -416,7 +416,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   private def handleOperators(u: LogicalPlan) = {
     val children = u.children
-    val restriction = mutable.HashMap[String, Int]()
+    val restriction = mutable.HashMap[Attribute, Int]()
     val sharedRestriction = SharedRestriction(SharedParameter(restriction))
     val childrenPartitions =
       children.map(child => Partition(child, sharedRestriction))

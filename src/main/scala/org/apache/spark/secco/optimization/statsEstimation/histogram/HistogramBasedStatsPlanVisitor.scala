@@ -24,8 +24,10 @@ object HistogramBasedStatsPlanVisitor
     HistogramFilterEstimation.estimate(p).getOrElse(fallback(p))
   }
 
-  override def visitJoin(p: MultiwayJoin): Statistics = {
-    val stats = HistogramJoinEstimation.estimate(p).getOrElse(fallback(p))
+  override def visitJoin(p: Join): Statistics = {
+    val stats = HistogramJoinEstimation
+      .estimate(p)
+      .getOrElse(fallback(p.asInstanceOf[LogicalPlan]))
 
     logTrace(
       s"rowCount:${stats.rowCount.toString()} of operator:\n${p.toString}"

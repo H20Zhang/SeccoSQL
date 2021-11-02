@@ -21,7 +21,7 @@ object Canonicalize {
   }
 
   /** Remove names and nullability from types, and names from `GetStructField`. */
-  private[expressions] def ignoreNamesTypes(e: Expression): Expression =
+  private def ignoreNamesTypes(e: Expression): Expression =
     e match {
       case a: AttributeReference =>
         AttributeReference("none", a.dataType)(exprId = a.exprId)

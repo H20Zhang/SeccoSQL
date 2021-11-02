@@ -5,8 +5,7 @@ import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkContext}
 
-/**
-  * Simple Class which wrap around SparkContext, and SparkSession for easy testing
+/** Simple Class which wrap around SparkContext, and SparkSession for easy testing
   *
   * Note: The Default [[SeccoConfiguration]] is used in this class regardless of what [[SeccoConfiguration]] is used in
   *       [[SeccoSession]].
@@ -74,8 +73,11 @@ object SparkSingle {
   var counter = 0
 
   def getSpark() = {
-    spark = getSparkInternal()
-    sc = spark.sparkContext
+
+    if (spark == null || sc == null) {
+      spark = getSparkInternal()
+      sc = spark.sparkContext
+    }
 
     (spark, sc)
   }
@@ -89,8 +91,12 @@ object SparkSingle {
   }
 
   def close(): Unit = {
-    if (spark != null) {
+    if (spark != null && sc != null) {
       spark.close()
+      sc.stop()
+
+      spark = null
+      sc = null
     }
   }
 

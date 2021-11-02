@@ -1,11 +1,6 @@
 package org.apache.spark.secco.parsing
 
-import org.apache.spark.secco.expression.Literal
-import org.apache.spark.secco.optimization.plan.{
-  JoinType,
-  UnionByUpdate,
-  Update
-}
+import org.apache.spark.secco.analysis.UnresolvedAttribute
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, plan => L}
 import org.apache.spark.secco.types.{
   BooleanType,
@@ -25,43 +20,41 @@ object LogicalPlanBuilder {
 
   def fromJoinType(joinType: JoinType) =
     joinType match {
-      case InnerJoin      => JoinType.Inner
-      case LeftOuterJoin  => JoinType.LeftOuter
-      case RightOuterJoin => JoinType.RightOuter
-      case FullOuterJoin  => JoinType.FullOuter
+      case InnerJoin      => L.JoinType("inner")
+      case LeftOuterJoin  => L.JoinType("left")
+      case RightOuterJoin => L.JoinType("right")
+      case FullOuterJoin  => L.JoinType("full")
     }
 
   def fromTableRef(ref: TableRef): LogicalPlan = {
     ref match {
-      case Table(Identifier(name), alias) =>
-        val tab = A.UnresolvedRelation(name)
+      case StoredTable(Identifier(name), alias) =>
+        val table = A.UnresolvedRelation(name)
         alias
-          .map { case Identifier(alias) => L.SubqueryAlias(alias, tab) }
-          .getOrElse(tab)
+          .map { case Identifier(alias) => L.SubqueryAlias(table, alias) }
+          .getOrElse(table)
       case DerivedTable(query, Identifier(alias)) =>
-        L.SubqueryAlias(alias, fromQuery(query))
+        L.SubqueryAlias(fromQuery(query), alias)
       case JoinedTable(lhs, rhs, joinType, Some(JoinOn(cond))) =>
-        throw new Exception(
-          s"joinType:${joinType} is not supported, we only support natural join now."
+        L.BinaryJoin(
+          fromTableRef(lhs),
+          fromTableRef(rhs),
+          fromJoinType(joinType),
+          Some(fromExpression(cond))
+        )
+      case JoinedTable(lhs, rhs, joinType, Some(JoinUsing(cols))) =>
+        L.BinaryJoin(
+          fromTableRef(lhs),
+          fromTableRef(rhs),
+          L.UsingJoin(fromJoinType(joinType), cols.map(_.d)),
+          None
         )
       case JoinedTable(lhs, rhs, joinType @ NaturalJoin, None) =>
-        //warning: try to remove subquery alias without checking by assuming subquery is non-correlated subquery
-        val leftTable = fromTableRef(lhs) match {
-          case L.SubqueryAlias(_, subquery, _) => subquery
-          case other: LogicalPlan              => other
-        }
-
-        //warning: try to remove subquery alias without checking by assuming subquery is non-correlated subquery
-        val rightTable = fromTableRef(rhs) match {
-          case L.SubqueryAlias(_, subquery, _) => subquery
-          case other: LogicalPlan              => other
-        }
-
-        L.MultiwayNaturalJoin(
-          Seq(leftTable, rightTable),
-          JoinType.Natural,
-          ExecMode.Coupled,
-          Seq()
+        L.BinaryJoin(
+          fromTableRef(lhs),
+          fromTableRef(rhs),
+          L.NaturalJoin(L.Inner),
+          None
         )
     }
   }
@@ -84,7 +77,9 @@ object LogicalPlanBuilder {
         val cartesianProductPlan = from.size match {
           case x if x == 1 => fromTableRef(from.head)
           case x if x > 1 =>
-            L.CartesianProduct(from.map(fromTableRef), ExecMode.Coupled)
+            from
+              .map(table => fromTableRef(table))
+              .reduceLeft((lhs, rhs) => L.BinaryJoin(lhs, rhs, L.Inner, None))
           case _ => throw new Exception("numbers of table in where should >= 1")
         }
 
@@ -95,9 +90,7 @@ object LogicalPlanBuilder {
           .map { cond =>
             L.Filter(
               cartesianProductPlan,
-              Seq(),
-              ExecMode.Coupled,
-              Some(fromExpression(cond))
+              fromExpression(cond)
             )
           }
           .getOrElse(cartesianProductPlan)
@@ -106,6 +99,7 @@ object LogicalPlanBuilder {
           * from R1, R2, R3, ....
           * [where cond1 [and|or] cond2 ...]
           * [group by c1, c2, c3]
+          * [having cond1 [and|or] cond2 ...]
           */
         val projectionOrAggregatePlan = {
 
@@ -117,19 +111,28 @@ object LogicalPlanBuilder {
           }
 
           if (having.isEmpty && groupBy.isEmpty) {
-            L.Project(filterPlan, Seq(), ExecMode.Coupled, projectionList)
+            L.Project(filterPlan, projectionList)
           } else {
-            //TODO: support having clause
-            val groups = groupBy.getOrElse(Seq()).map(fromExpression(_))
-            L.Aggregate(
-              filterPlan,
-              groups.map(_.toString),
-              (projectionList.toString(), "error"),
-              Seq(),
-              ExecMode.Coupled,
-              groups,
-              projectionList
-            )
+            val aggregateExpressions = projectionList
+            val groupingExpression =
+              groupBy.get.map(col => UnresolvedAttribute(col.nameParts))
+            if (having.isEmpty) {
+              L.Aggregate(
+                filterPlan,
+                aggregateExpressions,
+                groupingExpression
+              )
+            } else {
+              L.Filter(
+                L.Aggregate(
+                  filterPlan,
+                  aggregateExpressions,
+                  groupingExpression
+                ),
+                fromExpression(having.get)
+              )
+            }
+
           }
         }
 
@@ -180,13 +183,22 @@ object LogicalPlanBuilder {
         limitPlan
       }
       case UnionByUpdateStmt(lhs, rhs, columns) =>
-        UnionByUpdate(fromQuery(lhs), fromQuery(rhs), columns.map(_.d), false)
+        L.UnionByUpdate(
+          fromQuery(lhs),
+          fromQuery(rhs),
+          columns.map(col => UnresolvedAttribute(col.d :: Nil)),
+          false
+        )
       case UnionStmt(lhs, rhs, true) =>
         L.Union(Seq(fromQuery(lhs), fromQuery(rhs)), ExecMode.Coupled)
       case UnionStmt(lhs, rhs, false) =>
         L.Distinct(
           L.Union(Seq(fromQuery(lhs), fromQuery(rhs)), ExecMode.Coupled)
         )
+      case IntersectStmt(lhs, rhs) =>
+        L.Intersection(fromQuery(lhs), fromQuery(rhs))
+      case ExceptStmt(lhs, rhs) =>
+        L.Intersection(fromQuery(lhs), fromQuery(rhs))
       case WithStmt(recursive, withList, query) =>
         L.With(
           recursive,

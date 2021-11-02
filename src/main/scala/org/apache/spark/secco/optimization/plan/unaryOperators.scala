@@ -109,7 +109,7 @@ case class Filter(
   */
 case class Project(
     child: LogicalPlan,
-    projectionList: Seq[NamedExpression] = Seq(),
+    projectionList: Seq[NamedExpression],
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
@@ -305,8 +305,8 @@ case class Rename(
 
 /** A [[LogicalPlan]] that execute a subquery and assign its results a name `alias` */
 case class SubqueryAlias(
-    alias: String,
     child: LogicalPlan,
+    alias: String,
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
 

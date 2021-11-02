@@ -1,9 +1,11 @@
 package org.apache.spark.secco
 
 import java.util.concurrent.atomic.AtomicLong
-
-import org.apache.spark.secco.analysis.RelationAlgebraWithAnalysis
-import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
+import org.apache.spark.secco.catalog.{
+  CatalogColumn,
+  CatalogTable,
+  TableIdentifier
+}
 import org.apache.spark.secco.execution.{
   InternalBlock,
   OldInternalRow,
@@ -11,11 +13,31 @@ import org.apache.spark.secco.execution.{
   RowBlock,
   RowBlockContent
 }
-import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.{
+  Attribute,
+  Expression,
+  NamedExpression
+}
 import org.apache.spark.secco.optimization.LogicalPlan
-import org.apache.spark.secco.optimization.plan.Relation
 import org.apache.spark.secco.util.misc.DataLoader
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.analysis.UnresolvedAlias
+import org.apache.spark.secco.optimization.plan.{
+  Aggregate,
+  BinaryJoin,
+  Distinct,
+  Except,
+  Filter,
+  Inner,
+  Intersection,
+  JoinType,
+  Project,
+  Relation,
+  SubqueryAlias,
+  Union
+}
+
+import scala.util.Try
 
 /** A Dataset is a strongly typed collection of domain-specific objects that can be transformed
   * in parallel using functional or relational operations.
@@ -62,6 +84,14 @@ class Dataset(
 
   /* == relational algebra transformation == */
 
+  /** Perform selection on dataset. (same as select operation)
+    * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
+    * @return a new dataset
+    */
+  def filter(predicates: String): Dataset = {
+    select(predicates)
+  }
+
   /** Perform selection on dataset.
     * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
     * @return a new dataset
@@ -69,7 +99,10 @@ class Dataset(
   def select(predicates: String): Dataset = {
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.select(predicates, queryExecution.logical)
+      Filter(
+        queryExecution.logical,
+        seccoSession.sessionState.sqlParser.parseExpression(predicates)
+      )
     )
   }
 
@@ -77,64 +110,40 @@ class Dataset(
     * @param projectionList the list of columns to preserve after projection, e.g., R1.project("a").
     * @return a new dataset.
     */
-  def project(projectionList: String): Dataset = {
+  def project(projectionList: Seq[String]): Dataset = {
+
+    val namedProjectionList = projectionList.map(projection =>
+      UnresolvedAlias(
+        seccoSession.sessionState.sqlParser.parseExpression(projection)
+      )
+    )
+
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.project(
-        projectionList,
-        queryExecution.logical
+      Project(
+        queryExecution.logical,
+        namedProjectionList
       )
     )
   }
 
-  /** Apply a element-wise function to transform the dataset (aka. non distinctive projection).
-    * @param projectionList the list of element wise functions on columns, e.g., R1.transform("a, a*b").
+  /** Perform join between this dataset and other datasets.
+    * @param others other datasets to be joined, e.g., R1.join(R2).
     * @return a new dataset.
     */
-  def transform(projectionList: String): Dataset = {
+  def join(
+      others: Dataset,
+      joinCondition: Option[Expression] = None,
+      joinType: JoinType = Inner
+  ): Dataset = {
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.transform(
-        projectionList,
-        queryExecution.logical
+      BinaryJoin(
+        queryExecution.logical,
+        others.queryExecution.logical,
+        joinType,
+        joinCondition
       )
-    )
-  }
-
-  /** Perform natural join between this dataset and other datasets.
-    * @param others other datasets to be joined, e.g., R1.naturalJoin(R2).
-    * @return a new dataset.
-    */
-  def naturalJoin(others: Dataset*): Dataset = {
-    val children =
-      queryExecution.logical +: others.map(_.queryExecution.logical)
-    Dataset(seccoSession, RelationAlgebraWithAnalysis.join(children: _*))
-  }
-
-  /** Perform cartesian product between this dataset and other datasets.
-    * @param others other datasets to be performed cartesian product, e.g., R1.cartesianProduct(R2).
-    * @return a new dataset.
-    */
-  def cartesianProduct(others: Dataset*): Dataset = {
-    val children =
-      queryExecution.logical +: others.map(_.queryExecution.logical)
-    Dataset(
-      seccoSession,
-      RelationAlgebraWithAnalysis.cartesianProduct(children: _*)
-    )
-  }
-
-  /** Perform theta join between this dataset and other datasets.
-    * @param joinConditions the join conditions to perform theta-join, e.g., R1.thetaJoin("a < b", R2).
-    * @param others other datasets to be theta-joined.
-    * @return a new dataset.
-    */
-  def thetaJoin(joinConditions: String, others: Dataset*): Dataset = {
-    val children =
-      queryExecution.logical +: others.map(_.queryExecution.logical)
-    Dataset(
-      seccoSession,
-      RelationAlgebraWithAnalysis.thetaJoin(joinConditions, children: _*)
     )
   }
 
@@ -142,24 +151,50 @@ class Dataset(
     * @param aggregateFunctions aggregate functions to be performed, e.g., R1.aggregate(count(*) by a).
     * @return a new dataset.
     */
-  def aggregate(aggregateFunctions: String): Dataset = {
+  def aggregate(
+      aggregateExpressions: Seq[String],
+      groupByExpressions: Seq[String] = Seq()
+  ): Dataset = {
+
+    val parsedAggregateExpressions = aggregateExpressions.map(aggExpr =>
+      UnresolvedAlias(
+        seccoSession.sessionState.sqlParser.parseExpression(aggExpr)
+      )
+    )
+
+    val parsedGroupByExpressions = groupByExpressions.map { groupByAttr =>
+      Try(
+        seccoSession.sessionState.sqlParser
+          .parseExpression(groupByAttr)
+          .asInstanceOf[Attribute]
+      ).getOrElse(
+        throw new Exception(
+          s"groupBy Attributes:${groupByAttr} cannot be parsed as an attribute"
+        )
+      )
+    }
+
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.aggregate(
-        aggregateFunctions,
-        queryExecution.logical
+      Aggregate(
+        queryExecution.logical,
+        parsedAggregateExpressions,
+        parsedGroupByExpressions
       )
     )
   }
 
-  /** Rename columns of this dataset.
-    * @param nameMapping the mapping from old name to new name
+  /** Rename the dataset.
+    * @param newName the new name for the dataset
     * @return a new dataset.
     */
-  def alias(nameMapping: String): Dataset = {
+  def alias(newName: String): Dataset = {
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.rename(nameMapping, queryExecution.logical)
+      SubqueryAlias(
+        queryExecution.logical,
+        newName
+      )
     )
   }
 
@@ -169,10 +204,22 @@ class Dataset(
     * @param others other datasets to be unioned.
     * @return a new dataset.
     */
+  def union(others: Dataset*): Dataset = {
+    val children =
+      queryExecution.logical +: others.map(_.queryExecution.logical)
+
+    Dataset(seccoSession, Union(children))
+  }
+
+  /** Perform union between this dataset and other datasets, and only retains distinct tuples
+    * @param others other datasets to be unioned.
+    * @return a new dataset.
+    */
   def unionAll(others: Dataset*): Dataset = {
     val children =
       queryExecution.logical +: others.map(_.queryExecution.logical)
-    Dataset(seccoSession, RelationAlgebraWithAnalysis.union(children: _*))
+
+    Dataset(seccoSession, Distinct(Union(children)))
   }
 
   /** Perform difference between this dataset and the other dataset.
@@ -182,64 +229,82 @@ class Dataset(
   def difference(other: Dataset): Dataset = {
     Dataset(
       seccoSession,
-      RelationAlgebraWithAnalysis.diff(
-        queryExecution.logical,
-        other.queryExecution.logical
-      )
+      Except(queryExecution.logical, other.queryExecution.logical)
+    )
+  }
+
+  /** Perform intersection between this dataset and the other dataset.
+    * @param other the other dataset to be unioned.
+    * @return a new dataset.
+    */
+  def intersection(other: Dataset): Dataset = {
+    Dataset(
+      seccoSession,
+      Intersection(queryExecution.logical, other.queryExecution.logical)
+    )
+  }
+
+  /** Perform distinction of this datasets by only retain distinctive tuples.
+    * @return a new dataset.
+    */
+  def distinct(): Dataset = {
+    Dataset(
+      seccoSession,
+      Distinct(queryExecution.logical)
     )
   }
 
   /* == iterative operations == */
 
-  /** Iteratively evaluate this dataset until numRun is reached, after that it'll return a dataset with name of
-    * returnTableIdentifier.
-    * @param returnTableIdentifier the table to return.
-    * @param numRun maximum number of iterations.
-    * @return a dataset of table with name `returnTableIdentifier`.
-    */
-  def withRecursive(
-      returnTableIdentifier: String,
-      numRun: Int = seccoSession.sessionState.conf.recursionNumRun
-  ) = {
-    Dataset(
-      seccoSession,
-      RelationAlgebraWithAnalysis.iterative(
-        this.logical,
-        returnTableIdentifier,
-        numRun
-      )
-    )
-  }
-
-  /** Assign this datasets to relation with name `tableName`, if the relation is not empty, it'll be overwritten.
-    * @param tableName the table name to assign.
-    * @return a new dataset
-    */
-  def assign(tableName: String) = {
-    Dataset(
-      seccoSession,
-      RelationAlgebraWithAnalysis.assign(tableName, logical)
-    )
-  }
-
-  /** Update the table specified by tableName by key, the difference of old table and new table is output to table with
-    * deltaTableName.
-    * @param tableName the table to update
-    * @param deltaTableName the delta table to hold the difference between old table and new table
-    * @param key the key to match on table to update.
-    * @return a new dataset with content of deltaTable.
-    */
-  def update(tableName: String, deltaTableName: String, key: Seq[String]) = {
-    Dataset(
-      seccoSession,
-      RelationAlgebraWithAnalysis.update(
-        tableName,
-        deltaTableName,
-        key,
-        this.logical
-      )
-    )
-  }
+//  /** Iteratively evaluate this dataset until numRun is reached, after that it'll return a dataset with name of
+//    * returnTableIdentifier.
+//    * @param returnTableIdentifier the table to return.
+//    * @param numRun maximum number of iterations.
+//    * @return a dataset of table with name `returnTableIdentifier`.
+//    */
+//  def withRecursive(
+//      returnTableIdentifier: String,
+//      numRun: Int = seccoSession.sessionState.conf.recursionNumRun
+//  ) = {
+//    Dataset(
+//      seccoSession,
+//      RelationAlgebraWithAnalysis.iterative(
+//        this.logical,
+//        returnTableIdentifier,
+//        numRun
+//      )
+//    )
+//  }
+//
+//  /** Assign this datasets to relation with name `tableName`, if the relation is not empty, it'll be overwritten.
+//    * @param tableName the table name to assign.
+//    * @return a new dataset
+//    */
+//  def assign(tableName: String) = {
+//    Dataset(
+//      seccoSession,
+//      RelationAlgebraWithAnalysis.assign(tableName, logical)
+//    )
+//  }
+//
+//  /** Update the table specified by tableName by key, the difference of old table and new table is output to table with
+//    * deltaTableName.
+//    * @param tableName the table to update
+//    * @param deltaTableName the delta table to hold the difference between old table and new table
+//    * @param key the key to match on table to update.
+//    * @return a new dataset with content of deltaTable.
+//    */
+//  def update(tableName: String, deltaTableName: String, key: Seq[String]) = {
+//    Dataset(
+//      seccoSession,
+//      RelationAlgebraWithAnalysis.update(
+//        tableName,
+//        deltaTableName,
+//        key,
+//        this.logical
+//      )
+//    )
+//  }
 
 }
 
@@ -295,7 +360,7 @@ object Dataset {
 
     cachedDataManager.storeRelation(relationName, internalRDD)
 
-    Dataset(dlSession, Relation(relationName))
+    Dataset(dlSession, Relation(TableIdentifier(relationName)))
   }
 
   /** Create an [[Dataset]] from [[RDD]]

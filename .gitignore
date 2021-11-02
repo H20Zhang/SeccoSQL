@@ -1,6 +1,9 @@
 *.class
 *.log
 
+# Mac DS_Store
+.DS_Store
+
 # Datasets
 /datasets/
 /script/upload/

@@ -3,8 +3,9 @@ package org.apache.spark.secco.optimization
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
-  MultiwayJoin,
+  Join,
   LocalStage,
+  MultiwayJoin,
   Partition,
   Project,
   Union
@@ -15,14 +16,14 @@ import org.apache.spark.secco.optimization.plan.{
 trait LogicalPlanVisitor[T] {
   def visit(p: LogicalPlan): T =
     p match {
-      case p: Aggregate    => visitAggregate(p)
-      case p: Filter       => visitFilter(p)
-      case p: MultiwayJoin => visitJoin(p)
-      case p: Project      => visitProject(p)
-      case p: Union        => visitUnion(p)
-      case p: Partition    => visitPartition(p)
-      case p: LocalStage   => visitLocalStage(p)
-      case p: LogicalPlan  => default(p)
+      case p: Aggregate   => visitAggregate(p)
+      case p: Filter      => visitFilter(p)
+      case p: Join        => visitJoin(p)
+      case p: Project     => visitProject(p)
+      case p: Union       => visitUnion(p)
+      case p: Partition   => visitPartition(p)
+      case p: LocalStage  => visitLocalStage(p)
+      case p: LogicalPlan => default(p)
 
     }
 
@@ -32,7 +33,7 @@ trait LogicalPlanVisitor[T] {
 
   def visitFilter(p: Filter): T
 
-  def visitJoin(p: MultiwayJoin): T
+  def visitJoin(p: Join): T
 
   def visitProject(p: Project): T
 
