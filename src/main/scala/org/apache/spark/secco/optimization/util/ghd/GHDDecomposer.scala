@@ -19,7 +19,7 @@ class GHDDecomposer {
 
     //find the GHD Decomposition for the schemasForGHD
     val graph = RelationGraph(schemasForGHD.toArray)
-    val ghds = HyperTreeDecomposer.genAllGHDs(graph)
+    val ghds = EnumHyperTreeDecomposer.genAllTrees(graph)
 
     //construct RelationGHD
     ghds
@@ -29,20 +29,19 @@ class GHDDecomposer {
         val bags =
           t.nodes
             .map(f => (f.id, f.g.edges.map(edge => edgeToSchema(edge.attrs))))
-            .map {
-              case (idx, bag) =>
-                //add previously filtered schemas to the bags that contained it.
-                val fullBag = bag ++ bag
-                  .flatMap(schema1 =>
-                    excludedSchemas.filter(schema2 =>
-                      schema2.attributeNames
-                        .diff(schema1.attributeNames)
-                        .isEmpty
-                    )
+            .map { case (idx, bag) =>
+              //add previously filtered schemas to the bags that contained it.
+              val fullBag = bag ++ bag
+                .flatMap(schema1 =>
+                  excludedSchemas.filter(schema2 =>
+                    schema2.attributeNames
+                      .diff(schema1.attributeNames)
+                      .isEmpty
                   )
-                  .distinct
+                )
+                .distinct
 
-                (idx, fullBag)
+              (idx, fullBag)
             }
         val connections = t.edges.map(e => (e.src.id, e.dst.id))
 

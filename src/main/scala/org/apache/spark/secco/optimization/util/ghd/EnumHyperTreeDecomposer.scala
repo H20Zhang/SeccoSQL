@@ -8,21 +8,21 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 trait TreeDecomposer {
-  def genAllGHDs(g: RelationGraph): Array[HyperTree]
+  def genAllTrees(g: RelationGraph): Array[HyperTree]
 }
 
-object HyperTreeDecomposer extends TreeDecomposer {
+object EnumHyperTreeDecomposer extends TreeDecomposer {
 
-  override def genAllGHDs(g: RelationGraph): Array[HyperTree] = {
+  override def genAllTrees(g: RelationGraph): Array[HyperTree] = {
     //    if (g.E().size > (g.V().size + 2)) {
-    genAllGHDsByEnumeratingNode(g)
+    genAllFHDsByEnumeratingNode(g)
     //    } else {
     //      genAllGHDsByEnumeratingEdge(g)
     //    }
   }
 
   //  Find all GHD decomposition
-  def genAllGHDsByEnumeratingNode(g: RelationGraph) = {
+  def genAllFHDsByEnumeratingNode(g: RelationGraph) = {
 
     val numEdges = g.edges.size
     val numNodes = g.nodes.size
