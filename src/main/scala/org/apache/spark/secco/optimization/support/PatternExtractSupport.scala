@@ -1,7 +1,11 @@
 package org.apache.spark.secco.optimization.support
 
-import org.apache.spark.secco.expression.{Expression, PredicateHelper}
-import org.apache.spark.secco.optimization.ExecMode.ExecMode
+import org.apache.spark.secco.expression.{
+  Attribute,
+  Expression,
+  PredicateHelper
+}
+import org.apache.spark.secco.optimization.ExecMode.{Coupled, ExecMode}
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan.{
   BinaryJoin,
@@ -9,42 +13,82 @@ import org.apache.spark.secco.optimization.plan.{
   Inner,
   InnerLike,
   JoinProperty,
-  JoinType
+  JoinType,
+  Project
 }
 
 /** A pattern that collects consecutive inner joins with specific join property.
   *
-  *           Join
-  *          /    \            ---->      (Seq(plan0, plan1, plan2), mode)
-  *       Join   plan2
+  *           Join2
+  *          /    \            ---->      (Seq(plan0, plan1, plan2), condition, projectionList, mode)
+  *       Join1   plan2
   *      /    \
   *   plan0    plan1
   *
-  * Note that: the behavior of this pattern extractor can be customized by `setRequiredJoinProperties`.
+  *   Also we consider the case where additional projection is added to filter out unneeded columns
+  *
+  *         Join2
+  *        /    \
+  *      Proj    plan2
+  *       |                   ---->       (Seq(plan0, plan1, plan2), condition, projectionList, mode)
+  *      Join1
+  *     /   \
+  *  plan0   plan1
+  *
+  * Note that: the behavior of this pattern extractor can customized.
   */
-object ExtractConsecutiveInnerJoins extends PredicateHelper {
+object ExtractRequiredProjectJoins extends PredicateHelper {
 
   private var _requiredJoinProperties: Set[JoinProperty] = Set()
+  private var _requiredJoinType: JoinType = Inner
+  private var _requiredExecMode: ExecMode = Coupled
+
+  def resetRequirement(): Unit = {
+    _requiredJoinProperties = Set()
+    _requiredJoinType = Inner
+    _requiredExecMode = Coupled
+  }
 
   def requiredJoinProperties: Set[JoinProperty] = {
     _requiredJoinProperties
+  }
+
+  def requiredJoinType: JoinType = {
+    _requiredJoinType
+  }
+
+  def requiredExecMode: ExecMode = {
+    _requiredExecMode
   }
 
   def setRequiredJoinProperties(joinProperties: Seq[JoinProperty]): Unit = {
     _requiredJoinProperties = joinProperties.toSet
   }
 
-  def clearRequiredJoinProperties(): Unit = {
-    _requiredJoinProperties = Set()
+  def setRequiredJoinType(joinType: JoinType): Unit = {
+    _requiredJoinType = joinType
+  }
+
+  def setRequiredExecMode(execMode: ExecMode): Unit = {
+    _requiredExecMode = execMode
   }
 
   /** Flatten all inner joins, which are next to each other and satisfies requirements. */
   def flattenJoin(
       plan: LogicalPlan,
-      requiredJoinType: JoinType = Inner,
-      requiredJoinProperty: Set[JoinProperty] = Set(),
-      requiredExecMode: ExecMode = ExecMode.Coupled
+      requiredJoinType: JoinType,
+      requiredJoinProperty: Set[JoinProperty],
+      requiredExecMode: ExecMode
   ): (Seq[BinaryJoin], ExecMode) = plan match {
+    case p @ Project(
+          j: BinaryJoin,
+          projectionList,
+          mode
+        )
+        if mode == requiredExecMode && projectionList.forall(
+          _.isInstanceOf[Attribute]
+        ) =>
+      flattenJoin(j, requiredJoinType, requiredJoinProperty, requiredExecMode)
     case j @ BinaryJoin(left, right, joinType, cond, property, mode)
         if mode == requiredExecMode && joinType == requiredJoinType && requiredJoinProperty
           .subsetOf(property) =>
@@ -68,13 +112,47 @@ object ExtractConsecutiveInnerJoins extends PredicateHelper {
 
   def unapply(
       plan: LogicalPlan
-  ): Option[(Seq[BinaryJoin], ExecMode)] = plan match {
-    case j @ BinaryJoin(_, _, Inner, _, property, mode) =>
-      Some(
-        flattenJoin(j, Inner, _requiredJoinProperties, requiredExecMode = mode)
-      )
-    case _ => None
-  }
+  ): Option[(Seq[LogicalPlan], Seq[Expression], Seq[Attribute], ExecMode)] =
+    plan match {
+      case j @ BinaryJoin(_, _, joinType, condition, property, mode)
+          if joinType == requiredJoinType && requiredJoinProperties.subsetOf(
+            property
+          ) && mode == requiredExecMode =>
+        val (joins, _) =
+          flattenJoin(
+            j,
+            _requiredJoinType,
+            _requiredJoinProperties,
+            _requiredExecMode
+          )
+        val inputs = joins.flatMap(_.collectLeaves()).distinct
+        val conditions = joins.map(_.condition).flatMap(f => f)
+        Some(inputs, conditions, j.output, mode)
+//      case p @ Project(
+//            j @ BinaryJoin(_, _, _, _, _, childMode),
+//            projectionList,
+//            mode
+//          )
+//          if mode == childMode && projectionList.forall(
+//            _.isInstanceOf[Attribute]
+//          ) =>
+//        val (joins, _) =
+//          flattenJoin(
+//            j,
+//            _requiredJoinType,
+//            _requiredJoinProperties,
+//            _requiredExecMode
+//          )
+//        val inputs = joins.flatMap(_.collectLeaves()).distinct
+//        val conditions = joins.map(_.condition).flatMap(f => f)
+//        Some(
+//          inputs,
+//          conditions,
+//          projectionList.map(_.asInstanceOf[Attribute]),
+//          mode
+//        )
+      case _ => None
+    }
 
 }
 

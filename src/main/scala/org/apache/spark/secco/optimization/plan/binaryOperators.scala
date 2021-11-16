@@ -1,7 +1,11 @@
 package org.apache.spark.secco.optimization.plan
 
-import org.apache.spark.secco.expression.Expression
-import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.{
+  Attribute,
+  EqualTo,
+  Expression,
+  PredicateHelper
+}
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
@@ -96,20 +100,24 @@ case class BinaryJoin(
     property: Set[JoinProperty] = Set(),
     mode: ExecMode = ExecMode.Coupled
 ) extends BinaryNode
+    with PredicateHelper
     with Join {
 
   override def primaryKey: Seq[Attribute] = {
-    if (
-      (left.outputSet
-        .intersect(
-          right.outputSet
-        ) == AttributeSet(left.primaryKey)) && (AttributeSet(
-        left.primaryKey
-      ) == AttributeSet(right.primaryKey))
-    ) {
-      left.primaryKey
-    } else {
-      Seq()
+
+    condition match {
+      case None => Seq()
+      case Some(expr) =>
+        val conditions = splitConjunctivePredicates(expr)
+        val newPrimaryKey = conditions.collect {
+          case EqualTo(a: Attribute, b: Attribute)
+              if (left.primaryKeySet.contains(a) && right.primaryKeySet
+                .contains(b)) || (left.primaryKeySet.contains(
+                b
+              ) && right.primaryKeySet.contains(a)) =>
+            Seq(a, b)
+        }.flatten
+        newPrimaryKey
     }
   }
 

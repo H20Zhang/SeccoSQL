@@ -23,7 +23,6 @@ class AnalyzerSuite extends SeccoFunSuite {
 
   override def setupDB(): Unit = {
     val catalog = seccoSession.sessionState.catalog
-    catalog.dropTable("R1")
     catalog.createTable(
       CatalogTable("R1", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
     )

@@ -1,6 +1,7 @@
-package org.apache.spark.secco.optimization.util.ghd
+package org.apache.spark.secco.optimization.util
 
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.optimization.util.ghd.WidthCalculator
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -13,9 +14,11 @@ trait HasID {
 trait Node extends HasID {
   def id: Int
 
-  override def toString: String = {
-    s"$id"
-  }
+  def simpleString: String = s"$id"
+
+  def verboseString: String = simpleString
+
+  override def toString: String = verboseString
 }
 
 /** A trait for the edge of the graph. */
@@ -24,9 +27,12 @@ trait Edge[V <: Node] {
   lazy val nodeSet: Set[V] = Set(nodes: _*)
   lazy val nodeIDSet: Set[Int] = nodeSet.map(_.id)
 
-  override def toString: String = {
-    nodes.map(f => f.id).mkString("[", ",", "]")
-  }
+  def simpleString: String =
+    nodes.map(f => f.simpleString).mkString("[", ",", "]")
+
+  def verboseString: String = simpleString
+
+  override def toString: String = verboseString
 }
 
 /** A graph that with nodes and edges.
@@ -143,32 +149,36 @@ object Graph {
 // Relation Graph.
 // We assume RelationGraph is undirected graph, thus the nodes in edges won't distinguish directions.
 
-/** A node in the [[RelationGraph]], which actually represents an attribute.
+/** A node in the [[JoinHyperGraph]], which actually represents an attribute.
+  *
   * @param id id of the node
   * @param attr attributes of the node
   */
-case class RelationNode(id: Int, attr: Attribute) extends Node
+case class JoinHyperGraphNode(id: Int, attr: Attribute) extends Node
 
-object RelationNode {
+object JoinHyperGraphNode {
 
   private var counter = 0
   private val attrToId = scala.collection.mutable.HashMap[Attribute, Int]()
 
-  def apply(attr: Attribute): RelationNode = {
+  def apply(attr: Attribute): JoinHyperGraphNode = {
     attrToId.get(attr) match {
-      case Some(id) => RelationNode(id, attr)
+      case Some(id) => JoinHyperGraphNode(id, attr)
       case None =>
-        counter += 1; attrToId(attr) = counter; RelationNode(counter, attr)
+        counter += 1; attrToId(attr) = counter;
+        JoinHyperGraphNode(counter, attr)
     }
   }
 }
 
-/** A edge in the [[RelationGraph]], which actually represents a relation.
+/** A edge in the [[JoinHyperGraph]], which actually represents a relation.
+  *
   * @param attrs schemas of the relation.
   */
-case class RelationEdge(attrs: Set[Attribute]) extends Edge[RelationNode] {
-  override val nodes: Array[RelationNode] =
-    attrs.map(attr => RelationNode(attr)).toArray
+case class JoinHyperGraphEdge(attrs: Set[Attribute])
+    extends Edge[JoinHyperGraphNode] {
+  override val nodes: Array[JoinHyperGraphNode] =
+    attrs.map(attr => JoinHyperGraphNode(attr)).toArray
 }
 
 /** A graph that represents a join query, where each node is an attribute and each edge is an relation.
@@ -176,18 +186,18 @@ case class RelationEdge(attrs: Set[Attribute]) extends Edge[RelationNode] {
   * @param nodes nodes of the graph
   * @param edges edges of the graph
   */
-case class RelationGraph(
+case class JoinHyperGraph(
     id: Int,
-    override val nodes: Array[RelationNode],
-    override val edges: Array[RelationEdge]
+    override val nodes: Array[JoinHyperGraphNode],
+    override val edges: Array[JoinHyperGraphEdge]
 ) extends Graph(nodes, edges)
     with HasID {
 
   override def nodeInducedSubgraph(
-      nodes: Array[RelationNode]
-  ): RelationGraph = {
+      nodes: Array[JoinHyperGraphNode]
+  ): JoinHyperGraph = {
     val g = super.nodeInducedSubgraph(nodes)
-    RelationGraph(g.nodes, g.edges)
+    JoinHyperGraph(g.nodes, g.edges)
   }
 
   override def toString: String = {
@@ -195,36 +205,37 @@ case class RelationGraph(
   }
 }
 
-object RelationGraph {
+object JoinHyperGraph {
   private var counter = 999
   def apply(
-      nodes: Array[RelationNode],
-      edges: Array[RelationEdge]
-  ): RelationGraph = {
+      nodes: Array[JoinHyperGraphNode],
+      edges: Array[JoinHyperGraphEdge]
+  ): JoinHyperGraph = {
     counter += 1
-    val graph = new RelationGraph(counter, nodes, edges)
+    val graph = new JoinHyperGraph(counter, nodes, edges)
     graph
   }
 
-  def apply(schemas: Array[Array[Attribute]]): RelationGraph = {
-    val nodes = schemas.flatten.distinct.map(RelationNode(_))
-    val edges = schemas.map(f => RelationEdge(f.toSet))
-    RelationGraph(nodes, edges)
+  def apply(schemas: Array[Array[Attribute]]): JoinHyperGraph = {
+    val nodes = schemas.flatten.distinct.map(JoinHyperGraphNode(_))
+    val edges = schemas.map(f => JoinHyperGraphEdge(f.toSet))
+    JoinHyperGraph(nodes, edges)
   }
 }
 
 //  HyperNodes that are isomoprhic are given the same id
 
-/** A hypernode of the [[HyperTree]], where contains join query represented in [[RelationGraph]].
+/** A hypernode of the [[GHDHyperTree]], where contains join query represented in [[JoinHyperGraph]].
+  *
   * @param g the join graph
   */
-case class HyperNode(g: RelationGraph) extends Node {
+case class GHDHyperNode(g: JoinHyperGraph) extends Node {
 
   val id = g.id
 
   /** Construct induced hyper-node according to the nodeset of current hypernode */
-  def toInducedHyperNode(supG: RelationGraph): HyperNode = {
-    HyperNode(supG.nodeInducedSubgraph(g.nodes))
+  def toInducedHyperNode(supG: JoinHyperGraph): GHDHyperNode = {
+    GHDHyperNode(supG.nodeInducedSubgraph(g.nodes))
   }
 
   override def toString: String = {
@@ -232,12 +243,14 @@ case class HyperNode(g: RelationGraph) extends Node {
   }
 }
 
-/** A hyperedge of the [[HyperTree]].
+/** A hyperedge of the [[GHDHyperTree]].
+  *
   * @param src source node
   * @param dst destination node
   */
-case class HyperEdge(src: HyperNode, dst: HyperNode) extends Edge[HyperNode] {
-  override def nodes: Array[HyperNode] = Array(src, dst)
+case class GHDHyperEdge(src: GHDHyperNode, dst: GHDHyperNode)
+    extends Edge[GHDHyperNode] {
+  override def nodes: Array[GHDHyperNode] = Array(src, dst)
 }
 
 // We regard GHD as a special kinds of hypertree
@@ -246,9 +259,9 @@ case class HyperEdge(src: HyperNode, dst: HyperNode) extends Edge[HyperNode] {
   * @param nodes hypernodes
   * @param edges hyperedges
   */
-case class HyperTree(
-    override val nodes: Array[HyperNode],
-    override val edges: Array[HyperEdge]
+case class GHDHyperTree(
+    override val nodes: Array[GHDHyperNode],
+    override val edges: Array[GHDHyperEdge]
 ) extends Graph(nodes, edges) {
 
   /** fractional tree width */
@@ -256,23 +269,24 @@ case class HyperTree(
 
   /** By adding one hypernode to existing hypertree with one edge connected,
     * we ensure the result graph is always a hypertree.
+    *
     * @param newNode new hypernode to be added to the tree.
-    * @return possible new [[HyperTree]] with the given newNode added, if no such [[HyperTree]] exists,
+    * @return possible new [[GHDHyperTree]] with the given newNode added, if no such [[GHDHyperTree]] exists,
     *         an empty array is returned.
     */
-  def addHyperNode(newNode: HyperNode): Array[HyperTree] = {
+  def addHyperNode(newNode: GHDHyperNode): Array[GHDHyperTree] = {
     if (isEmpty()) {
-      return Array(HyperTree(nodes :+ newNode, edges))
+      return Array(GHDHyperTree(nodes :+ newNode, edges))
     }
 
     var i = 0
     val end = nodes.size
-    val hypertreeBuffer = ArrayBuffer[HyperTree]()
+    val hypertreeBuffer = ArrayBuffer[GHDHyperTree]()
     while (i < end) {
       val node = nodes(i)
       if (node.g.containAnyNodes(newNode.g.nodes)) {
-        val newEdge = HyperEdge(node, newNode)
-        val newTree = HyperTree(nodes :+ newNode, edges :+ newEdge)
+        val newEdge = GHDHyperEdge(node, newNode)
+        val newTree = GHDHyperTree(nodes :+ newNode, edges :+ newEdge)
         if (newTree.isGHD()) {
           hypertreeBuffer += newTree
         }
@@ -291,7 +305,7 @@ case class HyperTree(
   def isGHD(): Boolean = {
 
     //  return the subgraph of the hypertree based on the running path induced subgraph
-    def runningPathSubGraph(relationNode: RelationNode) = {
+    def runningPathSubGraph(relationNode: JoinHyperGraphNode) = {
       val relevantHyperNodes = nodes.filter { hypernode =>
         hypernode.g.containNode(relationNode)
       }

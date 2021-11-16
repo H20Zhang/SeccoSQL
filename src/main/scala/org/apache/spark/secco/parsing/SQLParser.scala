@@ -342,7 +342,22 @@ object SQLParser extends Parsers with ParserInterface {
           Origin(Some(next.pos.line), Some(next.pos.column)),
           Origin(None, None)
         )
-      case Success(result, _) => LogicalPlanBuilder.fromExpression(result)
+      case Success(result, _) =>
+        LogicalPlanBuilder.fromExpression(result)
+    }
+  }
+
+  override def parseProjectExpression(sqlText: String) = {
+    phrase(projection)(TokenReader(tokens(sqlText))) match {
+      case NoSuccess(msg, next) =>
+        throw new ParseException(
+          Some(sqlText),
+          msg + "\n" + next.pos.longString,
+          Origin(Some(next.pos.line), Some(next.pos.column)),
+          Origin(None, None)
+        )
+      case Success(result, _) =>
+        LogicalPlanBuilder.fromProjectExpression(result)
     }
   }
 

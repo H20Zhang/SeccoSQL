@@ -1,20 +1,28 @@
 package org.apache.spark.secco.optimization.util.ghd
 
-import java.util.concurrent.ConcurrentLinkedQueue
+import org.apache.spark.secco.optimization.util.{
+  GHDHyperNode,
+  GHDHyperTree,
+  JoinHyperGraphEdge,
+  JoinHyperGraph,
+  JoinHyperGraphNode
+}
 
+import java.util.concurrent.ConcurrentLinkedQueue
 import org.apache.spark.secco.util.`extension`.SeqExtension
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-/** A hypertree decomposer that decomposes a [[RelationGraph]] into [[HyperTree]] */
+/** A hypertree decomposer that decomposes a [[JoinHyperGraph]] into [[GHDHyperTree]] */
 object HyperTreeDecomposer {
 
-  /** Find all GHD of a [[RelationGraph]]
+  /** Find all GHD of a [[JoinHyperGraph]]
+    *
     * @param g the relation graph
-    * @return an [[Array]] of [[HyperTree]]
+    * @return an [[Array]] of [[GHDHyperTree]]
     */
-  def genAllGHDs(g: RelationGraph): Array[HyperTree] = {
+  def genAllGHDs(g: JoinHyperGraph): Array[GHDHyperTree] = {
     //    if (g.E().size > (g.V().size + 2)) {
     genAllGHDsByEnumeratingNode(g)
     //    } else {
@@ -22,30 +30,31 @@ object HyperTreeDecomposer {
     //    }
   }
 
-  /** Find all GHD by enumerating nodes of [[HyperTree]].
+  /** Find all GHD by enumerating nodes of [[GHDHyperTree]].
+    *
     * @param g the relation graph
-    * @return an [[Array]] of [[HyperTree]]
+    * @return an [[Array]] of [[GHDHyperTree]]
     */
-  private def genAllGHDsByEnumeratingNode(g: RelationGraph) = {
+  private def genAllGHDsByEnumeratingNode(g: JoinHyperGraph) = {
 
     val numEdges = g.edges.size
     val numNodes = g.nodes.size
     val potentialConnectedInducedSubgraphs =
       computeConnectedNodeInducedSubgraphs(g)
 
-    var extendableTree = new Array[(HyperTree, Array[RelationNode])](1)
-    val GHDs = new ConcurrentLinkedQueue[HyperTree]()
-    extendableTree(0) = ((HyperTree(Array(), Array()), Array()))
+    var extendableTree = new Array[(GHDHyperTree, Array[JoinHyperGraphNode])](1)
+    val GHDs = new ConcurrentLinkedQueue[GHDHyperTree]()
+    extendableTree(0) = ((GHDHyperTree(Array(), Array()), Array()))
 
     while (!extendableTree.isEmpty) {
 
       val newExtendableTree =
-        new ConcurrentLinkedQueue[(HyperTree, Array[RelationNode])]()
+        new ConcurrentLinkedQueue[(GHDHyperTree, Array[JoinHyperGraphNode])]()
       extendableTree
         .filter { case (hypertree, coveredNodes) =>
           if (coveredNodes.size == numNodes) {
 
-            val coveredEdgeSets = mutable.HashSet[RelationEdge]()
+            val coveredEdgeSets = mutable.HashSet[JoinHyperGraphEdge]()
             hypertree.nodes.foreach { hv =>
               val E = hv.g.edges
               E.foreach(e => coveredEdgeSets.add(e))
@@ -79,7 +88,7 @@ object HyperTreeDecomposer {
 
       newExtendableTree.toArray
       val it = newExtendableTree.iterator()
-      val buffer = ArrayBuffer[(HyperTree, Array[RelationNode])]()
+      val buffer = ArrayBuffer[(GHDHyperTree, Array[JoinHyperGraphNode])]()
       while (it.hasNext) {
         buffer += it.next()
       }
@@ -88,7 +97,7 @@ object HyperTreeDecomposer {
     }
 
     val it = GHDs.iterator()
-    val buffer = ArrayBuffer[HyperTree]()
+    val buffer = ArrayBuffer[GHDHyperTree]()
     while (it.hasNext) {
       buffer += it.next()
     }
@@ -97,11 +106,11 @@ object HyperTreeDecomposer {
 
   //  Find the hyper-nodes, the graph inside a hyper-node must be connected and node induced graph
   private def genPotentialHyperNodesByEnumeratingNode(
-      basedGraph: RelationGraph,
-      hypertree: HyperTree,
-      coveredNodes: Array[RelationNode],
-      connectedNodeInducedSubgraphs: Array[RelationGraph]
-  ): Array[(HyperNode, Array[RelationNode])] = {
+      basedGraph: JoinHyperGraph,
+      hypertree: GHDHyperTree,
+      coveredNodes: Array[JoinHyperGraphNode],
+      connectedNodeInducedSubgraphs: Array[JoinHyperGraph]
+  ): Array[(GHDHyperNode, Array[JoinHyperGraphNode])] = {
 
     var potentialGraphs = connectedNodeInducedSubgraphs
 
@@ -122,14 +131,14 @@ object HyperTreeDecomposer {
     potentialGraphs
       .map { g =>
         val newCoveredNodes = (coveredNodes ++ g.nodes).distinct
-        (HyperNode(g), newCoveredNodes)
+        (GHDHyperNode(g), newCoveredNodes)
       }
   }
 
   private def computeConnectedNodeInducedSubgraphs(
-      basedGraph: RelationGraph
+      basedGraph: JoinHyperGraph
   ) = {
-    val potentialNodeSets: Array[Array[RelationNode]] =
+    val potentialNodeSets: Array[Array[JoinHyperGraphNode]] =
       SeqExtension.subset(basedGraph.nodes).map(_.toArray).toArray
 
     val potentialGraphs = potentialNodeSets

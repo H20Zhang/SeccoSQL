@@ -48,6 +48,16 @@ case class Relation(
 ) extends LeafNode
     with MultiInstanceRelation {
 
+  override def primaryKey: Seq[Attribute] = {
+    val cols = output
+    val catalogTable =
+      catalog.getTable(tableIdentifier.table, tableIdentifier.database).get
+
+    cols.filter(attr =>
+      catalogTable.primaryKeys.map(_.columnName).contains(attr.name)
+    )
+  }
+
   override lazy val output: Seq[Attribute] = {
 
     val cols =

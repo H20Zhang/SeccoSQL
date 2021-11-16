@@ -13,23 +13,22 @@ import org.apache.spark.secco.execution.planning.SeccoPlanner
 import org.apache.spark.secco.optimization.SeccoOptimizer
 import org.apache.spark.secco.parsing.ParserInterface
 
-/**
-  * A trait that provides convenient methods for accessing session states's components.
+/** A trait that provides convenient methods for accessing session states's components.
   */
 trait SessionSupport {
-  def dlSession = SeccoSession.currentSession
+  def seccoSession = SeccoSession.currentSession
 
-  def sc: SparkContext = dlSession.sessionState.sc
-  def conf: SeccoConfiguration = dlSession.sessionState.conf
-  def catalog: Catalog = dlSession.sessionState.catalog
-  def currentDatabase: String = dlSession.sessionState.currentDatabase
+  def sc: SparkContext = seccoSession.sessionState.sc
+  def conf: SeccoConfiguration = seccoSession.sessionState.conf
+  def catalog: Catalog = seccoSession.sessionState.catalog
+  def currentDatabase: String = seccoSession.sessionState.currentDatabase
   def functionRegistry: FunctionRegistry =
-    dlSession.sessionState.functionRegistry
-  def sqlParser: ParserInterface = dlSession.sessionState.sqlParser
-  def analyzer: Analyzer = dlSession.sessionState.analyzer
-  def optimizer: SeccoOptimizer = dlSession.sessionState.optimizer
-  def planner: SeccoPlanner = dlSession.sessionState.planner
+    seccoSession.sessionState.functionRegistry
+  def sqlParser: ParserInterface = seccoSession.sessionState.sqlParser
+  def analyzer: Analyzer = seccoSession.sessionState.analyzer
+  def optimizer: SeccoOptimizer = seccoSession.sessionState.optimizer
+  def planner: SeccoPlanner = seccoSession.sessionState.planner
   def cachedDataManager: CachedDataManager =
-    dlSession.sessionState.cachedDataManager
+    seccoSession.sessionState.cachedDataManager
 
 }

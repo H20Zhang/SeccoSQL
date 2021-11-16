@@ -34,7 +34,7 @@ abstract class SeccoPlan
   def cacheOutput(): Unit = {
     if (cachedExecuteResult.isEmpty) {
       val result =
-        execute().persist(dlSession.sessionState.conf.rddCacheLevel)
+        execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
       val time1 = System.currentTimeMillis()
       result.count()
       val time2 = System.currentTimeMillis()

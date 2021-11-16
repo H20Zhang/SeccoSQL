@@ -213,6 +213,15 @@ object LogicalPlanBuilder {
     }
   }
 
+  def fromProjectExpression(expr: Projection): E.Expression = {
+    expr match {
+      case Projection(expr, None) =>
+        A.UnresolvedAlias(fromExpression(expr))
+      case Projection(expr, Some(Identifier(name))) =>
+        E.Alias(fromExpression(expr), name)()
+    }
+  }
+
   def fromExpression(expr: Expr): E.Expression = {
     expr match {
       case ColumnRef(qualifier, Identifier(name)) =>

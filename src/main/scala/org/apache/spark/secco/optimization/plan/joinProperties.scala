@@ -20,6 +20,8 @@ object joinProperties {
 /** Base class for defining additional property of the join, beside JoinType. */
 sealed abstract class JoinProperty {
   def sql: String
+
+  override def toString: String = sql
 }
 
 /** A property that is used to indicate if join is part of the cyclic join. */

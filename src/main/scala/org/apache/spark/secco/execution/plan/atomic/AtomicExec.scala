@@ -27,7 +27,7 @@ case class CacheExec(child: SeccoPlan) extends UnaryExecNode {
       case Some(rdd) => rdd
       case None =>
         val rdd =
-          child.execute().persist(dlSession.sessionState.conf.rddCacheLevel)
+          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
         rdd.count()
         cachedExecuteResult = Some(rdd)
         rdd
@@ -50,7 +50,7 @@ case class AssignExec(child: SeccoPlan, tableIdentifier: String)
     dataManager(tableIdentifier) match {
       case Some(childRDD) =>
         val childRDD =
-          child.execute().persist(dlSession.sessionState.conf.rddCacheLevel)
+          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
         childRDD.count()
 
         dataManager.storeRelation(tableIdentifier, childRDD)
@@ -59,7 +59,7 @@ case class AssignExec(child: SeccoPlan, tableIdentifier: String)
 //        childRDD.asInstanceOf[RDD[InternalBlock]]
       case None =>
         val childRDD =
-          child.execute().persist(dlSession.sessionState.conf.rddCacheLevel)
+          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
         childRDD.count()
 
         dataManager.storeRelation(tableIdentifier, childRDD)
@@ -140,7 +140,7 @@ case class IterativeExec(
 
   /** The output attributes */
   override def outputOld: Seq[String] = {
-    val catalog = dlSession.sessionState.catalog
+    val catalog = seccoSession.sessionState.catalog
     catalog.getTable(returnTableIdentifier) match {
       case Some(table) => table.schema.map(_.columnName)
       case None =>

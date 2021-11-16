@@ -31,6 +31,7 @@ import org.apache.spark.secco.optimization.plan.{
   Inner,
   Intersection,
   JoinType,
+  Limit,
   Project,
   Relation,
   SubqueryAlias,
@@ -110,13 +111,16 @@ class Dataset(
     * @param projectionList the list of columns to preserve after projection, e.g., R1.project("a").
     * @return a new dataset.
     */
-  def project(projectionList: Seq[String]): Dataset = {
+  def project(projectionList: String): Dataset = {
 
-    val namedProjectionList = projectionList.map(projection =>
-      UnresolvedAlias(
-        seccoSession.sessionState.sqlParser.parseExpression(projection)
+    val namedProjectionList = projectionList
+      .replaceAll(",\\s+", ",") //trim whitespace
+      .split(",")
+      .map(projection =>
+        UnresolvedAlias(
+          seccoSession.sessionState.sqlParser.parseProjectExpression(projection)
+        )
       )
-    )
 
     Dataset(
       seccoSession,
@@ -133,7 +137,7 @@ class Dataset(
     */
   def join(
       others: Dataset,
-      joinCondition: Option[Expression] = None,
+      joinCondition: String = "",
       joinType: JoinType = Inner
   ): Dataset = {
     Dataset(
@@ -142,7 +146,9 @@ class Dataset(
         queryExecution.logical,
         others.queryExecution.logical,
         joinType,
-        joinCondition
+        Some(joinCondition)
+          .flatMap(str => if (str == "") None else Some(str))
+          .map(seccoSession.sessionState.sqlParser.parseExpression)
       )
     )
   }
@@ -208,7 +214,7 @@ class Dataset(
     val children =
       queryExecution.logical +: others.map(_.queryExecution.logical)
 
-    Dataset(seccoSession, Union(children))
+    Dataset(seccoSession, Distinct(Union(children)))
   }
 
   /** Perform union between this dataset and other datasets, and only retains distinct tuples
@@ -219,7 +225,7 @@ class Dataset(
     val children =
       queryExecution.logical +: others.map(_.queryExecution.logical)
 
-    Dataset(seccoSession, Distinct(Union(children)))
+    Dataset(seccoSession, Union(children))
   }
 
   /** Perform difference between this dataset and the other dataset.
@@ -244,6 +250,8 @@ class Dataset(
     )
   }
 
+  /* == misc operations == */
+
   /** Perform distinction of this datasets by only retain distinctive tuples.
     * @return a new dataset.
     */
@@ -251,6 +259,14 @@ class Dataset(
     Dataset(
       seccoSession,
       Distinct(queryExecution.logical)
+    )
+  }
+
+  /** Return only k results */
+  def limit(k: Int): Dataset = {
+    Dataset(
+      seccoSession,
+      Limit(queryExecution.logical, k)
     )
   }
 

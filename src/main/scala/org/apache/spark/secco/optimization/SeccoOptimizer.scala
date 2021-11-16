@@ -1,6 +1,5 @@
 package org.apache.spark.secco.optimization
 
-import javax.swing.plaf.basic.BasicTableHeaderUI
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.optimization.rules._
@@ -92,61 +91,78 @@ class SeccoOptimizer(
 
     //TODO: order the optimization rules.
 
-    val basicRules = Seq(
+    val operatorOptimizationRules = Seq(
       Batch(
-        "Remove Redundant Operators",
+        "Operator Optimization",
         fixedPoint,
+        // Operator push down
+        PushDownSelection,
+        PushSelectionIntoJoin,
+        PushSelectionThroughJoin,
+        PushDownProjection,
+        // Operator Combine
         MergeUnion,
         MergeProjection,
         MergeSelection,
-        RemoveRedundantSelection
-      ),
-      Batch(
-        "Push Down Predicates",
-        fixedPoint,
-        PushSelectionThroughJoin,
-        PushDownProjection
+        MergeLimit,
+        // Remove unnecessary operator
+        RemoveRedundantSelection,
+        RemoveRedundantProjection,
+        // Optimize expression via constant folding
+        ConstantPropagation,
+        ConstantFolding,
+        ReorderAssociativeOperator,
+        BooleanSimplification,
+        SimplifyBinaryComparison,
+        RemoveDispensableExpressions
       )
     )
 
-    val advanceRules = Seq(
-      Batch("ExtractPKFKJoin", fixedPoint, OptimizePKFKJoin),
+    val joinOptimizationRules = Seq(
       Batch(
-        "GHD-Based Join Reorder",
-        fixedPoint,
-        OptimizeMultiwayJoin
+        "Optimize PrimaryKey-ForeignKey Join",
+        Once,
+        MarkJoinPredicateProperty,
+        MarkJoinIntegrityConstraintProperty,
+        OptimizePKFKJoin
       ),
       Batch(
-        "Projection Cleaning",
-        fixedPoint,
-        MergeProjection,
-        RemoveRedundantProjection
-      ),
-      Batch("Optimize GHD Node", fixedPoint, OptimizeJoinTree)
+        "Optimize ForeignKey-ForeignKey Join",
+        Once,
+        MarkJoinCyclicityProperty,
+        MarkJoinPredicateProperty,
+        MarkJoinIntegrityConstraintProperty,
+        // Combine consecutive cyclic FKFK-Join into multiway join.
+        ReplaceBinaryJoinWithMultiwayJoin,
+        // Optimize multiway join by GHD
+        OptimizeMultiwayJoin,
+        // Optimize the join tree produced by GHD
+        OptimizeJoinTree
+      )
     )
 
-    val decouplingRules = Seq(
-      Batch("Mark Delay", Once, MarkDelay),
+    val decoupleOptimizationRules = Seq(
       Batch(
-        "Decouple Operators",
+        "Mark Delay and Decouple Communication from Computation",
         Once,
+        MarkDelay,
         DecoupleOperators
       ),
       Batch(
-        "Pack Local Computations",
+        "Pack Local Computations into Local Stage",
         fixedPoint,
         PackLocalComputationIntoLocalStage,
         MergeLocalStage
       ),
       Batch(
-        "PartitionPushDown",
+        "Selective PartitionPushDown",
         fixedPoint,
         SelectivelyPushCommunicationThroughComputation,
         MergeLocalStage
       )
     )
 
-    val iterativeProcessingRules = Seq(
+    val iterativeComputationOptimizationRules = Seq(
       Batch(
         "AddCache",
         Once,
@@ -155,12 +171,12 @@ class SeccoOptimizer(
       )
     )
 
-    val cleanRules = Seq(Batch("Cleanning", Once, CleanRoot))
+    val cleanRules = Seq(Batch("Cleaning", Once, CleanRoot))
 
     if (conf.enableOnlyDecoupleOptimization) {
-      decouplingRules ++ iterativeProcessingRules ++ cleanRules
+      decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     } else {
-      basicRules ++ advanceRules ++ decouplingRules ++ iterativeProcessingRules ++ cleanRules
+      operatorOptimizationRules ++ joinOptimizationRules ++ decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     }
   }
 
@@ -169,6 +185,6 @@ class SeccoOptimizer(
     defaultBatches.filter(batch => validBatches(batch))
   }
 
-  /** Currently, active batches. */
+  /** Current active batches. */
   def activeBatches: Seq[Batch] = batches
 }

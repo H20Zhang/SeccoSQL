@@ -26,7 +26,7 @@ import util.{SeccoFunSuite, UnitTestTag}
 
 import scala.util.Try
 
-class RuleSuite extends SeccoFunSuite {
+class AnalysisRuleSuite extends SeccoFunSuite {
   test("resolution", UnitTestTag) {
 
     val catalog = seccoSession.sessionState.catalog

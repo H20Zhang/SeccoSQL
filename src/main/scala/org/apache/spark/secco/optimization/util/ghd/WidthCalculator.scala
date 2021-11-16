@@ -2,6 +2,7 @@ package org.apache.spark.secco.optimization.util.ghd
 
 import cern.colt.matrix.impl.DenseDoubleMatrix2D
 import com.joptimizer.optimizers.{LPOptimizationRequest, LPPrimalDualMethod}
+import org.apache.spark.secco.optimization.util.{Edge, Graph, Node}
 
 import scala.math.BigDecimal.RoundingMode
 

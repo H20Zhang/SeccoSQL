@@ -17,6 +17,9 @@ trait ParserInterface {
     */
   def parseExpression(sqlText: String): Expression
 
+  /** Parse a string to an expression in Projection. */
+  def parseProjectExpression(sqlText: String): Expression
+
   /** Parse a string to a [[TableIdentifier]].
     */
   def parseTableIdentifier(sqlText: String): TableIdentifier

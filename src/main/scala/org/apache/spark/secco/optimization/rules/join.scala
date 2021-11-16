@@ -20,7 +20,14 @@ import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.util.ghd.GHDDecomposer
 import org.apache.spark.secco.optimization.plan._
-import org.apache.spark.secco.optimization.support.ExtractConsecutiveInnerJoins
+import org.apache.spark.secco.optimization.rules.MarkJoinIntegrityConstraintProperty.splitConjunctivePredicates
+import org.apache.spark.secco.optimization.support.ExtractRequiredProjectJoins
+import org.apache.spark.secco.optimization.util.joingraph.{
+  JoinGraph,
+  JoinGraphConstructor,
+  JoinGraphEdge,
+  JoinGraphNode
+}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -28,192 +35,15 @@ import scala.collection.mutable.ArrayBuffer
 /*
  *  This files defines a set of rules for optimizing join
  *
- *  1. MarkJoinPredicateProperty: a rule that marks predicate properties of the join.
- *  2. MarkJoinIntegrityConstraintProperty: a rule that marks integrity constraint property of the join.
- *  3. MarkJoinCyclicityProperty: a rule that marks cyclicity property of the join.
- *  4. ReplaceBinaryJoinWithMultiwayJoin: a rule that replace consecutive binary join with a single multiway join, which
+ *  1. ReplaceBinaryJoinWithMultiwayJoin: a rule that replace consecutive binary join with a single multiway join, which
  *  may contains cyclic joins.
- *  5. OptimizePKFKJoin: a rule that reorders PKFKJoins.
- *  6. OptimizeMultiwayJoin: a rule that reorders cyclic FK-FK joins inside multiway join by
+ *  2. OptimizePKFKJoin: a rule that reorders PKFKJoins.
+ *  3. OptimizeMultiwayJoin: a rule that reorders cyclic FK-FK joins inside multiway join by
  *  GHD(generalized hypertree decomposition), where the join between GHDNode is acyclic binary join and
  *  the join inside GHDNode is cyclic multiway join.
- *  7. OptimizeJoinTree: a rule that reorders acyclic binary join tree.
+ *  4. OptimizeJoinTree: a rule that reorders acyclic binary join tree.
  *
  */
-
-/** A rule that marks predicate properties of the join */
-object MarkJoinPredicateProperty
-    extends Rule[LogicalPlan]
-    with PredicateHelper {
-
-  private def identifyJoinPredicateProperties(
-      j: BinaryJoin
-  ): Option[JoinPredicatesProperty] = {
-    j.condition match {
-      case None => None
-      case Some(condition) =>
-        if (
-          splitConjunctivePredicates(condition).forall(e =>
-            e match {
-              case EqualTo(a1: AttributeReference, a2: AttributeReference) =>
-                true
-              case _ => false
-            }
-          )
-        ) {
-          Some(EquiJoinProperty)
-        } else {
-          Some(ThetaJoinProperty)
-        }
-    }
-  }
-
-  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
-    // only marks join predicate property for the ones that haven't been marked.
-    case j @ BinaryJoin(_, _, _, _, property, mode)
-        if property
-          .intersect(
-            Set(
-              ThetaJoinProperty,
-              EquiJoinProperty,
-              GeneralizedEquiJoinProperty
-            )
-          )
-          .isEmpty =>
-      j.copy(property =
-        property ++ identifyJoinPredicateProperties(j)
-          .map(property => Set(property))
-          .getOrElse(Set())
-      )
-  }
-}
-
-/** A rule that marks integrity constraint property of the join.
-  *
-  * Note that this rule should be called after [[MarkJoinPredicateProperty]], as it relies on [[EquiJoinProperty]]
-  * marked by [[MarkJoinIntegrityConstraintProperty]].
-  */
-object MarkJoinIntegrityConstraintProperty
-    extends Rule[LogicalPlan]
-    with PredicateHelper {
-
-  private def identifyJoinIntegrityProperties(
-      j: BinaryJoin
-  ): Option[JoinIntegrityConstraintProperty] = {
-    j.condition match {
-      case None => None
-      case Some(condition) =>
-        val joinAttributePairs = splitConjunctivePredicates(condition).map {
-          f =>
-            f match {
-              case EqualTo(a: AttributeReference, b: AttributeReference) =>
-                (a, b)
-              case _ =>
-                throw new Exception(
-                  s"identifyJoinIntegrityProperties can be only called on " +
-                    s"${EquiJoinProperty}.sql join "
-                )
-            }
-        }
-
-        if (
-          joinAttributePairs.exists { case (a, b) =>
-            j.left.primaryKeySet
-              .contains(a) || j.right.primaryKeySet.contains(b)
-          }
-        ) {
-          Some(PrimaryKeyForeignKeyJoinConstraintProperty)
-        } else {
-          Some(ForeignKeyForeignKeyJoinConstraintProperty)
-        }
-    }
-  }
-
-  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
-    // only marks join integrity property for the ones that haven't been marked.
-    case j @ BinaryJoin(_, _, _, _, property, mode)
-        if property
-          .intersect(
-            Set(
-              PrimaryKeyForeignKeyJoinConstraintProperty,
-              ForeignKeyForeignKeyJoinConstraintProperty
-            )
-          )
-          .isEmpty && property.contains(EquiJoinProperty) =>
-      j.copy(property =
-        property ++ identifyJoinIntegrityProperties(j)
-          .map(property => Set(property))
-          .getOrElse(Set())
-      )
-  }
-}
-
-/** A rule that marks cyclicity property of the join.
-  *
-  * Note that this rule only marks cyclicity between FK-FK inner Join. Also, this rule depends on the execution of
-  * [[MarkJoinIntegrityConstraintProperty]].
-  */
-object MarkJoinCyclicityProperty
-    extends Rule[LogicalPlan]
-    with PredicateHelper {
-
-  private def identifyJoinCyclicityProperties(
-      j: BinaryJoin
-  ): Option[JoinCyclicityProperty] = {
-
-    //set behavior of the pattern extractor
-    ExtractConsecutiveInnerJoins.clearRequiredJoinProperties()
-    ExtractConsecutiveInnerJoins.setRequiredJoinProperties(
-      ForeignKeyForeignKeyJoinConstraintProperty :: EquiJoinProperty :: Nil
-    )
-
-    j match {
-      case ExtractConsecutiveInnerJoins(plans, mode) =>
-        val leafNodes =
-          plans.flatMap(child => child.children.filterNot(plans.contains))
-        val conditions = plans.flatMap(child =>
-          splitConjunctivePredicates(child.condition.get)
-        )
-
-        val multiwayJoin = MultiwayJoin(
-          leafNodes,
-          conditions,
-          Set(ForeignKeyForeignKeyJoinConstraintProperty, EquiJoinProperty),
-          mode
-        )
-
-        if (multiwayJoin.isCyclic()) {
-          Some(CyclicJoinProperty)
-        } else {
-          Some(AcyclicJoinProperty)
-        }
-
-      case _ => None
-    }
-
-  }
-
-  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
-    // only marks join cyclicity property for the ones that haven't been marked.
-    case j @ BinaryJoin(_, _, joinType: InnerLike, _, property, mode)
-        if property
-          .intersect(
-            Set(
-              CyclicJoinProperty,
-              AcyclicJoinProperty
-            )
-          )
-          .isEmpty && Set(
-          EquiJoinProperty,
-          ForeignKeyForeignKeyJoinConstraintProperty
-        ).asInstanceOf[Set[JoinProperty]].subsetOf(property) =>
-      j.copy(property =
-        property ++ identifyJoinCyclicityProperties(j)
-          .map(property => Set(property))
-          .getOrElse(Set())
-      )
-  }
-}
 
 /** A rule that replaces consecutive binary join (inner, equi, cyclic) with a single multiway join.
   */
@@ -223,25 +53,26 @@ object ReplaceBinaryJoinWithMultiwayJoin
   override def apply(plan: LogicalPlan): LogicalPlan = {
 
     //set behavior of the pattern extractor
-    ExtractConsecutiveInnerJoins.clearRequiredJoinProperties()
-    ExtractConsecutiveInnerJoins.setRequiredJoinProperties(
+    ExtractRequiredProjectJoins.resetRequirement()
+    ExtractRequiredProjectJoins.setRequiredJoinProperties(
       ForeignKeyForeignKeyJoinConstraintProperty :: EquiJoinProperty :: CyclicJoinProperty :: Nil
     )
 
-    plan transform { case ExtractConsecutiveInnerJoins(plans, mode) =>
-      val leafNodes =
-        plans.flatMap(child => child.children.filterNot(plans.contains))
-      val conditions =
-        plans.flatMap(child => splitConjunctivePredicates(child.condition.get))
+    plan transform {
+      case ExtractRequiredProjectJoins(
+            inputs,
+            conditions,
+            projectionList,
+            mode
+          ) =>
+        val multiwayJoin = MultiwayJoin(
+          inputs,
+          conditions,
+          Set(ForeignKeyForeignKeyJoinConstraintProperty, EquiJoinProperty),
+          mode
+        )
 
-      val multiwayJoin = MultiwayJoin(
-        leafNodes,
-        conditions,
-        Set(ForeignKeyForeignKeyJoinConstraintProperty, EquiJoinProperty),
-        mode
-      )
-
-      multiwayJoin
+        Project(multiwayJoin, projectionList, mode)
     }
   }
 }
@@ -253,223 +84,137 @@ object ReplaceBinaryJoinWithMultiwayJoin
   */
 object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
 
-  // construct a join graph where each node is a input relation, and there exists an edge between two node iff there is
-  // a join condition between them. We assume the join graph is a directed graph. For PK-FK join, the direction is
-  // from input relation with foreign key to relation with primary key. For FK-FK join, we randomly gives the direction.
-  def constructJoinGraph(
-      inputs: Seq[LogicalPlan],
-      conditions: Seq[Expression]
-  ): (
-      Seq[LogicalPlan],
-      Seq[
-        (LogicalPlan, LogicalPlan, Expression, JoinIntegrityConstraintProperty)
-      ]
-  ) = {
-    val nodes = inputs
-    val edges = conditions.map { cond =>
-      cond match {
-        case EqualTo(a: AttributeReference, b: AttributeReference) =>
-          val srcNode = inputs.filter(f => f.outputSet.contains(a)).head
-          val dstNode = inputs.filter(f => f.outputSet.contains(b)).head
+  def reorderPKFKJoin(j: BinaryJoin, m: ExecMode): Option[LogicalPlan] = {
 
-          if (srcNode.primaryKeySet.contains(a)) {
-            (dstNode, srcNode, cond, PrimaryKeyForeignKeyJoinConstraintProperty)
-          } else if (dstNode.primaryKeySet.contains(b)) {
-            (srcNode, dstNode, cond, PrimaryKeyForeignKeyJoinConstraintProperty)
-          } else {
-            (srcNode, dstNode, cond, ForeignKeyForeignKeyJoinConstraintProperty)
-          }
-
-        case cond: Expression =>
-          throw new Exception(
-            s"join graph cannot be constructed for ${cond}, it can only be constructed for equi-join conditions"
-          )
-      }
-    }
-
-    (nodes, edges)
-  }
-
-  def reorderPKFKJoin(j: BinaryJoin): Option[LogicalPlan] = {
-
-    //extract input relations and conditions of equi-join
-    ExtractConsecutiveInnerJoins.clearRequiredJoinProperties()
-    ExtractConsecutiveInnerJoins.setRequiredJoinProperties(
+    //set extractor to extract input relations and conditions of inner, equi-join
+    ExtractRequiredProjectJoins.resetRequirement()
+    ExtractRequiredProjectJoins.setRequiredJoinProperties(
       EquiJoinProperty :: Nil
     )
-    val equiJoinsAndMode = j match {
-      case ExtractConsecutiveInnerJoins(joins) => Some(joins)
-      case _                                   => None
-    }
 
-    //fast return if no equi-join is found.
-    if (equiJoinsAndMode.isEmpty) {
-      return None
-    }
+    j match {
+      case ExtractRequiredProjectJoins(
+            inputs,
+            condition,
+            projectionList,
+            mode
+          ) =>
+        val joinGraph = JoinGraph(inputs, condition)
 
-    val (equiJoins, mode) = equiJoinsAndMode.get
+//        println(s"[debug]: joinGraph:${joinGraph}")
 
-    val inputs =
-      equiJoins.flatMap(child => child.children.filterNot(equiJoins.contains))
-    val conditions = equiJoins.flatMap(child =>
-      splitConjunctivePredicates(child.condition.get)
-    )
+        val rankFunction = {
+          (lastMergedNodeOpt: Option[JoinGraphNode], edge: JoinGraphEdge) =>
+            var rank = 1.0
+            var token: Option[Any] = None
 
-    //construct join graph
-    val (nodes, edges) = constructJoinGraph(inputs, conditions)
+            //we prioritize edges that are connected by lastMergedNode
+            lastMergedNodeOpt.foreach { lastMergedNode =>
+              if (
+                edge.lNode == lastMergedNode || edge.rNode == lastMergedNode
+              ) {
+                rank += 1.0
+              }
+            }
 
-    //we assume left side of equal is from left input relation, and vice verse
-    val (pkfkEdges, fkfkEdges) = edges.partition {
-      case (_, _, _, integrityConstraint) =>
-        if (integrityConstraint == PrimaryKeyForeignKeyJoinConstraintProperty) {
-          true
-        } else {
-          false
+            //we prioritize edges that have primary-key foreign-key join condition
+            edge.condition.foreach { condition =>
+              val joinAttributePairs =
+                splitConjunctivePredicates(condition).collect {
+                  case EqualTo(
+                        a: AttributeReference,
+                        b: AttributeReference
+                      ) =>
+                    (a, b)
+                }
+
+//              println(
+//                s"edge:${edge}, edge.lNode.plan:${edge.lNode.plan}, edge.rNode.plan:${edge.rNode.plan}"
+//              )
+//              println(
+//                s"edge.lNode.plan.primaryKeySet:${edge.lNode.plan.primaryKeySet}, edge.rNode.plan.primaryKeySet:${edge.rNode.plan.primaryKeySet}, joinAttributePairs:${joinAttributePairs}"
+//              )
+
+              if (
+                joinAttributePairs.exists { case (a, b) =>
+                  edge.lNode.plan.primaryKeySet
+                    .intersect(
+                      AttributeSet(a :: b :: Nil)
+                    )
+                    .nonEmpty || edge.rNode.plan.primaryKeySet
+                    .intersect(
+                      AttributeSet(a :: b :: Nil)
+                    )
+                    .nonEmpty
+                }
+              ) {
+                rank += 1
+                token = Some(PrimaryKeyForeignKeyJoinConstraintProperty)
+              }
+            }
+
+            (rank, token)
         }
-    }
 
-    //we call nodes that participate in PK-FK joins right side as fNodes, and nodes that participate
-    // in PK-FK joins left side as P Nodes.
+        //we put join at left to result in a left-deep tree like plan.
+        val mergeFunction = {
+          (
+              l: LogicalPlan,
+              r: LogicalPlan,
+              condition: Option[Expression],
+              token: Option[Any]
+          ) =>
+            val properties = token match {
+              case Some(PrimaryKeyForeignKeyJoinConstraintProperty) =>
+                Set(
+                  PrimaryKeyForeignKeyJoinConstraintProperty,
+                  EquiJoinProperty
+                )
+              case None => Set(EquiJoinProperty)
+            }
 
-    val (fNodes, pNodes) = pkfkEdges.map { case (l, r, _, _) =>
-      (l, r)
-    }.unzip
-
-    // we extract fNodes that are not pNodes
-    val startNodeOfPKFKJoins = mutable.HashSet(fNodes.diff(pNodes): _*)
-    val startNodeOfFKFKJoins = mutable.HashSet(nodes: _*)
-    val remainingPKFKEdges = mutable.HashSet(pkfkEdges: _*)
-    val remainingFKFKEdges = mutable.HashSet(fkfkEdges: _*)
-
-    // we traverse the join graph to join the PK-FK joins first
-    while (remainingPKFKEdges.nonEmpty) {
-      val startOfFNodesList = startNodeOfPKFKJoins.toSeq
-      startOfFNodesList.foreach { fNode =>
-        remainingPKFKEdges.find(edge => edge._1 == fNode) match {
-          case Some((_, rNode, condition, _)) =>
-            val newFNode = BinaryJoin(
-              fNode,
-              rNode,
-              Inner,
-              Some(condition),
-              Set(PrimaryKeyForeignKeyJoinConstraintProperty),
-              mode
-            )
-
-            // with newFNode being added and old fNode and rNode being deleted, we need to maintain remainingFKFKEdges
-            // and remainingPKFKEdges.
-            val pkfkEdgesStartWithFNode =
-              remainingPKFKEdges.filter(_._1 == fNode)
-            val pkfkEdgesStartWithRNode =
-              remainingPKFKEdges.filter(_._1 == rNode)
-            val pkfkEdgesEndWithRNode = remainingPKFKEdges.filter(_._2 == rNode)
-
-            val fkfkEdgesStartWithFNode =
-              remainingFKFKEdges.filter(_._1 == fNode)
-            val fkfkEdgesEndWithFNode =
-              remainingFKFKEdges.filter(_._2 == fNode)
-            val fkfkEdgesStartWithRNode =
-              remainingFKFKEdges.filter(_._1 == rNode)
-            val fkfkEdgesEndWithRNode = remainingFKFKEdges.filter(_._2 == rNode)
-
-            val pkfkEdgesToRemove =
-              pkfkEdgesStartWithFNode ++
-                pkfkEdgesEndWithRNode ++
-                pkfkEdgesStartWithRNode
-
-            val fkfkEdgesToRemove =
-              fkfkEdgesStartWithFNode ++
-                fkfkEdgesEndWithFNode ++
-                fkfkEdgesStartWithRNode ++
-                fkfkEdgesEndWithRNode
-
-            val pkfkEdgesToAdd =
-              (pkfkEdgesStartWithFNode ++ pkfkEdgesStartWithRNode)
-                .map(f => (newFNode, f._2, f._3, f._4))
-
-            val fkfkEdgesToAdd =
-              (fkfkEdgesStartWithFNode ++ fkfkEdgesStartWithRNode)
-                .map(f =>
-                  (newFNode, f._2, f._3, f._4)
-                ) ++ (fkfkEdgesEndWithFNode ++ fkfkEdgesEndWithRNode)
-                .map(f => (f._2, newFNode, f._3, f._4))
-
-            startNodeOfPKFKJoins.remove(fNode)
-            startNodeOfPKFKJoins.remove(rNode)
-            startNodeOfFKFKJoins.remove(fNode)
-            startNodeOfFKFKJoins.remove(rNode)
-
-            startNodeOfPKFKJoins.add(newFNode)
-
-            pkfkEdgesToRemove.foreach(remainingPKFKEdges.remove)
-            pkfkEdgesToAdd.foreach(remainingPKFKEdges.add)
-            fkfkEdgesToRemove.foreach(remainingFKFKEdges.remove)
-            fkfkEdgesToAdd.foreach(remainingFKFKEdges.add)
-          case None =>
+            if (l.isInstanceOf[BinaryJoin]) {
+              val newJoin = BinaryJoin(
+                l,
+                r,
+                Inner,
+                condition,
+                properties.asInstanceOf[Set[JoinProperty]],
+                mode
+              )
+              newJoin.optimizable = false
+              newJoin
+            } else {
+              val newJoin = BinaryJoin(
+                r,
+                l,
+                Inner,
+                condition,
+                properties.asInstanceOf[Set[JoinProperty]],
+                mode
+              )
+              newJoin.optimizable = false
+              newJoin
+            }
         }
-      }
+
+        val mergedJoinPlan =
+          joinGraph.mergeNodes(rankFunction, mergeFunction).nodes.head.plan
+
+        Some(Project(mergedJoinPlan, projectionList, mode))
+      case _ => None
     }
 
-    // we traverse the join graph to join the remaining FK-FK joins
-    while (remainingFKFKEdges.nonEmpty) {
-      val startOfNodesList = startNodeOfFKFKJoins.toSeq
-      startOfNodesList.foreach { fNode =>
-        remainingFKFKEdges.find(edge => edge._1 == fNode) match {
-          case Some((_, rNode, condition, _)) =>
-            val newFNode = BinaryJoin(
-              fNode,
-              rNode,
-              Inner,
-              Some(condition),
-              Set(ForeignKeyForeignKeyJoinConstraintProperty),
-              mode
-            )
-
-            // we need to maintain remainingFKFKEdges.
-            val fkfkEdgesStartWithFNode =
-              remainingFKFKEdges.filter(_._1 == fNode)
-            val fkfkEdgesEndWithFNode =
-              remainingFKFKEdges.filter(_._2 == fNode)
-            val fkfkEdgesStartWithRNode =
-              remainingFKFKEdges.filter(_._1 == rNode)
-            val fkfkEdgesEndWithRNode = remainingFKFKEdges.filter(_._2 == rNode)
-
-            val fkfkEdgesToRemove =
-              fkfkEdgesStartWithFNode ++
-                fkfkEdgesEndWithFNode ++
-                fkfkEdgesStartWithRNode ++
-                fkfkEdgesEndWithRNode
-
-            val fkfkEdgesToAdd =
-              (fkfkEdgesStartWithFNode ++ fkfkEdgesStartWithRNode)
-                .map(f =>
-                  (newFNode, f._2, f._3, f._4)
-                ) ++ (fkfkEdgesEndWithFNode ++ fkfkEdgesEndWithRNode)
-                .map(f => (f._2, newFNode, f._3, f._4))
-
-            startNodeOfFKFKJoins.remove(fNode)
-            startNodeOfFKFKJoins.remove(rNode)
-
-            fkfkEdgesToRemove.foreach(remainingFKFKEdges.remove)
-            fkfkEdgesToAdd.foreach(remainingFKFKEdges.add)
-          case None =>
-        }
-      }
-    }
-
-    assert(
-      startNodeOfFKFKJoins.size == 1,
-      "there should be only one logical plan left after reorderPKFKJoins"
-    )
-
-    Some(startNodeOfFKFKJoins.head)
   }
 
-  override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case j @ BinaryJoin(left, right, Inner, condition, property, mode) =>
-        reorderPKFKJoin(j).getOrElse(j)
+  override def apply(plan: LogicalPlan): LogicalPlan = {
+    MarkJoinPredicateProperty(plan) transform {
+      case j @ BinaryJoin(left, right, Inner, condition, property, mode)
+          if j.optimizable =>
+        reorderPKFKJoin(j, mode).getOrElse(j)
     }
+  }
+
 }
 
 /** A rule that reorders joins inside multiway join by GHD-based join reordering, which split cyclic join tree represented

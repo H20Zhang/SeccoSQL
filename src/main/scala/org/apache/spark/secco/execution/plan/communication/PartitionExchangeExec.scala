@@ -63,7 +63,7 @@ case class PartitionExchangeExec(
     }
 
     // increment the counter for benchmark
-    val counterManager = dlSession.sessionState.counterManager
+    val counterManager = seccoSession.sessionState.counterManager
     counterManager
       .getOrCreateCounter("benchmark", s"communicationCostInTuples")
       .increment(statisticKeeper.rowCountOnlyStatistic().rowCount.toLong)

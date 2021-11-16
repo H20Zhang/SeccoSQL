@@ -2,6 +2,7 @@ package org.apache.spark.secco.optimization.util.ghd
 
 import org.apache.spark.secco.catalog.AbstractCatalogTable
 import org.apache.spark.secco.expression.{Attribute, AttributeSeq}
+import org.apache.spark.secco.optimization.util.JoinHyperGraph
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -25,7 +26,7 @@ object GHDDecomposer {
     val schemasForGHD = schemas.diff(excludedSchemas)
 
     //find the GHD Decomposition for the schemasForGHD
-    val graph = RelationGraph(schemasForGHD.map(_.toArray).toArray)
+    val graph = JoinHyperGraph(schemasForGHD.map(_.toArray).toArray)
     val ghds = HyperTreeDecomposer.genAllGHDs(graph)
 
     //construct RelationGHD

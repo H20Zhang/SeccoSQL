@@ -98,7 +98,7 @@ class SQLParserSuite extends SeccoFunSuite {
 
     val aggregateQuery3 =
       s"""
-         |select a, sum(b+1+2+c) as m
+         |select a, sum(b+1+2+c) as m, b+c as w
          |from R1
          |group by a
          |having m > 1

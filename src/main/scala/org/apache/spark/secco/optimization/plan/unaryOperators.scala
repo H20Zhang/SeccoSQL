@@ -333,7 +333,7 @@ case class Iterative(
   override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = {
-    val catalog = dlSession.sessionState.catalog
+    val catalog = seccoSession.sessionState.catalog
     catalog.getTable(
       returnTableIdentifier.table,
       returnTableIdentifier.database
