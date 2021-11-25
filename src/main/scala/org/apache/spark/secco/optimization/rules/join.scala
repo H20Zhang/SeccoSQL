@@ -18,13 +18,15 @@ import org.apache.spark.secco.expression.{
 }
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
-import org.apache.spark.secco.optimization.util.ghd.GHDDecomposer
+import org.apache.spark.secco.optimization.util.ghd.{
+  JoinHyperGraph,
+  RelationGHDTreeDecomposer
+}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.rules.MarkJoinIntegrityConstraintProperty.splitConjunctivePredicates
 import org.apache.spark.secco.optimization.support.ExtractRequiredProjectJoins
 import org.apache.spark.secco.optimization.util.joingraph.{
   JoinGraph,
-  JoinGraphConstructor,
   JoinGraphEdge,
   JoinGraphNode
 }
@@ -89,7 +91,7 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
     //set extractor to extract input relations and conditions of inner, equi-join
     ExtractRequiredProjectJoins.resetRequirement()
     ExtractRequiredProjectJoins.setRequiredJoinProperties(
-      EquiJoinProperty :: Nil
+      JoinProperty("equi") :: JoinProperty("optimize") :: Nil
     )
 
     j match {
@@ -170,7 +172,11 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
                   PrimaryKeyForeignKeyJoinConstraintProperty,
                   EquiJoinProperty
                 )
-              case None => Set(EquiJoinProperty)
+              case None =>
+                Set(
+                  ForeignKeyForeignKeyJoinConstraintProperty,
+                  EquiJoinProperty
+                )
             }
 
             if (l.isInstanceOf[BinaryJoin]) {
@@ -182,7 +188,6 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
                 properties.asInstanceOf[Set[JoinProperty]],
                 mode
               )
-              newJoin.optimizable = false
               newJoin
             } else {
               val newJoin = BinaryJoin(
@@ -193,7 +198,6 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
                 properties.asInstanceOf[Set[JoinProperty]],
                 mode
               )
-              newJoin.optimizable = false
               newJoin
             }
         }
@@ -209,8 +213,7 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     MarkJoinPredicateProperty(plan) transform {
-      case j @ BinaryJoin(left, right, Inner, condition, property, mode)
-          if j.optimizable =>
+      case j @ BinaryJoin(left, right, Inner, condition, property, mode) =>
         reorderPKFKJoin(j, mode).getOrElse(j)
     }
   }
@@ -228,177 +231,39 @@ object OptimizePKFKJoin extends Rule[LogicalPlan] with PredicateHelper {
   */
 object OptimizeMultiwayJoin extends Rule[LogicalPlan] with PredicateHelper {
 
-  private def constructGHDJoinTree(
-      multiwayJoin: MultiwayJoin,
-      rootAttributes: Seq[Attribute],
-      mode: ExecMode
-  ): LogicalPlan = {
+  override def apply(plan: LogicalPlan): LogicalPlan = {
 
-    //get the hypergraph of the multiway join
-    val (hypergraph, equiJoinAttr2naturalJoinAttr, schema2Plan) =
-      multiwayJoin.hypergraph()
+    // calibrate extractor
+    ExtractRequiredProjectJoins.resetRequirement()
+    ExtractRequiredProjectJoins.setRequiredJoinProperties(
+      JoinProperty("optimize") :: JoinProperty("fkfk") :: JoinProperty(
+        "equi"
+      ) :: Nil
+    )
 
-    //get the optimal ghd
-    val optimalGHD =
-      GHDDecomposer
-        .decomposeTree(hypergraph)
-        .filter { tree =>
-          tree.nodes.exists { case (_, schemas) =>
-            AttributeSet(rootAttributes.map(equiJoinAttr2naturalJoinAttr))
-              .subsetOf(AttributeSet(schemas.flatten))
-          }
-        }
-        .head
+    //TODO: consider GHDs that facilitate aggregation push-down
+    plan transform {
+      case ExtractRequiredProjectJoins(
+            inputs,
+            conditions,
+            joinProjectionList,
+            mode
+          ) =>
+        val joinHyperGraph = JoinHyperGraph(inputs, conditions)
 
-    val rootNode = optimalGHD.nodes.find { case (_, schemas) =>
-      AttributeSet(rootAttributes.map(equiJoinAttr2naturalJoinAttr)).subsetOf(
-        AttributeSet(schemas.flatten)
-      )
-    }.get
+//        pprint.pprintln(s"[debug] inputs:${inputs}")
+//        pprint.pprintln(s"[debug] conditions:${conditions}")
+//        pprint.pprintln(s"[debug]:joinHyperGraph:${joinHyperGraph}")
 
-    val rootNodeID = rootNode._1
-    val edgeVisited = mutable.ArrayBuffer[(Int, Int)]()
-    val nodeVisited = mutable.ArrayBuffer[Int](rootNodeID)
+        val plan = Project(joinHyperGraph.toPlan(), joinProjectionList, mode)
 
-    val ghdEdges = optimalGHD.edges
-    val remainingEdges = mutable.Set(ghdEdges: _*)
+        println("--------------------")
+        println(plan)
+        println("--------------------")
 
-    while (remainingEdges.nonEmpty) {
-      val nextEdges = remainingEdges.filter(f =>
-        nodeVisited.contains(f._1) || nodeVisited.contains(f._2)
-      )
-      val edgeToVisit = nextEdges.head
-      val nodeToVisit = nodeVisited.contains(edgeToVisit._1) match {
-        case true  => edgeToVisit._2
-        case false => edgeToVisit._1
-      }
-
-      nodeVisited += nodeToVisit
-      edgeVisited += edgeToVisit
-      remainingEdges.remove(edgeToVisit)
-    }
-
-    val reverseEdgeVisited = edgeVisited.reverse
-
-    // the first node to traverse the hypertree in bottom-up direction
-    val firstNodeId = reverseEdgeVisited.nonEmpty match {
-      case true  => reverseEdgeVisited.head._1
-      case false => optimalGHD.nodes.head._1
-    }
-
-    // find join conditions of hypergraph attributes.
-    // the input is the hyperedges of the hypergraph, the output is the equi-join condition.
-    def findJoinConditions(l: Seq[Attribute], r: Seq[Attribute]) = {
-      l.intersect(r).map { attr =>
-        val lPlan = schema2Plan(l)
-        val rPlan = schema2Plan(r)
-        val attrInLPlan = equiJoinAttr2naturalJoinAttr
-          .find { case (condAttr, hypergraphAttr) =>
-            lPlan.outputSet.contains(condAttr) && hypergraphAttr == attr
-          }
-          .get
-          ._1
-
-        val attrInRPlan = equiJoinAttr2naturalJoinAttr
-          .find { case (condAttr, hypergraphAttr) =>
-            rPlan.outputSet.contains(condAttr) && hypergraphAttr == attr
-          }
-          .get
-          ._1
-
-        (attrInLPlan, attrInRPlan)
-      }
-    }
-
-    // function for constructing the multiway join from a ghd node
-    def constructMultiwayJoin(ghdNodeID: Int): MultiwayJoin = {
-      val ghdNode = optimalGHD.findNode(ghdNodeID)
-      val children = ghdNode.map(schema2Plan)
-      val joinedAttributes = ghdNode
-        .combinations(2)
-        .flatMap { case Seq(l, r) =>
-          findJoinConditions(l, r)
-        }
-        .toSeq
-
-      MultiwayJoin(
-        children,
-        joinedAttributes.map { case (a, b) => EqualTo(a, b) },
-        Set(CyclicJoinProperty),
-        mode
-      )
-    }
-
-    // function for constructing the join between a multiway join and a binary join
-    def constructBinaryJoinBetweenMultiwayJoinAndSubTree(
-        subtree: LogicalPlan,
-        ghdNode: MultiwayJoin
-    ): BinaryJoin = {
-      val hypergraphAttrsOfSubTree =
-        subtree.output.map(equiJoinAttr2naturalJoinAttr)
-      val hypergraphAttrsOfGHDNode =
-        ghdNode.output.map(equiJoinAttr2naturalJoinAttr)
-
-      val joinedConds =
-        findJoinConditions(hypergraphAttrsOfSubTree, hypergraphAttrsOfGHDNode)
-
-      BinaryJoin(
-        subtree,
-        ghdNode,
-        Inner,
-        Some(joinedConds.map { case (a, b) => EqualTo(a, b) }.reduce(And)),
-        Set(AcyclicJoinProperty),
-        mode
-      )
-
-    }
-
-    // transform the first ghd node to a multiway join which is also the first node in the subtree (join tree).
-    val subtree = constructMultiwayJoin(firstNodeId).asInstanceOf[LogicalPlan]
-    val visitedNode = ArrayBuffer[Int]()
-    visitedNode += firstNodeId
-
-    if (reverseEdgeVisited.nonEmpty) {
-      reverseEdgeVisited.foldLeft(subtree) { case (subTree, (x, y)) =>
-        val nextNodeToVisit = visitedNode.contains(x) match {
-          case true  => y
-          case false => x
-        }
-
-        visitedNode += nextNodeToVisit
-
-        constructBinaryJoinBetweenMultiwayJoinAndSubTree(
-          subTree,
-          constructMultiwayJoin(nextNodeToVisit)
-        )
-      }
-    } else {
-      subtree
+        plan
     }
   }
-
-  override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case p @ Project(
-            m: MultiwayJoin,
-            projectionList,
-            mode
-          ) if m.mode == mode =>
-        p.copy(child =
-          constructGHDJoinTree(m, projectionList.map(_.toAttribute), mode)
-        )
-      case a @ Aggregate(
-            m: MultiwayJoin,
-            _,
-            groupingExpressions,
-            mode
-          ) if m.mode == mode =>
-        a.copy(child =
-          constructGHDJoinTree(m, groupingExpressions.map(_.toAttribute), mode)
-        )
-      case m: MultiwayJoin =>
-        constructGHDJoinTree(m, Seq(), m.mode)
-    }
 
 }
 
@@ -491,3 +356,175 @@ object OptimizeJoinTree extends Rule[LogicalPlan] with PredicateHelper {
 //        findConsecutiveJoin(j)
 //    }
 //}
+
+//  private def constructGHDJoinTree(
+//      multiwayJoin: MultiwayJoin,
+//      rootAttributes: Seq[Attribute],
+//      mode: ExecMode
+//  ): LogicalPlan = {
+//
+//    //get the hypergraph of the multiway join
+//    val (hypergraph, equiJoinAttr2naturalJoinAttr, schema2Plan) =
+//      multiwayJoin.hypergraph()
+//
+//    //get the optimal ghd
+//    val optimalGHD =
+//      RelationGHDTreeDecomposer
+//        .decomposeTree(hypergraph)
+//        .filter { tree =>
+//          tree.nodes.exists { case (_, schemas) =>
+//            AttributeSet(rootAttributes.map(equiJoinAttr2naturalJoinAttr))
+//              .subsetOf(AttributeSet(schemas.flatten))
+//          }
+//        }
+//        .head
+//
+//    val rootNode = optimalGHD.nodes.find { case (_, schemas) =>
+//      AttributeSet(rootAttributes.map(equiJoinAttr2naturalJoinAttr)).subsetOf(
+//        AttributeSet(schemas.flatten)
+//      )
+//    }.get
+//
+//    val rootNodeID = rootNode._1
+//    val edgeVisited = mutable.ArrayBuffer[(Int, Int)]()
+//    val nodeVisited = mutable.ArrayBuffer[Int](rootNodeID)
+//
+//    val ghdEdges = optimalGHD.edges
+//    val remainingEdges = mutable.Set(ghdEdges: _*)
+//
+//    while (remainingEdges.nonEmpty) {
+//      val nextEdges = remainingEdges.filter(f =>
+//        nodeVisited.contains(f._1) || nodeVisited.contains(f._2)
+//      )
+//      val edgeToVisit = nextEdges.head
+//      val nodeToVisit = nodeVisited.contains(edgeToVisit._1) match {
+//        case true  => edgeToVisit._2
+//        case false => edgeToVisit._1
+//      }
+//
+//      nodeVisited += nodeToVisit
+//      edgeVisited += edgeToVisit
+//      remainingEdges.remove(edgeToVisit)
+//    }
+//
+//    val reverseEdgeVisited = edgeVisited.reverse
+//
+//    // the first node to traverse the hypertree in bottom-up direction
+//    val firstNodeId = reverseEdgeVisited.nonEmpty match {
+//      case true  => reverseEdgeVisited.head._1
+//      case false => optimalGHD.nodes.head._1
+//    }
+//
+//    // find join conditions of hypergraph attributes.
+//    // the input is the hyperedges of the hypergraph, the output is the equi-join condition.
+//    def findJoinConditions(l: Seq[Attribute], r: Seq[Attribute]) = {
+//      l.intersect(r).map { attr =>
+//        val lPlan = schema2Plan(l)
+//        val rPlan = schema2Plan(r)
+//        val attrInLPlan = equiJoinAttr2naturalJoinAttr
+//          .find { case (condAttr, hypergraphAttr) =>
+//            lPlan.outputSet.contains(condAttr) && hypergraphAttr == attr
+//          }
+//          .get
+//          ._1
+//
+//        val attrInRPlan = equiJoinAttr2naturalJoinAttr
+//          .find { case (condAttr, hypergraphAttr) =>
+//            rPlan.outputSet.contains(condAttr) && hypergraphAttr == attr
+//          }
+//          .get
+//          ._1
+//
+//        (attrInLPlan, attrInRPlan)
+//      }
+//    }
+//
+//    // function for constructing the multiway join from a ghd node
+//    def constructMultiwayJoin(ghdNodeID: Int): MultiwayJoin = {
+//      val ghdNode = optimalGHD.findNode(ghdNodeID)
+//      val children = ghdNode.map(schema2Plan)
+//      val joinedAttributes = ghdNode
+//        .combinations(2)
+//        .flatMap { case Seq(l, r) =>
+//          findJoinConditions(l, r)
+//        }
+//        .toSeq
+//
+//      MultiwayJoin(
+//        children,
+//        joinedAttributes.map { case (a, b) => EqualTo(a, b) },
+//        Set(CyclicJoinProperty),
+//        mode
+//      )
+//    }
+//
+//    // function for constructing the join between a multiway join and a binary join
+//    def constructBinaryJoinBetweenMultiwayJoinAndSubTree(
+//        subtree: LogicalPlan,
+//        ghdNode: MultiwayJoin
+//    ): BinaryJoin = {
+//      val hypergraphAttrsOfSubTree =
+//        subtree.output.map(equiJoinAttr2naturalJoinAttr)
+//      val hypergraphAttrsOfGHDNode =
+//        ghdNode.output.map(equiJoinAttr2naturalJoinAttr)
+//
+//      val joinedConds =
+//        findJoinConditions(hypergraphAttrsOfSubTree, hypergraphAttrsOfGHDNode)
+//
+//      BinaryJoin(
+//        subtree,
+//        ghdNode,
+//        Inner,
+//        Some(joinedConds.map { case (a, b) => EqualTo(a, b) }.reduce(And)),
+//        Set(AcyclicJoinProperty),
+//        mode
+//      )
+//
+//    }
+//
+//    // transform the first ghd node to a multiway join which is also the first node in the subtree (join tree).
+//    val subtree = constructMultiwayJoin(firstNodeId).asInstanceOf[LogicalPlan]
+//    val visitedNode = ArrayBuffer[Int]()
+//    visitedNode += firstNodeId
+//
+//    if (reverseEdgeVisited.nonEmpty) {
+//      reverseEdgeVisited.foldLeft(subtree) { case (subTree, (x, y)) =>
+//        val nextNodeToVisit = visitedNode.contains(x) match {
+//          case true  => y
+//          case false => x
+//        }
+//
+//        visitedNode += nextNodeToVisit
+//
+//        constructBinaryJoinBetweenMultiwayJoinAndSubTree(
+//          subTree,
+//          constructMultiwayJoin(nextNodeToVisit)
+//        )
+//      }
+//    } else {
+//      subtree
+//    }
+//  }
+//
+//  override def apply(plan: LogicalPlan): LogicalPlan =
+//    plan transform {
+//      case p @ Project(
+//            m: MultiwayJoin,
+//            projectionList,
+//            mode
+//          ) if m.mode == mode =>
+//        p.copy(child =
+//          constructGHDJoinTree(m, projectionList.map(_.toAttribute), mode)
+//        )
+//      case a @ Aggregate(
+//            m: MultiwayJoin,
+//            _,
+//            groupingExpressions,
+//            mode
+//          ) if m.mode == mode =>
+//        a.copy(child =
+//          constructGHDJoinTree(m, groupingExpressions.map(_.toAttribute), mode)
+//        )
+//      case m: MultiwayJoin =>
+//        constructGHDJoinTree(m, Seq(), m.mode)
+//    }

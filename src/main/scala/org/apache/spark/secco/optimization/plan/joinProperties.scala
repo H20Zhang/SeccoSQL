@@ -2,16 +2,17 @@ package org.apache.spark.secco.optimization.plan
 
 import java.util.Locale
 
-object joinProperties {
+object JoinProperty {
   def apply(typ: String): JoinProperty =
     typ.toLowerCase(Locale.ROOT).replace("_", "") match {
-      case "cyclic"  => CyclicJoinProperty
-      case "acyclic" => AcyclicJoinProperty
-      case "equi"    => EquiJoinProperty
-      case "theta"   => ThetaJoinProperty
-      case "gequi"   => GeneralizedEquiJoinProperty
-      case "pkfk"    => PrimaryKeyForeignKeyJoinConstraintProperty
-      case "fkfk"    => ForeignKeyForeignKeyJoinConstraintProperty
+      case "cyclic"   => CyclicJoinProperty
+      case "acyclic"  => AcyclicJoinProperty
+      case "equi"     => EquiJoinProperty
+      case "theta"    => ThetaJoinProperty
+      case "gequi"    => GeneralizedEquiJoinProperty
+      case "pkfk"     => PrimaryKeyForeignKeyJoinConstraintProperty
+      case "fkfk"     => ForeignKeyForeignKeyJoinConstraintProperty
+      case "optimize" => JoinOptimizableProperty
       case _ =>
         throw new IllegalArgumentException(s"Unsupported join properties $typ")
     }
@@ -27,6 +28,10 @@ sealed abstract class JoinProperty {
 /** A property that is used to indicate if join is part of the cyclic join. */
 sealed abstract class JoinCyclicityProperty extends JoinProperty {
   def isCyclic: Boolean
+}
+
+case object JoinOptimizableProperty extends JoinProperty {
+  def sql: String = "OPT"
 }
 
 case object CyclicJoinProperty extends JoinCyclicityProperty {

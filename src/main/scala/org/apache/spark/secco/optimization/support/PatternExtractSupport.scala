@@ -19,6 +19,7 @@ import org.apache.spark.secco.optimization.plan.{
 
 /** A pattern that collects consecutive inner joins with specific join property.
   *
+  * <pre>
   *           Join2
   *          /    \            ---->      (Seq(plan0, plan1, plan2), condition, projectionList, mode)
   *       Join1   plan2
@@ -34,7 +35,7 @@ import org.apache.spark.secco.optimization.plan.{
   *      Join1
   *     /   \
   *  plan0   plan1
-  *
+  * </pre>
   * Note that: the behavior of this pattern extractor can customized.
   */
 object ExtractRequiredProjectJoins extends PredicateHelper {
@@ -79,8 +80,8 @@ object ExtractRequiredProjectJoins extends PredicateHelper {
       requiredJoinType: JoinType,
       requiredJoinProperty: Set[JoinProperty],
       requiredExecMode: ExecMode
-  ): (Seq[BinaryJoin], ExecMode) = plan match {
-    case p @ Project(
+  ): (Seq[LogicalPlan], Seq[Expression]) = plan match {
+    case Project(
           j: BinaryJoin,
           projectionList,
           mode
@@ -89,25 +90,30 @@ object ExtractRequiredProjectJoins extends PredicateHelper {
           _.isInstanceOf[Attribute]
         ) =>
       flattenJoin(j, requiredJoinType, requiredJoinProperty, requiredExecMode)
-    case j @ BinaryJoin(left, right, joinType, cond, property, mode)
+    case BinaryJoin(left, right, joinType, cond, property, mode)
         if mode == requiredExecMode && joinType == requiredJoinType && requiredJoinProperty
           .subsetOf(property) =>
-      val (lPlans, _) = flattenJoin(
+      val (lPlans, lConditions) = flattenJoin(
         left,
         requiredJoinType,
         requiredJoinProperty,
         requiredExecMode
       )
 
-      val (rPlans, _) = flattenJoin(
+      val (rPlans, rConditions) = flattenJoin(
         right,
         requiredJoinType,
         requiredJoinProperty,
         requiredExecMode
       )
 
-      (lPlans ++ rPlans :+ j, requiredExecMode)
-    case _ => (Seq(), requiredExecMode)
+      (
+        lPlans ++ rPlans,
+        lConditions ++ rConditions ++ cond.toSeq.flatMap(
+          splitConjunctivePredicates
+        )
+      )
+    case _ => (Seq(plan), Seq())
   }
 
   def unapply(
@@ -118,39 +124,14 @@ object ExtractRequiredProjectJoins extends PredicateHelper {
           if joinType == requiredJoinType && requiredJoinProperties.subsetOf(
             property
           ) && mode == requiredExecMode =>
-        val (joins, _) =
+        val (inputs, conditions) =
           flattenJoin(
             j,
             _requiredJoinType,
             _requiredJoinProperties,
             _requiredExecMode
           )
-        val inputs = joins.flatMap(_.collectLeaves()).distinct
-        val conditions = joins.map(_.condition).flatMap(f => f)
         Some(inputs, conditions, j.output, mode)
-//      case p @ Project(
-//            j @ BinaryJoin(_, _, _, _, _, childMode),
-//            projectionList,
-//            mode
-//          )
-//          if mode == childMode && projectionList.forall(
-//            _.isInstanceOf[Attribute]
-//          ) =>
-//        val (joins, _) =
-//          flattenJoin(
-//            j,
-//            _requiredJoinType,
-//            _requiredJoinProperties,
-//            _requiredExecMode
-//          )
-//        val inputs = joins.flatMap(_.collectLeaves()).distinct
-//        val conditions = joins.map(_.condition).flatMap(f => f)
-//        Some(
-//          inputs,
-//          conditions,
-//          projectionList.map(_.asInstanceOf[Attribute]),
-//          mode
-//        )
       case _ => None
     }
 
@@ -158,6 +139,7 @@ object ExtractRequiredProjectJoins extends PredicateHelper {
 
 /** A pattern that collects the filter and inner joins.
   *
+  * <pre>
   *          Filter
   *            |
   *        inner Join
@@ -167,7 +149,7 @@ object ExtractRequiredProjectJoins extends PredicateHelper {
   *  inner join
   *      /    \
   *   plan0    plan1
-  *
+  * </pre>
   * Note: This pattern currently only works for left-deep trees.
   */
 object ExtractFiltersAndInnerJoins extends PredicateHelper {

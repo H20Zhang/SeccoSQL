@@ -200,3 +200,25 @@ object MarkJoinCyclicityProperty
       )
   }
 }
+
+/** A rule that marks an join as optimizable.
+  *
+  * Note that some of the rules only optimize [[BinaryJoin]] with Optimizable property.
+  */
+object MarkJoinOptimizableProperty extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
+    case b: BinaryJoin =>
+      b.copy(property = b.property ++ Seq(JoinProperty("optimize")))
+  }
+}
+
+/** A rule that marks an join as optimizable.
+  *
+  * Note that some of the rules only optimize [[BinaryJoin]] with Optimizable property.
+  */
+object ClearJoinOptimizableProperty extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
+    case b: BinaryJoin =>
+      b.copy(property = b.property -- Seq(JoinProperty("optimize")))
+  }
+}

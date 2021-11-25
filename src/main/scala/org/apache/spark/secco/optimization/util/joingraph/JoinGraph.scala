@@ -1,5 +1,6 @@
 package org.apache.spark.secco.optimization.util.joingraph
 
+import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.expression.{
   And,
   Attribute,
@@ -10,6 +11,7 @@ import org.apache.spark.secco.expression.{
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.optimization.plan.{BinaryJoin, Inner}
 import org.apache.spark.secco.optimization.util.{Edge, Graph, Node}
+import org.apache.spark.secco.util.counter.{Counter, CounterManager}
 
 /** A node in the [[JoinGraph]], which represents an [[org.apache.spark.secco.optimization.LogicalPlan]].
   *
@@ -24,14 +26,16 @@ case class JoinGraphNode(id: Int, plan: LogicalPlan) extends Node {
 
 object JoinGraphNode {
 
-  private var counter = 0
+  private var counter = SeccoSession.currentSession.sessionState.counterManager
+    .getOrCreateCounter("JoinGraphNodeID")
   private val planToId = scala.collection.mutable.HashMap[LogicalPlan, Int]()
 
   def apply(plan: LogicalPlan): JoinGraphNode = {
     planToId.get(plan) match {
       case Some(id) => JoinGraphNode(id, plan)
       case None =>
-        counter += 1; planToId(plan) = counter; JoinGraphNode(counter, plan)
+        counter.increment(); planToId(plan) = counter.value.toInt;
+        JoinGraphNode(counter.value.toInt, plan)
     }
   }
 }
@@ -179,14 +183,14 @@ case class JoinGraph(
     * whether there are connected or not. The connected nodes will be merged first,then we merge non-connected nodes.
     *
     * @param mergeFunction function to merge two nodes
-    * @param rankFunction function to rank each [[JoinGraphEdge]] with the previous merged [[JoinGraphNode]] as an
+    * @param scoreFunction function to rank each [[JoinGraphEdge]] with the previous merged [[JoinGraphNode]] as an
     *                     auxiliary arguments, the rank function can output an token which can be seen in mergeFunction.
     * @param allowCartesianProduct whether merge nodes that are not connected edges, which will result in cartesian
     *                              product between [[LogicalPlan]]
     * @return a new [[JoinGraph]]
     */
   def mergeNodes(
-      rankFunction: (Option[JoinGraphNode], JoinGraphEdge) => (
+      scoreFunction: (Option[JoinGraphNode], JoinGraphEdge) => (
           Double,
           Option[Any]
       ),
@@ -216,7 +220,7 @@ case class JoinGraph(
 
       //select edge with maximum rank
       val (selectedEdge, (rank, token)) = currentJoinGraph.edges
-        .map(edge => (edge, rankFunction(lastMergedNode, edge)))
+        .map(edge => (edge, scoreFunction(lastMergedNode, edge)))
         .maxBy(_._2._1)
 
       //merge lNode and rNode of the selected edge
@@ -235,7 +239,7 @@ case class JoinGraph(
     if (allowCartesianProduct) {
       while (currentJoinGraph.nodes.size > 1) {
 
-        println(s"[debug]: joinGraph:${currentJoinGraph} \n")
+//        println(s"[debug]: joinGraph:${currentJoinGraph} \n")
 
         //select cartesian node pair with maximum rank
         val (selectedEdge, (rank, token)) = currentJoinGraph.nodes
@@ -243,7 +247,7 @@ case class JoinGraph(
           .map { case Array(lNode, rNode) =>
             (
               (lNode, rNode),
-              rankFunction(
+              scoreFunction(
                 lastMergedNode,
                 JoinGraphEdge(lNode.plan, rNode.plan, None)
               )
@@ -268,13 +272,34 @@ case class JoinGraph(
     currentJoinGraph
   }
 
-  /** Return the [[LogicalPlan]] represented by this [[JoinGraph]]
+  /** Return a [[LogicalPlan]] represented by this [[JoinGraph]]
     *
-    * Note that: by default, we just randomly merges connected nodes together to form new nodes until there is only one
+    * Note that: by default, we just randomly merges consecutive connected nodes together to form new nodes until there is only one
     * [[JoinGraphNode]] in the [[JoinGraph]], then we return [[LogicalPlan]] of that [[JoinGraphNode]]
     */
   def toPlan(): LogicalPlan = {
-    mergeNodes((_, _) => (1.0, None)).nodes.head.plan
+    mergeNodes(
+      scoreFunction = { case (lastMergedNodeOpt, edge) =>
+        if (lastMergedNodeOpt.isEmpty) {
+          (0, None)
+        } else {
+          val lastMergedNode = lastMergedNodeOpt.get
+
+          if (edge.lNode == lastMergedNode || edge.rNode == lastMergedNode) {
+            (1.0, None)
+          } else {
+            (0.0, None)
+          }
+        }
+      },
+      mergeFunction = { case (l, r, condition, token) =>
+        if (l.isInstanceOf[BinaryJoin]) {
+          BinaryJoin(l, r, Inner, condition)
+        } else {
+          BinaryJoin(r, l, Inner, condition)
+        }
+      }
+    ).nodes.head.plan
   }
 
   override def toString: String = {
@@ -284,20 +309,42 @@ case class JoinGraph(
 }
 
 object JoinGraph extends PredicateHelper {
+
+  /** Create a [[JoinGraph]] from a set of [[LogicalPlan]]s and join conditions between them.
+    *
+    * Note that Join Graph can be only built for Join:
+    * <pre>
+    * (1) does not contain theta-join condition, e.g., R1.a < R2.b
+    * (2) does not contain join condition on single relation, e.g., R1.a = R2.b
+    * </pre>
+    * @param plans
+    * @param conditions
+    * @return
+    */
   def apply(plans: Seq[LogicalPlan], conditions: Seq[Expression]): JoinGraph = {
 
     val splittedConditions = conditions
       .flatMap(expr => splitConjunctivePredicates(expr))
 
-    assert(
-      splittedConditions.forall { expr =>
-        expr match {
-          case EqualTo(a: Attribute, b: Attribute) => true
-          case _                                   => false
-        }
-      },
-      s"join graph can only be constructed for equi-join, invalid conditions:${conditions}"
-    )
+    // sanity checking
+    splittedConditions.foreach { expr =>
+      expr match {
+        case EqualTo(a: Attribute, b: Attribute) =>
+          if (
+            plans.exists(plan =>
+              plan.outputSet.contains(a) && plan.outputSet.contains(b)
+            )
+          ) {
+            throw new Exception(
+              s"join graph only allow join condition between relation, invalid condition:${expr.sql}"
+            )
+          }
+        case _ =>
+          throw new Exception(
+            s"join graph can only be constructed for equi-join, invalid condition:${expr.sql}"
+          )
+      }
+    }
 
     val nodes = plans.map(plan => JoinGraphNode(plan))
     val edges = splittedConditions

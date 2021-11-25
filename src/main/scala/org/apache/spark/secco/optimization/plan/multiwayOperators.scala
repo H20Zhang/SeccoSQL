@@ -10,7 +10,10 @@ import org.apache.spark.secco.expression.{
 }
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.util.ghd.GHDDecomposer
+import org.apache.spark.secco.optimization.util.ghd.{
+  JoinHyperGraph,
+  RelationGHDTreeDecomposer
+}
 import org.apache.spark.secco.util.`extension`.SeqExtension.posOf
 import org.json4s.scalap.scalasig.AttributeInfo
 
@@ -56,22 +59,23 @@ case class Union(children: Seq[LogicalPlan], mode: ExecMode = ExecMode.Coupled)
 case class MultiwayJoin(
     children: Seq[LogicalPlan],
     condition: Seq[Expression],
-    property: Set[JoinProperty] = Set(),
+    property: Set[JoinProperty] = Set(EquiJoinProperty),
     mode: ExecMode = ExecMode.Coupled
 ) extends MultiNode
     with Join {
 
   val joinType: JoinType = Inner
 
-  override def output: Seq[Attribute] = {
-    val attributeBuffer = ArrayBuffer[(Attribute, String)]()
-    children.flatMap(_.output).foreach { attr =>
-      if (!attributeBuffer.map(_._2).contains(attr.name)) {
-        attributeBuffer += ((attr, attr.name))
-      }
-    }
-    attributeBuffer.map(_._1)
-  }
+  override def output: Seq[Attribute] = children.flatMap(_.output)
+//  {
+//    val attributeBuffer = ArrayBuffer[(Attribute, String)]()
+//    children.flatMap(_.output).foreach { attr =>
+//      if (!attributeBuffer.map(_._2).contains(attr.name)) {
+//        attributeBuffer += ((attr, attr.name))
+//      }
+//    }
+//    attributeBuffer.map(_._1)
+//  }
 
   def duplicatedResolved: Boolean =
     children.combinations(2).forall { children =>
@@ -81,89 +85,13 @@ case class MultiwayJoin(
     }
 
   /** Test if this multiway join is a cyclic multiway join */
-  def isCyclic(): Boolean = {
-    GHDDecomposer.decomposeTree(hypergraph()._1).head.fhtw != 1.0
-  }
+  def isCyclic(): Boolean = hypergraph().isCyclic()
 
   /** Hypergraph that represents the multiway join
     * @return returns a triplet that contains (hypergraph which represents a multiway natural join, a map from attribute in children
     *         to attributes of the hypergraph, map from seq[attribute] to child logical plan)
     */
-  def hypergraph(): (
-      Seq[Seq[Attribute]],
-      AttributeMap[Attribute],
-      Map[Seq[Attribute], LogicalPlan]
-  ) = {
-    val equivSet = {
-      val equivSetArr = ArrayBuffer[AttributeSet]()
-      val equiv = condition.map { f =>
-        f match {
-          case EqualTo(a: AttributeReference, b: AttributeReference) => (a, b)
-          case _ =>
-            throw new Exception(
-              s"only equi-join is allowed in multiway join's condition, found invalid condition ${f}"
-            )
-        }
-      }
-      equiv.foreach { case (a, b) =>
-        var i = 0
-        while (i < equivSetArr.size) {
-          var equivSet = equivSetArr(i)
-          if (!equivSet.contains(a) && !equivSet.contains(b)) { //add a new equivSet
-            equivSetArr += AttributeSet(a :: b :: Nil)
-            i = equivSetArr.size // end the iteration of equiSetArr
-          } else if (equivSet.contains(a)) { // add to existing equivSet
-            equivSet = equivSet ++ AttributeSet(b)
-            equivSetArr(i) = equivSet
-            i = equivSetArr.size // end the iteration of equiSetArr
-          } else if (equivSet.contains(b)) { // add to existing equivSet
-            equivSet = equivSet ++ AttributeSet(a)
-            equivSetArr(i) = equivSet
-            i = equivSetArr.size // end the iteration of equiSetArr
-          } else { // proceed to next equiSet
-            i += 1
-          }
-        }
-      }
-      equivSetArr.toSeq
-    }
-
-    val newAttrsInHyperGraph = equivSet.map(_.head.newInstance())
-
-    val attrInConditions2AttrInHyperGraph =
-      AttributeMap(newAttrsInHyperGraph.zip(equivSet).flatMap {
-        case (attrInHyperGraph, equivSet) =>
-          equivSet.toSeq.map(attr => (attr, attrInHyperGraph))
-      })
-
-    val hyperedge2LogicalPlan = children
-      .map(child =>
-        (child.output.map(attrInConditions2AttrInHyperGraph), child)
-      )
-      .toMap
-
-    val hypergraph = hyperedge2LogicalPlan.keys.toSeq
-
-    (hypergraph, attrInConditions2AttrInHyperGraph, hyperedge2LogicalPlan)
-  }
-
-//  //warning: this method assume we are handling natural join
-//  override def resolveAttributeByChildren(
-//      nameParts: Seq[String]
-//  ): Option[NamedExpression] = {
-//    if (joinType == Undefined) {
-//      val attributeBuffer = ArrayBuffer[(Attribute, String)]()
-//      children.flatMap(_.output).foreach { attr =>
-//        if (!attributeBuffer.map(_._2).contains(attr.name)) {
-//          attributeBuffer += ((attr, attr.name))
-//        }
-//      }
-//      resolveAttribute(nameParts, attributeBuffer.map(_._1))
-//    } else {
-//      super.resolveAttributeByChildren(nameParts)
-//    }
-//
-//  }
+  def hypergraph(): JoinHyperGraph = JoinHyperGraph(this)
 
   override def relationalSymbol: String = s"⋈"
 }

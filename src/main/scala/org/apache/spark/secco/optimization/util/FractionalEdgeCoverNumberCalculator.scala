@@ -1,13 +1,12 @@
-package org.apache.spark.secco.optimization.util.ghd
+package org.apache.spark.secco.optimization.util
 
 import cern.colt.matrix.impl.DenseDoubleMatrix2D
 import com.joptimizer.optimizers.{LPOptimizationRequest, LPPrimalDualMethod}
-import org.apache.spark.secco.optimization.util.{Edge, Graph, Node}
 
 import scala.math.BigDecimal.RoundingMode
 
 /** A helper class for computing the width (fractional edge cover number) of the graph. */
-object WidthCalculator {
+object FractionalEdgeCoverNumberCalculator {
 
   /** Compute the fractional width of the graph. */
   def width[V <: Node, E <: Edge[V]](g: Graph[V, E]) = {

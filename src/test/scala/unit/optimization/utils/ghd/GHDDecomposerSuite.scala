@@ -7,7 +7,7 @@ import util.{SeccoFunSuite, UnitTestTag}
 
 import scala.reflect.ClassTag
 
-class GHDSuite extends SeccoFunSuite {
+class GHDDecomposerSuite extends SeccoFunSuite {
 
   test("Graph", UnitTestTag) {
 
@@ -73,23 +73,23 @@ class GHDSuite extends SeccoFunSuite {
 
     val nodes =
       Array(
-        JoinHyperGraphNode(AttrA),
-        JoinHyperGraphNode(AttrB),
-        JoinHyperGraphNode(AttrC),
-        JoinHyperGraphNode(AttrD)
+        GHDHyperGraphNode(AttrA),
+        GHDHyperGraphNode(AttrB),
+        GHDHyperGraphNode(AttrC),
+        GHDHyperGraphNode(AttrD)
       )
     val edges1 = Array(
-      JoinHyperGraphEdge(Set(AttrA, AttrB, AttrC)),
-      JoinHyperGraphEdge(Set(AttrA, AttrB)),
-      JoinHyperGraphEdge(Set(AttrB, AttrC)),
-      JoinHyperGraphEdge(Set(AttrC, AttrD)),
-      JoinHyperGraphEdge(Set(AttrD, AttrA))
+      GHDHyperGraphEdge(Set(AttrA, AttrB, AttrC)),
+      GHDHyperGraphEdge(Set(AttrA, AttrB)),
+      GHDHyperGraphEdge(Set(AttrB, AttrC)),
+      GHDHyperGraphEdge(Set(AttrC, AttrD)),
+      GHDHyperGraphEdge(Set(AttrD, AttrA))
     )
 
-    val edges2 = Array(JoinHyperGraphEdge(Set(AttrA, AttrB, AttrC)))
+    val edges2 = Array(GHDHyperGraphEdge(Set(AttrA, AttrB, AttrC)))
 
-    val g1 = JoinHyperGraph(nodes, edges1)
-    val g2 = JoinHyperGraph(nodes, edges2)
+    val g1 = GHDHyperGraph(nodes, edges1)
+    val g2 = GHDHyperGraph(nodes, edges2)
 
     assert(g1.nodes == nodes && g1.edges == edges1)
     assert(g2.nodes == nodes && g2.edges == edges2)
@@ -107,7 +107,7 @@ class GHDSuite extends SeccoFunSuite {
     assert(edges1.drop(1).forall(e => !g2.containEdge(e)))
 
     assert(g1.width == 2.0)
-    assert(g1.containEdge(JoinHyperGraphEdge(Set(AttrB, AttrA, AttrC))))
+    assert(g1.containEdge(GHDHyperGraphEdge(Set(AttrB, AttrA, AttrC))))
   }
 
   test("GHDDecomposer", UnitTestTag) {
@@ -143,10 +143,10 @@ class GHDSuite extends SeccoFunSuite {
     //twoSquare
     val q5 = R1 :: R2 :: R3 :: R4 :: R6 :: R10 :: R11 :: Nil
 
-    assert(GHDDecomposer.decomposeTree(q1).head.fhtw == 2.0)
-    assert(GHDDecomposer.decomposeTree(q2).head.fhtw == 2.0)
-    assert(GHDDecomposer.decomposeTree(q3).head.fhtw == 1.5)
-    assert(GHDDecomposer.decomposeTree(q4).head.fhtw == 2.0)
-    assert(GHDDecomposer.decomposeTree(q5).head.fhtw == 2.0)
+    assert(RelationGHDTreeDecomposer.decomposeTree(q1).head.fhtw == 2.0)
+    assert(RelationGHDTreeDecomposer.decomposeTree(q2).head.fhtw == 2.0)
+    assert(RelationGHDTreeDecomposer.decomposeTree(q3).head.fhtw == 1.5)
+    assert(RelationGHDTreeDecomposer.decomposeTree(q4).head.fhtw == 2.0)
+    assert(RelationGHDTreeDecomposer.decomposeTree(q5).head.fhtw == 2.0)
   }
 }

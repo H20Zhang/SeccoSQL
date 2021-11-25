@@ -3,14 +3,18 @@ package unit.optimization
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
 import org.apache.spark.secco.optimization.rules.{
   BooleanSimplification,
+  ClearJoinOptimizableProperty,
   ConstantFolding,
   ConstantPropagation,
+  MarkJoinCyclicityProperty,
   MarkJoinIntegrityConstraintProperty,
+  MarkJoinOptimizableProperty,
   MarkJoinPredicateProperty,
   MergeLimit,
   MergeProjection,
   MergeSelection,
   MergeUnion,
+  OptimizeMultiwayJoin,
   OptimizePKFKJoin,
   PushDownProjection,
   PushDownSelection,
@@ -174,8 +178,14 @@ class OptimizationRuleSuite extends SeccoFunSuite {
 
     println(plan)
 
+    plan = MarkJoinOptimizableProperty(plan)
     plan = OptimizePKFKJoin(plan)
+    plan = ClearJoinOptimizableProperty(plan)
+    println(plan)
 
+    plan = MarkJoinOptimizableProperty(plan)
+    plan = OptimizeMultiwayJoin(plan)
+    plan = ClearJoinOptimizableProperty(plan)
     println(plan)
 
   }

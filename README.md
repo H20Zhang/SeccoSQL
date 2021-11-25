@@ -8,6 +8,18 @@ SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is a distributed 
 
 ------
 
+## Overview
+
+SeccoSQL is a new distributed analytical database for data beyond Table, such as Graph and Matrix. A brief overview is as follows.
+
+In modern analytic pipeline, most workflows involve ingestion and manipulation of multi-model data. For example, it is common for a pipeline to build a graph from existing data, likely in a relational format, then running graph pattern query or graph analytic algorithms on it, likely to extract features for later machine learning, then apply machine learning algorithm on the extracted graph and features. In exsiting system,  such pipeline usually requires colloboration of multiple systems, which results in complexity in maintainece, high cost of transferring data between systems, and loss of inter-system query optimizations opportunities. 
+
+To solve above problem while maintaining the flexibilty of different data model.The design fo SeccoSQL adopt a two layer principle. In front-end, it maintains flexibility and strength of each data model,  which means using Table model for SQL query, using Graph model for graph pattern query and graph analytic query, using Matrix Model for LA (Linear Algebra) and machine learning, by providing domain-specific API for each data model, such that developer can use the best tool for best dishes. In the backend, the storage, execution, optimization of Relational Data, Graph Data, and Matrix Data is unified. In other word, we adopt (1) a unified storage for Relational Data, Graph Data, and Matrix Data, a unfied (IR) intermediate representation form for SQL query, Graph Query, and LA query, (2) a unfied optimizer to optimize IR such that cross model queries can be optimized, (3) a machine learning based cost estimator for estiming the cost of query plan consists of IR, and (4) a unified query executor for executing IR such that no specialized operator for each data model is needed.
+
+To achive such goal, we relies on a set of new techniques that is proposed by the community and our own. The detail is listed below.
+
+(Detail omitted)
+
 ### Prerequisite
 
 You need to install Spark 2.4.5, Hadoop 2.7.2 on your cluster.
