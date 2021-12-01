@@ -1,21 +1,26 @@
 package unit.optimization
 
 import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
+import org.apache.spark.secco.optimization.plan.RootNode
 import org.apache.spark.secco.optimization.rules.{
   BooleanSimplification,
   ClearJoinOptimizableProperty,
   ConstantFolding,
   ConstantPropagation,
+  DecoupleOperators,
+  MarkDelay,
   MarkJoinCyclicityProperty,
   MarkJoinIntegrityConstraintProperty,
   MarkJoinOptimizableProperty,
   MarkJoinPredicateProperty,
   MergeLimit,
+  MergeLocalStage,
   MergeProjection,
   MergeSelection,
   MergeUnion,
   OptimizeMultiwayJoin,
   OptimizePKFKJoin,
+  PackLocalComputationIntoLocalStage,
   PushDownProjection,
   PushDownSelection,
   PushSelectionIntoJoin,
@@ -24,6 +29,7 @@ import org.apache.spark.secco.optimization.rules.{
   RemoveRedundantProjection,
   RemoveRedundantSelection,
   ReorderAssociativeOperator,
+  SelectivelyPushCommunicationThroughComputation,
   SimplifyBinaryComparison
 }
 import util.SeccoFunSuite
@@ -168,26 +174,44 @@ class OptimizationRuleSuite extends SeccoFunSuite {
         |     natural join R9 natural join R10 natural join R11
         |""".stripMargin
 
-//    val sqlText =
-//      """
-//        |select *
-//        |from R1 natural join R2 natural join R10 natural join R11
-//        |""".stripMargin
-
     var plan = seccoSession.sql(sqlText).queryExecution.analyzedPlan
-
-    println(plan)
 
     plan = MarkJoinOptimizableProperty(plan)
     plan = OptimizePKFKJoin(plan)
     plan = ClearJoinOptimizableProperty(plan)
-    println(plan)
 
     plan = MarkJoinOptimizableProperty(plan)
     plan = OptimizeMultiwayJoin(plan)
     plan = ClearJoinOptimizableProperty(plan)
-    println(plan)
 
   }
+
+  test("decouple") {
+    val R1 = seccoSession.table("R1")
+    val R2 = seccoSession.table("R2")
+    val R3 = seccoSession.table("R3")
+    val R4 = seccoSession.table("R4")
+
+    var plan =
+      R1.join(R2, "R1.b = R2.b")
+        .join(R3, "R2.c = R3.c")
+        .join(R4, "R3.d = R4.d")
+        .queryExecution
+        .analyzedPlan
+
+    plan = RootNode(plan)
+    plan = MarkDelay(plan)
+    plan = DecoupleOperators(plan)
+    plan = PackLocalComputationIntoLocalStage(plan)
+    plan = SelectivelyPushCommunicationThroughComputation(plan)
+    plan = MergeLocalStage(plan)
+    plan = SelectivelyPushCommunicationThroughComputation(plan)
+    plan = MergeLocalStage(plan)
+
+    println(plan)
+  }
+
+  //TODO: add testing for recursion rules
+  test("recursion") {}
 
 }

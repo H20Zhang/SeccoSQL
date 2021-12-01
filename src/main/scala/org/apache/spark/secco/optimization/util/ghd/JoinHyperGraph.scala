@@ -305,7 +305,16 @@ case class JoinHyperGraph(
         }
         .toSeq
 
-    MultiwayJoin(inputs, conditions, Set(CyclicJoinProperty, EquiJoinProperty))
+    if (hyperTreeNode.g.width > 1.0) {
+      MultiwayJoin(
+        inputs,
+        conditions,
+        Set(CyclicJoinProperty, EquiJoinProperty)
+      )
+    } else {
+      MultiwayJoin(inputs, conditions, Set(EquiJoinProperty))
+    }
+
   }
 
   /** Construct a GHD-based join plan from the given [[GHDHyperTree]]. */
@@ -339,7 +348,9 @@ case class JoinHyperGraph(
 
 //    pprint.pprintln(s"[debug]:joinGraph${joinGraph}")
 
-    joinGraph.toPlan()
+    joinGraph.toPlan() transform {
+      case m: MultiwayJoin if m.children.size == 1 => m.children.head
+    }
   }
 
   /** Return true if this hypergraph is an cyclic hypergraph. */
@@ -395,7 +406,18 @@ object JoinHyperGraph extends PredicateHelper {
       // Find out all equivalence relationship.
       val equiv = condition.flatMap(splitConjunctivePredicates).map { f =>
         f match {
-          case EqualTo(a: AttributeReference, b: AttributeReference) => (a, b)
+          case EqualTo(a: AttributeReference, b: AttributeReference) =>
+            if (
+              children.exists(plan =>
+                plan.outputSet.contains(a) && plan.outputSet.contains(b)
+              )
+            ) {
+              throw new Exception(
+                s"join graph only allow join condition between relation, invalid condition:${f.sql}"
+              )
+            } else {
+              (a, b)
+            }
           case _ =>
             throw new Exception(
               s"only equi-join is allowed in multiway join's condition, found invalid condition ${f}"

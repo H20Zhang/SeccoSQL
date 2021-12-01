@@ -288,10 +288,6 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform { case RootNode(child, _) =>
-//        pprint.pprintln(
-//          s"[debug]: dlSession.sessionState.conf.DELAY_STRATEGY:${dlSession.sessionState.conf.delayStrategy}"
-//        )
-
       dlSession.sessionState.conf.delayStrategy match {
         case "Heuristic"     => heuristicDelay(child)
         case "HeuristicSize" => heuristicSizeDelay(child)

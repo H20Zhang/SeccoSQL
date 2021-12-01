@@ -235,17 +235,21 @@ abstract class LogicalPlan
 
   override def verboseString: String = {
 
-    val _resolved = Try(resolved).getOrElse(false)
+    if (conf.verboseOuptut) {
+      val _resolved = Try(resolved).getOrElse(false)
 
-    if (_resolved) {
-      try {
-        simpleString + s"-> (${output.mkString(",")})"
-      } catch {
-        case notImplementedError: NotImplementedError =>
-          simpleString + s"-> not_implemented"
+      if (_resolved) {
+        try {
+          simpleString + s"-> (${output.mkString(",")})"
+        } catch {
+          case notImplementedError: NotImplementedError =>
+            simpleString + s"-> not_implemented"
+        }
+      } else {
+        simpleString + s"-> unresolved"
       }
     } else {
-      simpleString + s"-> unresolved"
+      simpleString
     }
   }
 
