@@ -3,6 +3,8 @@ package org.apache.spark.secco.parsing
 import org.apache.spark.secco.catalog.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.secco.expression.Expression
 import org.apache.spark.secco.optimization.LogicalPlan
+import org.apache.spark.secco.expression.NamedExpression
+import org.apache.spark.secco.analysis.UnresolvedPattern
 import org.apache.spark.secco.types.{DataType, StructType}
 
 /** Interface for a parser.
@@ -17,8 +19,11 @@ trait ParserInterface {
     */
   def parseExpression(sqlText: String): Expression
 
-  /** Parse a string to an expression in Projection. */
-  def parseProjectExpression(sqlText: String): Expression
+  /** Parse a string to an [[NamedExpression]]. */
+  def parseNamedExpression(sqlText: String): Expression
+
+  /** Parse a string to a [[UnresolvedPattern]] */
+  def parsePatternExpression(sqlText: String): Expression
 
   /** Parse a string to a [[TableIdentifier]].
     */

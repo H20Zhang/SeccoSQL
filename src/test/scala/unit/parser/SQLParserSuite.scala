@@ -8,7 +8,43 @@ import scala.util.Try
 
 class SQLParserSuite extends SeccoFunSuite {
 
-  test("builder", UnitTestTag) {
+  test("parsePatternExpression", UnitTestTag) {
+    val seccoSession = SeccoSession.currentSession
+
+    val pattern0 = "()"
+    val pattern1 = "(a)"
+    val pattern2 = "(a:Person:Student)"
+    val pattern3 = "(a:Person:Student {name:123, test:12})"
+    val pattern4 = "(a)-[]-()"
+    val pattern5 = "()-[b]-()"
+    val pattern6 = "(a)-[b]->(c)"
+    val pattern7 =
+      "(a:Person:Student {name:123, test:12})-[b:Friend {year:10}]->(c:Person:Student)"
+
+    val pattern8 = "(a)-[b]->(c)-[d]->(e)"
+    val pattern9 = "(a)-[b]->(c);(b)-[d]-(e)"
+
+    val patterns = Seq(
+      pattern0,
+      pattern1,
+      pattern2,
+      pattern3,
+      pattern4,
+      pattern5,
+      pattern6,
+      pattern7,
+      pattern8,
+      pattern9
+    )
+
+    patterns.foreach { pattern =>
+      seccoSession.sessionState.sqlParser
+        .parsePatternExpression(pattern)
+    }
+
+  }
+
+  test("parseSQL", UnitTestTag) {
 
     val seccoSession = SeccoSession.currentSession
 
@@ -184,6 +220,19 @@ class SQLParserSuite extends SeccoFunSuite {
          |from R1, R3)
          |""".stripMargin
 
+    val patternQuery1 =
+      s"""
+         |select *
+         |from match(G1, (a)-[]->(b)-[]->(c))
+         |limit 10
+         |""".stripMargin
+
+    val patternQuery2 =
+      s"""
+         |select a
+         |from match(G2,(a:Person:Student {name:123, test:12})-[b:Friend {year:10}]->(c:Person:Student))
+         |""".stripMargin
+
     val queryList = Seq(
       selectQuery1,
       selectQuery2,
@@ -208,12 +257,18 @@ class SQLParserSuite extends SeccoFunSuite {
       setQuery1,
       setQuery2,
       setQuery3,
-      setQuery4
+      setQuery4,
+      patternQuery1,
+      patternQuery2
     )
 
-    queryList.foreach(query =>
-      assert(Try(seccoSession.sql(query).queryExecution.logical).isSuccess)
-    )
+    queryList.foreach { query =>
+      val res = Try(seccoSession.sql(query).queryExecution.logical)
+      assert(res.isSuccess, res.failed.toString)
+    }
+
+//    var plan = seccoSession.sql(patternQuery2).queryExecution.logical
+//    println(plan)
 
   }
 

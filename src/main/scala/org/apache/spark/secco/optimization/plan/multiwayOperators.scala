@@ -1,5 +1,6 @@
 package org.apache.spark.secco.optimization.plan
 
+import org.apache.spark.secco.catalog.TableIdentifier
 import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import org.apache.spark.secco.expression.{
   Attribute,
@@ -10,12 +11,8 @@ import org.apache.spark.secco.expression.{
 }
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.util.ghd.{
-  JoinHyperGraph,
-  RelationGHDTreeDecomposer
-}
+import org.apache.spark.secco.optimization.util.ghd.{JoinHyperGraph}
 import org.apache.spark.secco.util.`extension`.SeqExtension.posOf
-import org.json4s.scalap.scalasig.AttributeInfo
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -231,6 +228,12 @@ object LocalStage {
 
 }
 
+case class WithElement(
+    name: TableIdentifier,
+    schema: Option[Seq[Attribute]],
+    plan: LogicalPlan
+)
+
 /** A [[LogicalPlan]] that represents CTE(common table expression)
   * @param recursive numbers of iterations
   * @param query query to be iteratively computed
@@ -238,19 +241,21 @@ object LocalStage {
   * @param withListQueries [[LogicalPlan]] of the temporary tables.
   */
 case class With(
-    recursive: Option[Option[Int]],
     query: LogicalPlan,
-    withList: Seq[(String, Option[Seq[String]])],
-    withListQueries: Seq[LogicalPlan]
+    withList: Seq[WithElement],
+    recursive: Option[Option[Int]]
 ) extends LogicalPlan {
+
   override def output = query.output
 
-  def children = query +: withListQueries
+  def children = query +: withList.map(_.plan)
 
   override def simpleString =
     "With " + withList
       .map { withElem =>
-        withElem._1 + withElem._2.map(_.mkString("(", ", ", ")")).getOrElse("")
+        withElem.name + withElem.schema
+          .map(_.mkString("(", ", ", ")"))
+          .getOrElse("")
       }
       .mkString("[", ", ", "]")
 

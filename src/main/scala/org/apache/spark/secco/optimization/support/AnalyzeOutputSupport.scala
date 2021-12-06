@@ -39,11 +39,11 @@ trait AnalyzeOutputSupport {
       case bj: BinaryJoin
           if bj.property.contains(PrimaryKeyForeignKeyJoinConstraintProperty) =>
         true
-      case d: Except                                         => isOutputSmall(d.left) && isOutputSmall(d.right)
-      case j: MultiwayJoin                                   => false
-      case p: Partition                                      => isMaterializable(p.child)
-      case sc: Relation                                      => true
-      case re: Rename                                        => isMaterializable(re.child)
+      case d: Except       => isOutputSmall(d.left) && isOutputSmall(d.right)
+      case j: MultiwayJoin => false
+      case p: Partition    => isMaterializable(p.child)
+      case sc: Relation    => true
+//      case re: Rename                                        => isMaterializable(re.child)
       case l: LocalStage                                     => isMaterializable(l.localPlan)
       case c: Cache                                          => isMaterializable(c.child)
       case t: Transform                                      => true

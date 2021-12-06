@@ -5,9 +5,15 @@ import org.apache.spark.secco.expression.{Attribute, Star}
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.plan.LeafNode
+import org.apache.spark.secco.optimization.plan.{LeafNode, UnaryNode}
 import org.apache.spark.secco.execution.storage.row
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.parsing.{
+  BiDirection,
+  EdgeDirection,
+  Left2Right,
+  Right2Left
+}
 import org.apache.spark.secco.trees.{TreeNode, TreeNodeException}
 import org.apache.spark.secco.types.{DataType, IntegerType}
 
@@ -149,3 +155,62 @@ case class UnresolvedRelation(
     tableName: String,
     mode: ExecMode = ExecMode.Coupled
 ) extends LeafNode {}
+
+case class Edge(
+    id: Attribute,
+    src: Attribute,
+    dst: Attribute,
+    edgeLabels: Seq[Literal],
+    edgeDirection: EdgeDirection
+) {
+  override def toString: String = {
+
+    val edge = edgeLabels.isEmpty match {
+      case true  => s"[${id}]"
+      case false => s"[${id}:${edgeLabels.mkString(":")}]"
+    }
+
+    edgeDirection match {
+      case Left2Right  => s"${src}-${edge}->${dst}"
+      case Right2Left  => s"${src}<-${edge}-${dst}"
+      case BiDirection => s"${src}-${edge}-${dst}"
+    }
+  }
+}
+
+case class Node(
+    id: Attribute,
+    nodeLabels: Seq[Literal]
+) {
+  override def toString: String = {
+    nodeLabels.isEmpty match {
+      case true  => s"(${id})"
+      case false => s"(${id}:${nodeLabels.mkString(":")})"
+    }
+  }
+}
+
+case class UnresolvedPattern(
+    nodes: Seq[Node],
+    edges: Seq[Edge],
+    nodePropertyCondition: Option[Expression],
+    edgePropertyCondition: Option[Expression]
+) extends Expression
+    with Unevaluable {
+  override def nullable: Boolean =
+    throw new UnresolvedException(this, "nullable")
+
+  override def dataType: DataType =
+    throw new UnresolvedException(this, "dataType")
+
+  override def children: Seq[Expression] =
+    edges.flatMap(e => e.src :: e.dst :: Nil)
+}
+
+case class UnresolvedSubgraphQuery(
+    graph: LogicalPlan,
+    pattern: UnresolvedPattern,
+    mode: ExecMode = ExecMode.Coupled
+) extends UnaryNode {
+  override def child: LogicalPlan = graph
+}

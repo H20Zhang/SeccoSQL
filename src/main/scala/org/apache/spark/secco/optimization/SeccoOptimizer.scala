@@ -166,7 +166,7 @@ class SeccoOptimizer(
       Batch(
         "AddCache",
         Once,
-        AddCache,
+//        AddCache,
         RemoveRedundantCache
       )
     )

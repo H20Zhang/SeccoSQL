@@ -36,17 +36,17 @@ abstract class LeafNode extends LogicalPlan {
   def computeStats(): Statistics = throw new UnsupportedOperationException
 }
 
+case class EmptyRelation(
+    override val output: Seq[Attribute] = Seq(),
+    mode: ExecMode = ExecMode.Atomic
+) extends LeafNode {}
+
 //case class LocalRelation
 
-/** An operator that output table specified by [[tableIdentifier]]
-  * @param tableIdentifier identifier of the table
-  * @param mode execution mode
-  */
-case class Relation(
-    tableIdentifier: TableIdentifier,
-    mode: ExecMode = ExecMode.Atomic
-) extends LeafNode
-    with MultiInstanceRelation {
+//case class ExternalRDD(output:Seq[Attribute], primaryKey:Seq[Attribute])
+
+abstract class BaseRelation extends LeafNode with MultiInstanceRelation {
+  def tableIdentifier: TableIdentifier
 
   override def primaryKey: Seq[Attribute] = {
     val cols = output
@@ -114,7 +114,16 @@ case class Relation(
       )
     }
   }
+}
 
+/** An operator that output table specified by [[tableIdentifier]]
+  * @param tableIdentifier identifier of the table
+  * @param mode execution mode
+  */
+case class Relation(
+    tableIdentifier: TableIdentifier,
+    mode: ExecMode = ExecMode.Atomic
+) extends BaseRelation {
   override def newInstance(): LogicalPlan = copy()
 }
 

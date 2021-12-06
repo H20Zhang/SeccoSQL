@@ -13,22 +13,29 @@ case class IntLit(d: Int) extends Literal
 case object NullLit extends Literal
 
 sealed trait Operator extends Token
-case object Add extends Operator
-case object Sub extends Operator
-case object Mul extends Operator
-case object Div extends Operator
-case object Mod extends Operator
-case object Eq extends Operator
-case object NotEq extends Operator
-case object Leq extends Operator
-case object Le extends Operator
-case object Geq extends Operator
-case object Ge extends Operator
-case object Lp extends Operator
-case object Rp extends Operator
-case object Sim extends Operator
-case object Dot extends Operator
-case object Com extends Operator
+case object Add extends Operator // +
+case object Sub extends Operator // -
+case object Mul extends Operator // *
+case object Div extends Operator // \
+case object Mod extends Operator // %
+case object Eq extends Operator // =
+case object NotEq extends Operator // !=
+case object Leq extends Operator // <=
+case object Le extends Operator // <
+case object Geq extends Operator // >=
+case object Ge extends Operator // >
+case object Lp extends Operator // (
+case object Rp extends Operator // )
+case object LCb extends Operator // {
+case object RCb extends Operator // }
+case object LSb extends Operator // [
+case object RSb extends Operator // ]
+case object Sim extends Operator // ;
+case object Dot extends Operator // .
+case object Com extends Operator // ,
+case object Col extends Operator // :
+case object RightArrow extends Operator // ->
+case object LeftArrow extends Operator // <-
 
 case class Identifier(d: String) extends Token
 
@@ -71,6 +78,7 @@ case object OrderBy extends Keyword
 case object Limit extends Keyword
 case object Asc extends Keyword
 case object Desc extends Keyword
+case object Match extends Keyword
 
 case class TokenReader(tokens: Seq[Token]) extends Reader[Token] {
   override def first: Token = tokens.head

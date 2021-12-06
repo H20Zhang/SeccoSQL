@@ -21,18 +21,30 @@ import org.apache.spark.secco.expression.{
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.util.misc.DataLoader
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.analysis.UnresolvedAlias
+import org.apache.spark.secco.analysis.{
+  UnresolvedAlias,
+  UnresolvedAttribute,
+  UnresolvedPattern,
+  UnresolvedSubgraphQuery
+}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   BinaryJoin,
   Distinct,
+  EdgeView,
+  EmptyRelation,
   Except,
   Filter,
+  Graph,
+  GraphView,
   Inner,
   Intersection,
   JoinType,
   Limit,
+  MessagePassing,
+  NodeView,
   Project,
+  Recursion,
   Relation,
   SubqueryAlias,
   Union
@@ -83,7 +95,7 @@ class Dataset(
   /** Return the numbers of row of the dataset. */
   def count(): Long = queryExecution.executionPlan.count()
 
-  /* == relational algebra transformation == */
+  /* == relational algebra operations == */
 
   /** Perform selection on dataset. (same as select operation)
     * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
@@ -118,7 +130,7 @@ class Dataset(
       .split(",")
       .map(projection =>
         UnresolvedAlias(
-          seccoSession.sessionState.sqlParser.parseProjectExpression(projection)
+          seccoSession.sessionState.sqlParser.parseNamedExpression(projection)
         )
       )
 
@@ -250,7 +262,7 @@ class Dataset(
     )
   }
 
-  /* == misc operations == */
+  /* == other SQL operations == */
 
   /** Perform distinction of this datasets by only retain distinctive tuples.
     * @return a new dataset.
@@ -270,7 +282,104 @@ class Dataset(
     )
   }
 
+  /* == graph operations == */
+  def pattern(pattern: String) = {
+    val patternExpression = Try {
+      seccoSession.sessionState.sqlParser
+        .parsePatternExpression(pattern)
+        .asInstanceOf[UnresolvedPattern]
+    }.getOrElse(throw new Exception(s"${pattern} is invalid cypher pattern"))
+
+    Dataset(
+      seccoSession,
+      UnresolvedSubgraphQuery(
+        queryExecution.logical,
+        patternExpression
+      )
+    )
+  }
+
+  def messagePassing(
+      message: String,
+      mergeFunction: String,
+      updateFunction: String,
+      initialMessage: Option[String] = None
+  ): Dataset = {
+
+    val parser = seccoSession.sessionState.sqlParser
+
+    assert(
+      queryExecution.logical.isInstanceOf[Graph],
+      "`messagePassing` could only be used on Graph-Like Dataset."
+    )
+
+    Dataset(
+      seccoSession,
+      MessagePassing(
+        queryExecution.logical.asInstanceOf[LogicalPlan with Graph],
+        initialMessage.map(msg =>
+          parser.parseNamedExpression(msg).asInstanceOf[NamedExpression]
+        ),
+        parser.parseNamedExpression(message).asInstanceOf[NamedExpression],
+        parser
+          .parseNamedExpression(mergeFunction)
+          .asInstanceOf[NamedExpression],
+        parser
+          .parseNamedExpression(updateFunction)
+          .asInstanceOf[NamedExpression]
+      )
+    )
+
+  }
+
+  /* == dataset type transformation == */
+
+  def toGraph(
+      src: String = "src",
+      dst: String = "dst",
+      eLabel: Option[String] = None,
+      edgeProperties: Seq[String] = Seq()
+  )(
+      nodeDS: Dataset,
+      id: String = "id",
+      vLabel: Option[String] = None,
+      properties: Seq[String] = Seq()
+  ): Dataset = {
+    val edge = EdgeView(
+      queryExecution.logical,
+      UnresolvedAttribute(src :: Nil),
+      UnresolvedAttribute(dst :: Nil),
+      eLabel.map(f => UnresolvedAttribute(f :: Nil)),
+      edgeProperties.map(f => UnresolvedAttribute(f :: Nil))
+    )
+
+    val node = NodeView(
+      nodeDS.queryExecution.logical,
+      UnresolvedAttribute(id :: Nil),
+      vLabel.map(f => UnresolvedAttribute(f :: Nil)),
+      properties.map(f => UnresolvedAttribute(f :: Nil))
+    )
+
+    Dataset(
+      seccoSession,
+      GraphView(
+        node,
+        edge
+      )
+    )
+  }
+
+//  def toIndex(): Dataset = ???
+//  def toMatrix(): Dataset = ???
+
   /* == iterative operations == */
+
+  def recursion(round: Int): Dataset = {
+    Dataset(
+      seccoSession,
+      Recursion(queryExecution.logical, round)
+    )
+  }
 
 //  /** Iteratively evaluate this dataset until numRun is reached, after that it'll return a dataset with name of
 //    * returnTableIdentifier.

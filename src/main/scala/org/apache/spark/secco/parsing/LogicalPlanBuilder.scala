@@ -1,6 +1,8 @@
 package org.apache.spark.secco.parsing
 
-import org.apache.spark.secco.analysis.UnresolvedAttribute
+import org.apache.spark.secco.analysis.{UnresolvedAttribute, UnresolvedPattern}
+import org.apache.spark.secco.catalog.TableIdentifier
+import org.apache.spark.secco.expression.EqualTo
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, plan => L}
 import org.apache.spark.secco.types.{
   BooleanType,
@@ -10,8 +12,11 @@ import org.apache.spark.secco.types.{
   LongType,
   StringType
 }
+import org.apache.spark.secco.util.counter.Counter
 import org.apache.spark.secco.{expression => E}
 import org.apache.spark.secco.{analysis => A}
+
+import scala.util.Try
 
 /** The builder for building the logical operator tree based on abstract syntax tree obtained by parser.
   * It is worth noting that currently, we only support natural join
@@ -28,6 +33,16 @@ object LogicalPlanBuilder {
 
   def fromTableRef(ref: TableRef): LogicalPlan = {
     ref match {
+      case GraphTable(graph, pattern) =>
+        val patternExpression = Try {
+          fromExpression(pattern)
+            .asInstanceOf[UnresolvedPattern]
+        }.getOrElse(
+          throw new Exception(s"${pattern} is invalid cypher pattern")
+        )
+
+        A.UnresolvedSubgraphQuery(fromTableRef(graph), patternExpression)
+
       case StoredTable(Identifier(name), alias) =>
         val table = A.UnresolvedRelation(name)
         alias
@@ -201,19 +216,22 @@ object LogicalPlanBuilder {
         L.Intersection(fromQuery(lhs), fromQuery(rhs))
       case WithStmt(recursive, withList, query) =>
         L.With(
-          recursive,
           fromQuery(query),
           withList.map { case WithElem(Identifier(name), columns, query) =>
-            (name, columns.map(_.map(_.d)))
+            L.WithElement(
+              TableIdentifier(name, None),
+              columns.map(schema =>
+                schema.map(id => UnresolvedAttribute(id.d :: Nil))
+              ),
+              fromQuery(query)
+            )
           },
-          withList.map { case WithElem(Identifier(name), columns, query) =>
-            fromQuery(query)
-          }
+          recursive
         )
     }
   }
 
-  def fromProjectExpression(expr: Projection): E.Expression = {
+  def fromNamedExpression(expr: Projection): E.Expression = {
     expr match {
       case Projection(expr, None) =>
         A.UnresolvedAlias(fromExpression(expr))
@@ -278,6 +296,89 @@ object LogicalPlanBuilder {
       case NotExpr(a)    => E.Not(fromExpression(a))
       case AndExpr(a, b) => E.And(fromExpression(a), fromExpression(b))
       case OrExpr(a, b)  => E.Or(fromExpression(a), fromExpression(b))
+      case Pattern(paths) =>
+        val hiddenNodeID = Counter("", "nodeID")
+        val hiddenEdgeID = Counter("", "edgeID")
+
+        val parsedNodes = paths.flatMap(path => path.nodes)
+        val nodes = parsedNodes.map { node =>
+          hiddenNodeID.increment()
+          A.Node(
+            UnresolvedAttribute(
+              node.name
+                .map(_.d)
+                .getOrElse(s"hiddenNode-${hiddenNodeID.value}") :: Nil
+            ),
+            node.labels.map(f => E.Literal(f.d))
+          )
+        }
+
+        // we need a hashmap which compare elements based on eq rather than equal to distinguish different case class object
+        class IdentityHashMap[A <: AnyRef, B]
+            extends scala.collection.mutable.HashMap[A, B] {
+          protected override def elemEquals(key1: A, key2: A): Boolean =
+            (key1 eq key2)
+        }
+
+        val parsedNode2Node = new IdentityHashMap[Node, A.Node]()
+        parsedNodes.zip(nodes).foreach { case (key, value) =>
+          parsedNode2Node(key) = value
+        }
+
+        val edges = paths.flatMap { path =>
+          path.edges.map { edge =>
+            hiddenEdgeID.increment()
+            A.Edge(
+              UnresolvedAttribute(
+                edge._2.name
+                  .map(_.d)
+                  .getOrElse(s"hiddenEdge-${hiddenEdgeID.value}") :: Nil
+              ),
+              parsedNode2Node(edge._1).id,
+              parsedNode2Node(edge._3).id,
+              edge._2.labels.map(f => E.Literal(f.d)),
+              edge._4
+            )
+
+          }
+        }
+
+        val nodeCondition = paths
+          .flatMap { path =>
+            path.nodes.flatMap { node =>
+              node.properties.toSeq
+            }
+          }
+          .distinct
+          .map { case (identifier, literal) =>
+            E.EqualTo(
+              fromExpression(ColumnRef(None, identifier)),
+              fromExpression(LiteralExpr(literal))
+            )
+          }
+          .reduceOption(E.And)
+
+        val edgeCondition = paths
+          .flatMap { path =>
+            path.edges.flatMap { edge =>
+              edge._2.properties.toSeq
+            }
+          }
+          .distinct
+          .map { case (identifier, literal) =>
+            E.EqualTo(
+              fromExpression(ColumnRef(None, identifier)),
+              fromExpression(LiteralExpr(literal))
+            )
+          }
+          .reduceOption(E.And)
+
+        UnresolvedPattern(
+          nodes,
+          edges,
+          nodeCondition,
+          edgeCondition
+        )
     }
   }
   def fromTableIdentifier(iden: Identifier) = iden.d

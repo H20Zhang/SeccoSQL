@@ -53,6 +53,7 @@ case class JoinedTable(
     joinType: JoinType,
     joinCondition: Option[JoinCondition]
 ) extends TableRef
+case class GraphTable(graph: TableRef, patternExpr: Pattern) extends TableRef
 
 sealed trait JoinType extends AST
 case object NaturalJoin extends JoinType
@@ -98,3 +99,30 @@ case class WithElem(
     columns: Option[Seq[Identifier]],
     query: Query
 ) extends AST
+
+/* Graph */
+case class Node(
+    name: Option[Identifier],
+    labels: Seq[Identifier],
+    properties: Map[Identifier, Literal]
+) extends Expr
+
+case class Edge(
+    name: Option[Identifier],
+    labels: Seq[Identifier],
+    properties: Map[Identifier, Literal]
+) extends Expr
+
+sealed trait EdgeDirection extends AST
+case object Left2Right extends EdgeDirection
+case object Right2Left extends EdgeDirection
+case object BiDirection extends EdgeDirection
+
+case class Path(
+    nodes: Seq[Node],
+    edges: Seq[(Node, Edge, Node, EdgeDirection)]
+) extends Expr
+
+case class Pattern(
+    paths: Seq[Path]
+) extends Expr

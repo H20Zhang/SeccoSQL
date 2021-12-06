@@ -243,24 +243,6 @@ case class Partition(
 
 }
 
-/** An operator that assign table specified by tableIdentifier using output of child
-  *
-  * @param child child logical plan
-  * @param tableIdentifier the identifier of the table to assign the results of child
-  * @param mode execution mode
-  */
-case class Assign(
-    child: LogicalPlan,
-    tableIdentifier: TableIdentifier,
-    mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {
-
-  override def primaryKey: Seq[Attribute] = child.primaryKey
-
-  override def output: Seq[Attribute] = child.output
-
-}
-
 /** An [[LogicalPlan]] that updates table specified by tableIdentifier and delta table specified by deltaTableIdentifier.
   *
   * The output is a relation specified by deltaTableIdentifier.
@@ -274,32 +256,12 @@ case class Assign(
 case class Update(
     child: LogicalPlan,
     tableIdentifier: TableIdentifier,
-    deltaTableIdentifier: TableIdentifier,
     key: Seq[Attribute],
+    updateFunc: Seq[NamedExpression],
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
 
   override def primaryKey: Seq[Attribute] = child.primaryKey
-
-  override def output: Seq[Attribute] = child.output
-}
-
-/** A [[LogicalPlan]] that return child with attributes replaced according to attrRenameMap.
-  *
-  * @param child child logical plan
-  * @param attrRenameMap mapping between attributes of [[child]] and user-defined new attributes
-  * @param mode [[ExecMode.Atomic]]
-  */
-@deprecated
-case class Rename(
-    child: LogicalPlan,
-    attrRenameMap: Map[String, String],
-    mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {
-  override def primaryKeyOld: Seq[String] = child.primaryKeyOld
-
-  override def primaryKey: Seq[Attribute] = child.primaryKey
-
   override def output: Seq[Attribute] = child.output
 }
 
@@ -351,3 +313,40 @@ case class Iterative(
     }
   }
 }
+
+///** An operator that assign table specified by tableIdentifier using output of child
+//  *
+//  * @param child child logical plan
+//  * @param tableIdentifier the identifier of the table to assign the results of child
+//  * @param mode execution mode
+//  */
+//case class Assign(
+//                   child: LogicalPlan,
+//                   tableIdentifier: TableIdentifier,
+//                   mode: ExecMode = ExecMode.Atomic
+//                 ) extends UnaryNode {
+//
+//  override def primaryKey: Seq[Attribute] = child.primaryKey
+//
+//  override def output: Seq[Attribute] = child.output
+//
+//}
+
+///** A [[LogicalPlan]] that return child with attributes replaced according to attrRenameMap.
+//  *
+//  * @param child child logical plan
+//  * @param attrRenameMap mapping between attributes of [[child]] and user-defined new attributes
+//  * @param mode [[ExecMode.Atomic]]
+//  */
+//@deprecated
+//case class Rename(
+//                   child: LogicalPlan,
+//                   attrRenameMap: Map[String, String],
+//                   mode: ExecMode = ExecMode.Atomic
+//                 ) extends UnaryNode {
+//  override def primaryKeyOld: Seq[String] = child.primaryKeyOld
+//
+//  override def primaryKey: Seq[Attribute] = child.primaryKey
+//
+//  override def output: Seq[Attribute] = child.output
+//}

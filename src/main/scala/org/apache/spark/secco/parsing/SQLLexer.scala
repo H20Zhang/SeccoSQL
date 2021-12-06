@@ -8,12 +8,19 @@ case class LexerError(p: Position, msg: String)
 
 //RegexParsers is more suitable to implement lexer
 object SQLLexer extends RegexParsers {
-  def token = positioned { operator | literal_ | (identifier ||| keyword) }
+  def token = positioned {
+    operator | numericLit | literal_ | (identifier ||| keyword)
+  }
 
   def literal_ =
     positioned {
-      stringLit | booleanLit | floatLit | doubleLit | longLit | intLit | nullLit
+      stringLit | booleanLit | nullLit
     }
+
+  def numericLit = positioned {
+    floatLit | doubleLit | longLit | intLit
+  }
+
   def stringLit =
     positioned {
       """"([^\"\\]|\\[\\'"bfnrt])*"""".r ^^ { d =>
@@ -52,7 +59,7 @@ object SQLLexer extends RegexParsers {
 
   def operator =
     positioned {
-      add | sub | mul | div | mod | eq_ | notEq | leq | le | geq | ge | lp | rp | sim | dot | com
+      rightArrow | leftArrow | add | sub | mul | div | mod | eq_ | notEq | leq | le | geq | ge | lb | rb | lsb | rsb | lp | rp | sim | dot | com | col
     }
   def add = positioned { "+" ^^^ Add }
   def sub = positioned { "-" ^^^ Sub }
@@ -67,9 +74,16 @@ object SQLLexer extends RegexParsers {
   def ge = positioned { ">" ^^^ Ge }
   def lp = positioned { "(" ^^^ Lp }
   def rp = positioned { ")" ^^^ Rp }
+  def lb = positioned { "{" ^^^ LCb }
+  def rb = positioned { "}" ^^^ RCb }
+  def lsb = positioned { "[" ^^^ LSb }
+  def rsb = positioned { "]" ^^^ RSb }
   def sim = positioned { ";" ^^^ Sim }
   def dot = positioned { "." ^^^ Dot }
   def com = positioned { "," ^^^ Com }
+  def col = positioned { ":" ^^^ Col }
+  def rightArrow = positioned { "->" ^^^ RightArrow }
+  def leftArrow = positioned { "<-" ^^^ LeftArrow }
 
   def identifier =
     positioned {
@@ -86,7 +100,7 @@ object SQLLexer extends RegexParsers {
         inner ||| in ||| not ||| isNull ||| isNotNull ||| case_ |||
         when ||| then ||| else_ ||| join ||| on ||| using ||| leftOuter |||
         rightOuter ||| fullOuter ||| union ||| intersect ||| except |||
-        byUpdate ||| limit ||| desc ||| natural
+        byUpdate ||| limit ||| desc ||| natural ||| match_
     }
   def with_ = positioned { "with" ^^^ With }
   def recursive = positioned { "recursive" ^^^ Recursive }
@@ -126,6 +140,7 @@ object SQLLexer extends RegexParsers {
   def limit = positioned { "limit" ^^^ Limit }
   def asc = positioned { "asc" ^^^ Asc }
   def desc = positioned { "desc" ^^^ Desc }
+  def match_ = positioned { "match" ^^^ Match }
 
   override val whiteSpace = """[ \t\n\r\f]+""".r
 
