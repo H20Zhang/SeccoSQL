@@ -1,7 +1,10 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
-import org.apache.spark.secco.execution.storage.block.InternalBlock
+import com.typesafe.config.ConfigException.Generic
+import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.execution.storage.Utils.InternalRowComparator
+import org.apache.spark.secco.types.StructType
 
 import java.util.Comparator
 
@@ -24,11 +27,17 @@ case class SortIterator(
     sortOrder: Array[Boolean]
 ) extends BaseSortIterator {
 
-  override def isSorted(): Boolean = ???
+  private val schema: StructType = StructType.fromAttributes(localAttributeOrder)
 
-  override def results(): InternalBlock = ???
+  override def isSorted(): Boolean = true
+
+  override def results(): InternalBlock = {
+    val rows = childIter.results().toArray()
+    java.util.Arrays.sort(rows, sortFunction)
+    InternalBlock(rows, schema)
+  }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 
-  override def sortFunction: Comparator[InternalRow] = ???
+  override def sortFunction: Comparator[InternalRow] = new InternalRowComparator(schema, sortOrder)
 }

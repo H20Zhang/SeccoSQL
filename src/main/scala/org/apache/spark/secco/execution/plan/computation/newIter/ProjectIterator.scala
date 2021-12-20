@@ -1,15 +1,19 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
-import org.apache.spark.secco.execution.storage.block.InternalBlock
+import org.apache.spark.secco.execution.storage.Utils
+import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock, UnsafeInternalBlock}
 import org.apache.spark.secco.execution.storage.row.InternalRow
-import org.apache.spark.secco.expression.codegen.BaseProjectionFunc
-import org.apache.spark.secco.expression.{Attribute, NamedExpression}
+import org.apache.spark.secco.expression.codegen.{BaseProjectionFunc, GenerateSafeProjection}
+import org.apache.spark.secco.expression.{Attribute, AttributeReference, Expression, NamedExpression, codegen}
+import org.apache.spark.secco.types.{StructField, StructType}
+
+import scala.collection.mutable.ArrayBuffer
 
 /** The base class for performing project via iterator. */
 sealed abstract class BaseProjectIterator extends SeccoIterator {
 
   def projectionList: Array[NamedExpression]
 
-  def projectionFunctions: Array[BaseProjectionFunc]
+  def projectionFunction: BaseProjectionFunc
 
 }
 
@@ -19,19 +23,34 @@ case class ProjectIterator(
     projectionList: Array[NamedExpression]
 ) extends BaseProjectIterator {
 
-  override def projectionFunctions: Array[BaseProjectionFunc] = ???
+//  override def projectionFunctions: Array[BaseProjectionFunc] = {
+//    val result = projectionList.map(expr => GenerateSafeProjection.generate(Seq(expr)).asInstanceOf[BaseProjectionFunc])
+//    result
+//  }
+  override def projectionFunction: BaseProjectionFunc =
+    GenerateSafeProjection.generate(projectionList).asInstanceOf[BaseProjectionFunc]
 
-  override def localAttributeOrder(): Array[Attribute] = ???
+  override def localAttributeOrder(): Array[Attribute] = projectionList.map(_.toAttribute)
 
-  override def isSorted(): Boolean = ???
+  override def isSorted(): Boolean = childIter.isSorted()
 
-  override def isBreakPoint(): Boolean = ???
+  override def isBreakPoint(): Boolean = false
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock = {
+    val schema = StructType.fromAttributes(localAttributeOrder())
+    InternalBlock(childIter.results().toArray().map(projectionFunction(_)), schema)
+  }
 
-  override def hasNext: Boolean = ???
+  override def hasNext: Boolean = childIter.hasNext
 
-  override def next(): InternalRow = ???
+  override def next(): InternalRow = {
+    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
+    else
+    {
+      val row: InternalRow = childIter.next()
+      projectionFunction(row)
+    }
+  }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 }
@@ -50,7 +69,10 @@ case class IndexableProjectIterator(
 ) extends BaseProjectIterator
     with IndexableSeccoIterator {
 
-  override def projectionFunctions: Array[BaseProjectionFunc] = ???
+  private val projectFunc: codegen.Projection = GenerateSafeProjection.generate(projectionList)
+
+  override def projectionFunction: BaseProjectionFunc =
+    GenerateSafeProjection.generate(projectionList).asInstanceOf[BaseProjectionFunc]
 
   override def keyAttributes(): Array[Attribute] = ???
 
@@ -60,17 +82,64 @@ case class IndexableProjectIterator(
 
   override def unsafeGetOneRow(key: InternalRow): InternalRow = ???
 
-  override def localAttributeOrder(): Array[Attribute] = ???
+  override def localAttributeOrder(): Array[Attribute] = projectionList.map(_.toAttribute)
 
-  override def isSorted(): Boolean = ???
+  override def isSorted(): Boolean = childIter.isSorted()
 
-  override def isBreakPoint(): Boolean = ???
+  override def isBreakPoint(): Boolean = false
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock = ??? // same with above
 
-  override def hasNext: Boolean = ???
+  override def hasNext: Boolean = childIter.hasNext
 
-  override def next(): InternalRow = ???
+  override def next(): InternalRow = ??? // same with above
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 }
+
+
+//backup code segment --lgh
+
+//1)
+//  var rowCache: InternalRow = _
+//  var cacheValid = false
+//  var hasNextCache: Boolean = _
+//  var rowCacheAssigned: Boolean = false
+
+//2)
+//    val result = Array(GenerateSafeProjection.generate(projectionList).asInstanceOf[BaseProjectionFunc])
+//    val result = Array(GenerateSafeProjection.generate(projectionList).asInstanceOf[BaseProjectionFunc])
+
+//3)
+//  override def hasNext: Boolean = {
+//    if(!cacheValid)
+//    {
+//      hasNextCache = childIter.hasNext
+//      if(hasNextCache) {
+//        rowCache = childIter.next()
+//        rowCacheAssigned = true
+//        for (projectFunc <- projectionFunctions) {
+//          rowCache = projectFunc(rowCache)
+//        }
+//      }
+//      cacheValid = true
+//    }
+//    hasNextCache
+//  }
+
+//4)
+//    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
+//    else
+//    {
+//      cacheValid = false
+//      rowCache
+//    }
+
+//5)
+//      for (projectFunc <- projectionFunctions) {
+//        row = projectFunc(row)
+//      }
+
+//6)
+//    val rowArrayBuffer = ArrayBuffer[InternalRow]()
+//    while(hasNext) rowArrayBuffer += next()

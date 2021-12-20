@@ -21,7 +21,9 @@ trait MapLike extends IndexLike {
 /** The trait for supporting Trie like capability for [[InternalBlock]] */
 trait TrieLike extends IndexLike {
   def containPrefix(prefix: InternalRow): Boolean
-  def get[T: ClassTag](key: InternalRow): Array[T]
+//  def get[T: ClassTag](key: InternalRow): Array[T]
+  def get(key: InternalRow): Array[Any]
+  def getRows(key: InternalRow): Array[InternalRow]
 }
 
 /** The trait for supporting Set like capability for [[InternalBlock]]. */
@@ -96,3 +98,20 @@ abstract class InternalBlock {
   /** Convert the InternalBlock to array of [[InternalRow]] */
   def toArray(): Array[InternalRow]
 }
+
+object InternalBlock{
+
+  /**
+    * This method can be used to construct a [[InternalBlock]] with rows and the schema given .
+    */
+  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
+
+  /**
+    * This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
+    */
+  def fromSeq(rows: Seq[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows.toArray, schema)
+
+  /** Returns an empty [[InternalRow]]. */
+  val empty = apply(Array.empty[InternalRow], new StructType)
+
+  }

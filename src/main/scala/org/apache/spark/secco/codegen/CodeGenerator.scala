@@ -1,40 +1,20 @@
 package org.apache.spark.secco.codegen
 
 import com.google.common.cache.{CacheBuilder, CacheLoader}
-import com.google.common.util.concurrent.{
-  ExecutionError,
-  UncheckedExecutionException
-}
+import com.google.common.util.concurrent.{ExecutionError, UncheckedExecutionException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.secco.codegen.Block.BlockHelper
-import org.apache.spark.secco.execution.storage.row.{
-  GenericInternalRow,
-  InternalRow,
-  UnsafeInternalRow
-}
+import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
+import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.{Attribute, Expression}
-import org.apache.spark.secco.types.{
-  BooleanType,
-  DataType,
-  DoubleType,
-  FloatType,
-  IntegerType,
-  LongType,
-  StringType,
-  StructType
-}
+import org.apache.spark.secco.types.{BooleanType, DataType, DataTypes, DoubleType, FloatType, IntegerType, LongType, StringType, StructType}
 import org.apache.spark.secco.util.DebugUtils.printlnDebug
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.{TaskContext, TaskKilledException}
 import org.codehaus.commons.compiler.CompileException
 import org.codehaus.janino.util.ClassFile
-import org.codehaus.janino.{
-  ByteArrayClassLoader,
-  ClassBodyEvaluator,
-  InternalCompilerException,
-  SimpleCompiler
-}
+import org.codehaus.janino.{ByteArrayClassLoader, ClassBodyEvaluator, InternalCompilerException, SimpleCompiler}
 
 import java.io.ByteArrayInputStream
 import java.util.{Map => JavaMap}
@@ -632,7 +612,7 @@ class CodegenContext {
 //      val compareFunc = freshName("compareArray")
 //      val minLength = freshName("minLength")
 //      val jt = javaType(elementType)
-//      val funcCode: String =
+  //      val funcCode: String =
 //        s"""
 //          public int $compareFunc(ArrayData a, ArrayData b) {
 //            // when comparing unsafe arrays, try equals first as it compares the binary directly
@@ -1262,6 +1242,7 @@ object CodeGenerator extends Logging {
         throw e.getCause
     }
 
+
   /** Compile the Java source code into a Java class, using Janino.
     */
   private[this] def doCompile(code: CodeAndComment): (GeneratedClass, Int) = {
@@ -1287,6 +1268,9 @@ object CodeGenerator extends Logging {
       classOf[Platform].getName,
       classOf[InternalRow].getName,
       classOf[UnsafeInternalRow].getName,
+      classOf[DataType].getName,  // added by lgh
+      classOf[DataTypes].getName,  // added by lgh
+      classOf[TrieInternalBlock].getName,  // added by lgh
       classOf[GenericInternalRow].getName,
       classOf[Expression].getName,
       classOf[TaskContext].getName,
@@ -1326,7 +1310,8 @@ object CodeGenerator extends Logging {
   private def logGeneratedCode(code: CodeAndComment): Unit = {
 //    val maxLines = SQLConf.get.loggingMaxLinesForCodegen
     //TODO: add relevant configuration option in DolphinConfiguration.
-    val maxLines = 100
+//    val maxLines = 100
+    val maxLines = 200 // Temporarily changed by lgh
     if (Utils.isTesting) {
       logError(s"\n${CodeFormatter.format(code, maxLines)}")
     } else {

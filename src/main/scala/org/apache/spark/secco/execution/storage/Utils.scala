@@ -1,8 +1,11 @@
 package org.apache.spark.secco.execution.storage
 
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.types._
 import sun.misc.Unsafe
+
+import java.util.Comparator
 
 object Utils {
 
@@ -212,4 +215,62 @@ object Utils {
     _UNSAFE.freeMemory(tempAddress)
     out
   }
+
+  class InternalRowComparator(rowSchema: StructType)
+    extends Comparator[InternalRow]
+      with Serializable {
+
+    var indexMapArray: Array[Int] = {
+      val array = new Array[Int](rowSchema.length);
+      for (idx <- 0 until rowSchema.length) array(idx) = idx;
+      array
+    }
+
+    var directions: Array[Boolean] = rowSchema.fields.map(_ => true)
+
+    // later added by lgh
+    def this(rowSchema: StructType, indexMap: Array[Int]){
+      this(rowSchema)
+      indexMapArray = indexMap
+    }
+
+    // later added by lgh
+    def this(rowSchema: StructType, sortDirections: Array[Boolean]){
+      this(rowSchema)
+      directions = sortDirections
+    }
+
+    override def compare(
+                          o1: InternalRow,
+                          o2: InternalRow
+                        ): Int = {
+
+      var i = 0
+      while (i < rowSchema.length) {
+        val dataType = rowSchema(indexMapArray(i)).dataType
+        val item1: Any = o1.get(indexMapArray(i), dataType)
+        val item2: Any = o2.get(indexMapArray(i), dataType)
+        val compResult = Utils.anyCompare(item1, item2)
+        if (compResult != 0) {
+//          return compResult
+          return if(directions(i)) compResult else -compResult // later added by lgh
+        } else {
+          i += 1
+        }
+      }
+      return 0
+    }
+  }
+
+//  def attributeArrayToStructType(attributeArray: Array[Attribute]): StructType = StructType(attributeArray.map{
+//    i => StructField(i.name, i.dataType, i.nullable)
+//  })
+//  {
+//    val structFieldsArray = {
+//      //lgh DONE: consider when localAttributeOrder elements are not instances of AttributeReference
+////      attributeArray.map(_.asInstanceOf[AttributeReference]).map(i => StructField(i.name, i.dataType))
+//      attributeArray.map(i => StructField(i.name, i.dataType, i.nullable))
+//    }
+//    StructType(structFieldsArray)
+//  }
 }

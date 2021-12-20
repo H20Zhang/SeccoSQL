@@ -118,7 +118,7 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
       theVariableBaseOffset: Array[Long],
       i: Int
   ): UnsafeInternalRow = {
-    val unsafeInternalRow = new UnsafeInternalRow(blockSchema.fields.length)
+    val unsafeInternalRow = new UnsafeInternalRow(blockSchema.fields.length, true)
     copyMemory(
       null,
       theBaseOffset + i * rowSize,

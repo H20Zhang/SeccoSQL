@@ -1,8 +1,13 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
-import org.apache.spark.secco.execution.storage.block.InternalBlock
+import org.apache.spark.secco.execution.storage.Utils
+import org.apache.spark.secco.execution.storage.block.{HashMapInternalBlock, HashSetInternalBlock, InternalBlock, TrieInternalBlock}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.codegen.GenerateSafeProjection
+import org.apache.spark.secco.types.StructType
+
+import scala.collection.mutable
 
 /** The base class for building index. */
 sealed abstract class BaseBuildIndexIterator extends BlockingSeccoIterator {
@@ -19,11 +24,14 @@ case class BuildTrie(
 ) extends BaseBuildIndexIterator {
 
   override def toIndexIterator(): SeccoIterator with IndexableSeccoIterator =
-    ???
+    IndexableTableIterator(results().asInstanceOf[TrieInternalBlock], localAttributeOrder, localAttributeOrder, true)
 
-  override def isSorted(): Boolean = ???
+  override def isSorted(): Boolean = true // lgh: TODO: confirm the correctness of this.
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock = {
+    val schema = StructType.fromAttributes(localAttributeOrder)
+    TrieInternalBlock(childIter.results().toArray(), schema)
+  }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 }
@@ -32,28 +40,41 @@ case class BuildHashMap(childIter: SeccoIterator, keyAttrs: Array[Attribute])
     extends BaseBuildIndexIterator {
 
   override def toIndexIterator(): SeccoIterator with IndexableSeccoIterator =
-    ???
+    IndexableTableIterator(results().asInstanceOf[HashMapInternalBlock], keyAttrs, localAttributeOrder(), isSorted())
 
-  override def localAttributeOrder(): Array[Attribute] = ???
+  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
 
-  override def isSorted(): Boolean = ???
+  override def isSorted(): Boolean = childIter.isSorted()
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock ={
+//    val schema = Utils.attributeArrayToStructType(localAttributeOrder())
+    val schema = StructType.fromAttributes(localAttributeOrder())
+    //lgh TODO: check the correctness of the following statement
+    val rows = mutable.HashMap[InternalRow, InternalRow](childIter.results().toArray().map{
+      row => (GenerateSafeProjection.generate(keyAttrs)(row), row) }: _*)
+    new HashMapInternalBlock(rows, schema)
+    //lgh TODO: check whether "keyAttrs" should be used here and whether the implementation of the initialization of HashMapInternalBlock is correct.
+  }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 }
 
 case class BuildSet(childIter: SeccoIterator, keyAttrs: Array[Attribute])
-    extends BaseBuildIndexIterator {
-
+extends BaseBuildIndexIterator {
   override def toIndexIterator(): SeccoIterator with IndexableSeccoIterator =
-    ???
+    IndexableTableIterator(results().asInstanceOf[HashSetInternalBlock], keyAttrs, localAttributeOrder(), isSorted())
 
-  override def localAttributeOrder(): Array[Attribute] = ???
+  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
 
-  override def isSorted(): Boolean = ???
+  override def isSorted(): Boolean = childIter.isSorted()
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock = {
+//    val schema = Utils.attributeArrayToStructType(localAttributeOrder())
+    val schema = StructType.fromAttributes(localAttributeOrder())
+    new HashSetInternalBlock(mutable.HashSet[InternalRow](childIter.results().toArray(): _*), schema)
+    //lgh TODO: check whether the implementation of contains(InternalRow) is corrected in this class
+    //lgh TODO: check whether "keyAttrs" should be used here and whether the implementation of the initialization of HashSetInternalBlock is correct.
+  }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 }

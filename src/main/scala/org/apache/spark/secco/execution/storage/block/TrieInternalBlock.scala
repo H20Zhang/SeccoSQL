@@ -8,32 +8,7 @@ import org.apache.spark.secco.util.BSearch
 
 import java.util.Comparator
 import scala.collection.mutable.ArrayBuffer
-import scala.reflect.ClassTag
-
-class InternalRowComparator(rowSchema: StructType, indexMapArray: Array[Int])
-    extends Comparator[InternalRow]
-    with Serializable {
-
-  override def compare(
-      o1: InternalRow,
-      o2: InternalRow
-  ): Int = {
-
-    var i = 0
-    while (i < rowSchema.length) {
-      val dataType = rowSchema(indexMapArray(i)).dataType
-      val item1: Any = o1.get(indexMapArray(i), dataType)
-      val item2: Any = o2.get(indexMapArray(i), dataType)
-      val compResult = Utils.anyCompare(item1, item2)
-      if (compResult != 0) {
-        return compResult
-      } else {
-        i += 1
-      }
-    }
-    return 0
-  }
-}
+import scala.reflect.{ClassTag, classTag}
 
 class StringNodeComparator extends Comparator[StringNode] with Serializable {
 
@@ -224,7 +199,14 @@ class TrieInternalBlock(
   ): Unit =
     Utils._UNSAFE.putLong(valuesAddress + idx * elemSize + 8, indexWord)
 
-  override def get[T: ClassTag](key: InternalRow): Array[T] = {
+  def getString(key: InternalRow): Array[String] = get(key).map(_.asInstanceOf[String])
+  def getBoolean(key: InternalRow): Array[Boolean] = get(key).map(_.asInstanceOf[Boolean])
+  def getInt(key: InternalRow): Array[Int] = get(key).map(_.asInstanceOf[Int])
+  def getLong(key: InternalRow): Array[Long] = get(key).map(_.asInstanceOf[Long])
+  def getDouble(key: InternalRow): Array[Double] = get(key).map(_.asInstanceOf[Double])
+  def getFloat(key: InternalRow): Array[Float] = get(key).map(_.asInstanceOf[Float])
+
+  override def get(key: InternalRow): Array[Any] = {
 
     var start = rootBegin
     var end = rootEnd
@@ -250,7 +232,7 @@ class TrieInternalBlock(
         )
       }
 
-      if (pos == -1) return Array[T]()
+      if (pos == -1) return Array[Any]()
 
       start = getFirstChildIndex(pos)
       end = getFirstChildIndex(pos + 1)
@@ -259,20 +241,20 @@ class TrieInternalBlock(
 
     assert(j == bindingLevel, "j != bindingLevel")
 
-    val arrayBuffer = new ArrayBuffer[T]
+    val arrayBuffer = new ArrayBuffer[Any]
     for (idx <- start until end)
-      arrayBuffer.append(getters(j)(idx).asInstanceOf[T])
+      arrayBuffer.append(getters(j)(idx).asInstanceOf[Any])
     arrayBuffer.toArray
   }
 
   override def toArray(): Array[InternalRow] = {
     var tables =
-      get[Any](InternalRow.empty).map(f => Array(f))
+      get(InternalRow.empty).map(f => Array(f))
 
     var i = 1
     while (i < level) {
       tables = tables.flatMap { f =>
-        val nextLevelValues = get[Any](InternalRow(f: _*))
+        val nextLevelValues = get(InternalRow(f: _*))
         nextLevelValues.map(value => f :+ value)
       }
 
@@ -409,12 +391,15 @@ class TrieInternalBlock(
 
     var idx = numElems - rowNum + i
     for (j <- 0 until level) {
-      row(level - 1 - j) = getters(j)(idx)
+      val curColumnIdx = level - 1 - j
+      row(curColumnIdx) = getters(curColumnIdx)(idx)
       idx = getParentIndex(idx)
     }
 
     return row
   }
+
+  override def getRows(key: InternalRow): Array[InternalRow] = ???
 }
 
 //lgh: Store values in an Array in the order of level traversal.
@@ -544,7 +529,7 @@ object TrieInternalBlock {
 
     //sort the relation in lexical order
     val comparator =
-      new InternalRowComparator(rowsSchema, indexNewToOldMapArray)
+      new Utils.InternalRowComparator(rowsSchema, indexNewToOldMapArray)
     java.util.Arrays.sort(table, comparator)
 
     var idCounter = 0
@@ -641,6 +626,12 @@ class TrieInternalBlockBuilder(schema: StructType)
 
 case class StringNode(idx: Int, strValue: String)
 
+
+
+
+// lgh code fragments
+
+// 1.
 //abstract class UnsafeArray[T]{
 //  def apply(i: Int): T
 //  def update(i: Int, t: T): Unit
@@ -782,3 +773,69 @@ case class StringNode(idx: Int, strValue: String)
 //
 //  override def size: Int = length
 //}
+
+
+
+
+// 2.
+//override def get[T: ClassTag](key: InternalRow): Array[T] = {
+//
+//  var start = rootBegin
+//  var end = rootEnd
+//  var j = 0
+//  val bindingLevel = key.numFields
+//  var pos = 0
+//
+//  while (j < bindingLevel) {
+//
+//  if (!isString(j)) {
+//  val keyVal = key.get(j, schema(j).dataType)
+//  val keyLong = Utils.anyToLongForComparison(keyVal)
+//  pos = BSearch.searchUnsafe(valuesAddress, keyLong, start, end, elemSize)
+//  } else {
+//  val keyString = key.getString(j)
+//  pos = BSearch.searchUnsafeString(
+//  valuesAddress,
+//  variableLengthZoneAddress,
+//  keyString,
+//  start,
+//  end,
+//  elemSize
+//  )
+//  }
+//
+//  if (pos == -1) return Array[T]()
+//
+//  start = getFirstChildIndex(pos)
+//  end = getFirstChildIndex(pos + 1)
+//  j += 1
+//  }
+//
+//  assert(j == bindingLevel, "j != bindingLevel")
+//
+//  val arrayBuffer = new ArrayBuffer[T]
+//  for (idx <- start until end)
+//  arrayBuffer.append(getters(j)(idx).asInstanceOf[T])
+//  arrayBuffer.toArray
+//  }
+
+
+
+
+// 3.
+//override def toArray(): Array[InternalRow] = {
+//  var tables =
+//  get[Any](InternalRow.empty).map(f => Array(f))
+//
+//  var i = 1
+//  while (i < level) {
+//  tables = tables.flatMap { f =>
+//  val nextLevelValues = get[Any](InternalRow(f: _*))
+//  nextLevelValues.map(value => f :+ value)
+//  }
+//
+//  i += 1
+//  }
+//
+//  tables.map(f => InternalRow(f: _*))
+//  }

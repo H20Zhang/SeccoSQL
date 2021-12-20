@@ -6,7 +6,8 @@ import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.trees.TreeNode
 
 /** The base trait for an operator in a pipeline. */
-trait SeccoIterator extends TreeNode[SeccoIterator] with Iterator[InternalRow] {
+//trait SeccoIterator extends TreeNode[SeccoIterator] with Iterator[InternalRow] {
+trait SeccoIterator extends TreeNode[SeccoIterator]{
 
   /** The attribute order of the output.
     *
@@ -28,6 +29,8 @@ trait SeccoIterator extends TreeNode[SeccoIterator] with Iterator[InternalRow] {
 
   override def verboseString: String = simpleString
 
+  def hasNext: Boolean
+  def next(): InternalRow
 }
 
 /** The trait for an blocking operator in a pipeline */
