@@ -1,20 +1,21 @@
 package org.apache.spark.secco.execution.storage.block
 
+import java.util.Comparator
 import it.unimi.dsi.fastutil.doubles.Double2IntOpenHashMap
 import org.apache.spark.secco.execution.storage.collection.ArraySegment
 import org.apache.spark.secco.util.BSearch
 
-import java.util.Comparator
 import scala.collection.mutable.ArrayBuffer
+
 
 // edge:Array[(ID, ID, Value)], node:Array[(Start, End)]
 class ArrayTrieInternalBlock(
-    neighbors: Array[Int],
-    val values: Array[Double],
-    neighborBegins: Array[Int],
-    neighborEnds: Array[Int],
-    level: Int
-) {
+                              neighbors: Array[Int],
+                              val values: Array[Double],
+                              neighborBegins: Array[Int],
+                              neighborEnds: Array[Int],
+                              level: Int
+                            )  {
   self =>
 
   private var rootBegin = neighborBegins(0)
@@ -114,6 +115,7 @@ class ArrayTrieInternalBlock(
 
     arraySegment
   }
+
 
   def toArray(): Array[Array[Double]] = {
     var tables =
@@ -284,24 +286,18 @@ object ArrayTrieInternalBlock {
       i += 1
     }
 
-    new ArrayTrieInternalBlock(
-      neighbors,
-      values,
-      neighborsBegin,
-      neighborsEnd,
-      arity
-    )
+    new ArrayTrieInternalBlock(neighbors, values, neighborsBegin, neighborsEnd, arity)
   }
 }
 
 class LexicalOrderComparator(attrNum: Int)
-    extends Comparator[Array[Double]]
+  extends Comparator[Array[Double]]
     with Serializable {
 
   override def compare(
-      o1: Array[Double],
-      o2: Array[Double]
-  ): Int = {
+                        o1: Array[Double],
+                        o2: Array[Double]
+                      ): Int = {
     var i = 0
     while (i < attrNum) {
       if (o1(i) < o2(i)) {
@@ -317,13 +313,13 @@ class LexicalOrderComparator(attrNum: Int)
 }
 
 class TupleEdgeComparator
-    extends Comparator[(Int, Int, Double)]
+  extends Comparator[(Int, Int, Double)]
     with Serializable {
 
   override def compare(
-      o1: (Int, Int, Double),
-      o2: (Int, Int, Double)
-  ): Int = {
+                        o1: (Int, Int, Double),
+                        o2: (Int, Int, Double)
+                      ): Int = {
 
     if (o1._1 < o2._1) {
       return -1

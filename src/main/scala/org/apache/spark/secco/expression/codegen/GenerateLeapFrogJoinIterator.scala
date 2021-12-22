@@ -71,6 +71,7 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
     // 4. relevant prefix attributes for each relevant relation
 
     val prefixLength = schema.size - 1
+    val prefixSchema = schema.slice(0, prefixLength)
     val curLevel = prefixLength
     val curRelevantRelationIndices = relevantRelationIndicesForEachAttr(curLevel)
     val numRelevantRelations = curRelevantRelationIndices.length
@@ -78,8 +79,8 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
     val dt = schema(curLevel).dataType
     val jt = CodeGenerator.javaType(dt)
     val bt = CodeGenerator.boxedType(dt)
-
-
+    val fullPt = CodeGenerator.primitiveTypeName(dt)
+    val pt = fullPt.substring(fullPt.lastIndexOf(".") + 1)
 
     val defineLeapFrogJoinUnaryIterator =
       s"""
@@ -92,13 +93,21 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
         |    private boolean hasNextCache;
         |    private boolean cacheValid = false;
         |
-        |    private final int[] currentCursors = new int[numArrays];
+        |    private final int[] currentCursors;
         |    private int childIdx = 0;
         |
         |
         |    LeapFrogUnaryIterator($jt[][] tries){
         |        childrenInArrays = tries;
         |        numArrays = tries.length;
+        |        currentCursors = new int[numArrays];
+        |        for($jt[] trie: tries){
+        |            if (trie.length == 0) {
+        |                hasNextCache = false;
+        |                cacheValid = true;
+        |                return;
+        |            }
+        |        }
         |        java.util.Arrays.sort(childrenInArrays, new ArrayFirstElementComparator());
         |    }
         |
@@ -127,7 +136,7 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
         |    @Override
         |    public boolean hasNext() {
         |        if (cacheValid) return hasNextCache;
-        |        int prevIdx = (childIdx - 1) % numArrays;
+        |        int prevIdx = Math.floorMod((childIdx - 1), numArrays);
         |        $jt curMax = childrenInArrays[prevIdx][currentCursors[prevIdx]];
         |        while (!cacheValid) {
         |            valueCache = childrenInArrays[childIdx][currentCursors[childIdx]];
@@ -183,17 +192,16 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
         |        if (o1.length == 0 && o2.length == 0) return 0;
         |        else if (o1.length == 0) return -1;
         |        else if (o2.length == 0) return 1;
-        |        if (o1[0] < o2[0])
-        |            return -1;
-        |        else if ( o1[0] > o2[0])
-        |            return 1;
         |
         |        return ${ctx.genComp(dt, "o1[0]", "o2[0]")};
         |    }
         |
         |}
         |""".stripMargin
-
+//    |    final DataType[] dataTypes = {${schema.slice(0, prefixLength).map (attr => {
+      //                                     val boxedType = CodeGenerator.boxedType(attr.dataType)
+      //                                     "DataTypes." + boxedType.substring(boxedType.lastIndexOf(".") + 1) + "Type"
+      //                                     }).mkString(", ")}};
     val codeBody =
       s"""
          |public java.lang.Object generate(Object[] references) {
@@ -202,10 +210,10 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
          |
          |public class SpecificIteratorProducer extends ${classOf[BaseIteratorProducer].getName} {
          |
-         |    final DataType[] dataTypes = {${schema.slice(0, prefixLength).map(attr =>
-                               "DataTypes." + CodeGenerator.boxedType(attr.dataType) + "Type").mkString(", ")}};
-         |    final int[] curRelevantRelationIndices = {${curRelevantRelationIndices.mkString(",")}};
-         |    final int[][] prefixIndicesForEachChild = {{${prefixIndicesForEachChild.map(_.mkString(",")).mkString("}, {")}}};
+         |    final DataType[] dataTypes = ${prefixSchema.map("DataTypes." + _.dataType).mkString("{", ",", "}")};
+         |    final int[] curRelevantRelationIndices = ${curRelevantRelationIndices.mkString("{", ",", "}")};
+         |    final int[][] prefixIndicesForEachChild = ${prefixIndicesForEachChild.map(_.mkString(","))
+                                                                                    .mkString("{{", "},{", "}}")};
          |    final $jt[][] childrenInArrays = new $jt[$numRelevantRelations][];
          |
          |    ${ctx.declareAddedFunctions()}
@@ -225,7 +233,7 @@ object GenerateLeapFrogJoinIterator extends CodeGenerator[(Seq[Attribute], Seq[S
          |                curPrefix[j] = prefix.get(curPrefixIndices[j], dataTypes[curPrefixIndices[j]]);
          |            }
          |            TrieInternalBlock curTrie = tries[curChildIndex];
-         |            childrenInArrays[i] = curTrie.get${CodeGenerator.primitiveTypeName(dt)}(InternalRow.apply(curPrefix));
+         |            childrenInArrays[i] = curTrie.get$pt(InternalRow.apply(curPrefix));
          |        }
          |        return new LeapFrogUnaryIterator(childrenInArrays);
          |    }

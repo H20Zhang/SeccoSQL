@@ -75,7 +75,7 @@ case class HashJoinIterator(
     val rowArrayBuffer = ArrayBuffer[InternalRow]()
     val leftResultsIter = left.results().iterator
     val rightIndexIter = right.toIndexIterator()
-//    val rightIndexIter = right.toIndexIterator().clone().asInstanceOf[SeccoIterator with IndexableSeccoIterator]
+//    val rightIndexIter = right.toIndexIterator().clone().asInstanceOf[SeccoIterator with IndexableSeccoIterator]di
     while(leftResultsIter.hasNext) {
       val curLeftResultsRow = leftResultsIter.next()
       if (rightIndexIter.setKey(getLeftKey(curLeftResultsRow))) {

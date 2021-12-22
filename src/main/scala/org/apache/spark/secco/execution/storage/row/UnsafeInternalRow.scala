@@ -1,15 +1,12 @@
 package org.apache.spark.secco.execution.storage.row
 
-//import org.apache.spark.dolphin.types.{DataType, _}
-import org.apache.spark.secco.execution.storage.Utils
-import org.apache.spark.secco.types._
+import org.apache.spark.secco.types.{DataType, _}
 import org.apache.spark.unsafe.array.ByteArrayMethods
 import org.apache.spark.unsafe.hash.Murmur3_x86_32
 import sun.misc.Unsafe
+import org.apache.spark.secco.execution.storage.Utils
 
 import scala.collection.immutable.HashSet
-//import org.apache.spark.dolphin.execution.storage.Utils
-
 import scala.collection.mutable
 
 
@@ -123,51 +120,6 @@ class UnsafeInternalRow extends InternalRow {
     pointTo(buf, BYTE_ARRAY_OFFSET, sizeInBytes)
   }
 
-//  def this(numFields: Int) = {
-//    this()
-//    assert (numFields >= 0, "numFields (" + numFields + ") should >= 0")
-//
-//    val bitMapWidthInWords = calculateBitMapWidthInWords(numFields)
-//
-//    this.numberOfFields = numFields
-//    this.bitSetWidthInBytes = bitMapWidthInWords * 8
-//    this.sizeInBytes = roundNumberOfBytesToNearestWord(bitSetWidthInBytes + (numFields * 8) * 3)
-//    this.currentUsedSize = bitSetWidthInBytes + numberOfFields * 8
-//
-//    this.baseObject = null
-//    this.baseOffset = Utils.allocateMemory(sizeInBytes.toLong)
-//
-//    //set null at all fields
-//    for(i <- 0 until bitMapWidthInWords) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0xffffffffffffffffL)
-//  }
-//
-//
-//  def this(numFields: Int, size: Int) = {
-//    this()
-//    assert (numFields >= 0, "numFields (" + numFields + ") should >= 0")
-//    //    assert (sizeInBytes % 8 == 0, "sizeInBytes (" + sizeInBytes + ") should be a multiple of 8")
-//
-//    val bitMapWidthInWords = calculateBitMapWidthInWords(numFields)
-//
-//    this.numberOfFields = numFields
-//    this.bitSetWidthInBytes = bitMapWidthInWords * 8
-//    this.sizeInBytes = roundNumberOfBytesToNearestWord(size)
-//    this.currentUsedSize = bitSetWidthInBytes + numberOfFields * 8
-//
-//    assert (sizeInBytes >= currentUsedSize, "current size (rounded) is not enough even for fixed-length data")
-//
-//    this.baseObject = null
-//    this.baseOffset = Utils.allocateMemory(sizeInBytes.toLong)
-//
-//    //set null at all fields
-//    for(i <- 0 until bitMapWidthInWords) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0xffffffffffffffffL)
-//  }
-
-
-  //  def initWithByteArray(array: Array[Byte], length: Int): Unit = {
-  //    baseObject = array
-  //    baseOffset = _UNSAFE.arrayBaseOffset(classOf[Array[Byte]])
-  //  }
 
   //////////////////////////////////////////////////////////////////////////////
   // Private fields and methods
@@ -289,13 +241,15 @@ class UnsafeInternalRow extends InternalRow {
 
       val newBaseObject = null
       val newAddress = Utils.allocateMemory(roundedSize.toLong)
-      copyMemory(
+      Utils.copyMemory(
         baseObject,
         baseOffset,
         newBaseObject,
         newAddress,
         currentUsedSize)
-      _UNSAFE.freeMemory(baseOffset)
+      if (baseObject == null) {
+        _UNSAFE.freeMemory(baseOffset)
+      }
       baseObject = newBaseObject
       baseOffset = newAddress
     }
@@ -417,7 +371,7 @@ class UnsafeInternalRow extends InternalRow {
   private[storage] def writeString(i: Int, byteArray: Array[Byte], offset: Long, size: Long): Unit = {
     val offsetAndSize = offset << 32 | size
     _UNSAFE.putLong(baseObject, getFieldOffset(i), offsetAndSize)
-    copyMemory(byteArray, BYTE_ARRAY_OFFSET, baseObject, baseOffset + offset, size)
+    Utils.copyMemory(byteArray, BYTE_ARRAY_OFFSET, baseObject, baseOffset + offset, size)
   }
 
   override def setString(i: Int, vStr: String): Unit = {
@@ -489,7 +443,7 @@ class UnsafeInternalRow extends InternalRow {
   override def copy(): InternalRow =  {
     val rowCopy = new UnsafeInternalRow(numberOfFields, this.sizeInBytes)
     rowCopy.currentUsedSize = this.currentUsedSize
-    copyMemory(
+    Utils.copyMemory(
       baseObject,
       baseOffset,
       rowCopy.baseObject,
@@ -503,7 +457,7 @@ class UnsafeInternalRow extends InternalRow {
 
   override def getBoolean(ordinal: Int): Boolean = _UNSAFE.getBoolean(baseObject, getFieldOffset(ordinal))
 
-  override def getInt(ordinal: Int): Int = _UNSAFE.getInt(baseObject, getFieldOffset(ordinal))
+  override def getInt(ordinal: Int): Int =  _UNSAFE.getInt(baseObject, getFieldOffset(ordinal))
 
   override def getLong(ordinal: Int): Long = _UNSAFE.getLong(baseObject, getFieldOffset(ordinal))
 
@@ -519,7 +473,7 @@ class UnsafeInternalRow extends InternalRow {
     val offset: Long = (offsetAndSize >> 32).toInt
     val size: Int = offsetAndSize.toInt
     val buf: Array[Byte] = new Array[Byte](size)
-    copyMemory(baseObject, baseOffset + offset, buf, BYTE_ARRAY_OFFSET, size)
+    Utils.copyMemory(baseObject, baseOffset + offset, buf, BYTE_ARRAY_OFFSET, size)
     return new String(buf)
   }
 
@@ -589,23 +543,28 @@ class UnsafeInternalRow extends InternalRow {
   }
 
   private[storage] def copyBitMapFrom(baseRef: AnyRef = null, address: Long):Unit =
-    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, baseOffset, bitSetWidthInBytes)
+//    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, baseOffset, bitSetWidthInBytes)
+    Utils.copyMemory(baseRef, address, baseObject, baseOffset, bitSetWidthInBytes)
 
   private[storage] def copyLongOrDoubleFrom(baseRef: AnyRef = null, address: Long, i: Int):Unit =
-    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i), 8)
+//    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i), 8)
+    Utils.copyMemory(baseRef, address, baseObject, getFieldOffset(i), 8)
 
   private[storage] def copyIntOrFloatFrom(baseRef: AnyRef = null, address: Long, i: Int):Unit =
-    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 4, 4)
+//    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 4, 4)
+    Utils.copyMemory(baseRef, address, baseObject, getFieldOffset(i), 4)
 
   private[storage] def copyBooleanOrByteFrom(baseRef: AnyRef = null, address: Long, i: Int):Unit =
-    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 7, 1)
+//    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 7, 1)
+    Utils.copyMemory(baseRef, address, baseObject, getFieldOffset(i), 1)
 
   private[storage] def copyDataFromWithDataSize(baseRef: AnyRef = null, address: Long, elemSize: Int,  i: Int): Unit =
-    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 8 - elemSize, elemSize)
+//    Utils._UNSAFE.copyMemory(baseRef, address, baseObject, getFieldOffset(i) + 8 - elemSize, elemSize)
+    Utils.copyMemory(baseRef, address, baseObject, getFieldOffset(i), elemSize)
 
   private[storage] def copyStringFrom(variableLengthZoneAddress: Long, offsetAndSize: Long,  i: Int): Unit =
   {
-    val stringAddress = variableLengthZoneAddress + offsetAndSize >> 32
+    val stringAddress = variableLengthZoneAddress + (offsetAndSize >> 32)
     val stringSize = offsetAndSize.toInt
     val newOffsetAndSize = currentCursor.toLong << 32 | stringSize.toLong
     grow(stringSize)

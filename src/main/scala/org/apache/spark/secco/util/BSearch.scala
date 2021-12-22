@@ -112,7 +112,9 @@ object BSearch {
       var i = 0
       while (comp == 0 && i < lengthLimit) {
         val tempChar =
-          Utils._UNSAFE.getChar(variableLengthZoneAddress + midOffsetAndSize)
+//          Utils._UNSAFE.getChar(variableLengthZoneAddress + midOffsetAndSize)
+//          Utils._UNSAFE.getChar(variableLengthZoneAddress + midStringOffset + i)
+          Utils._UNSAFE.getByte(variableLengthZoneAddress + midStringOffset + i)
         if (tempChar > value(i)) comp = 1
         else if (tempChar < value(i)) comp = -1
         i += 1

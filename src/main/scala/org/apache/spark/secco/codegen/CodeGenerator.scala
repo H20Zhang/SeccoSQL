@@ -7,7 +7,7 @@ import org.apache.spark.secco.codegen.Block.BlockHelper
 import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
 import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.{Attribute, Expression}
-import org.apache.spark.secco.types.{BooleanType, DataType, DataTypes, DoubleType, FloatType, IntegerType, LongType, StringType, StructType}
+import org.apache.spark.secco.types.{AtomicType, BooleanType, DataType, DataTypes, DoubleType, FloatType, IntegerType, LongType, StringType, StructType}
 import org.apache.spark.secco.util.DebugUtils.printlnDebug
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
@@ -668,6 +668,7 @@ class CodegenContext {
 //        """
 //      s"${addNewFunction(compareFunc, funcCode)}($c1, $c2)"
 //    case other if other.isInstanceOf[AtomicType] => s"$c1.compare($c2)"
+    case other if other.isInstanceOf[AtomicType] => s"$c1.compareTo($c2)"  // added by lgh
 //    case udt: UserDefinedType[_] => genComp(udt.sqlType, c1, c2)
       case _ =>
         throw new IllegalArgumentException(

@@ -1,20 +1,12 @@
 package org.apache.spark.secco.expression.codegen;
 
-import org.apache.spark.secco.execution.plan.computation.newIter.IndexableTableIterator;
-//import org.apache.spark.secco.execution.plan.computation.utils.LeapFrogUnaryIterator;
 import org.apache.spark.secco.execution.storage.block.TrieInternalBlock;
 import org.apache.spark.secco.execution.storage.row.InternalRow;
 import org.apache.spark.secco.expression.Attribute;
 import org.apache.spark.secco.types.DataType;
 import org.apache.spark.secco.types.StructField;
-import org.apache.spark.secco.types.StructType;
-import scala.collection.Iterator;
-import scala.collection.Seq;
-import scala.reflect.ClassTag$;
-import sourcecode.Impls;
 
 import java.util.ArrayList;
-import java.util.List;
 
 import static org.apache.spark.secco.types.DataTypes.DoubleType;
 import static org.apache.spark.secco.types.DataTypes.StringType;
@@ -58,19 +50,27 @@ public class SpecificIteratorProducer extends BaseIteratorProducer {
     static class LeapFrogUnaryIterator implements java.util.Iterator<Object> {
 
         private final Object[][] childrenTries;
-        private int numArrays;
+        private final int numArrays;
 
         private double valueCache;
         private boolean hasNextCache;
         private boolean cacheValid = false;
 
-        private final int[] currentCursors = new int[numArrays];
+        private final int[] currentCursors;
         private int childIdx = 0;
 
 
         LeapFrogUnaryIterator(Object[][] tries){
             childrenTries = tries;
             numArrays = tries.length;
+            currentCursors = new int[numArrays];
+            for(Object[] trie: tries){
+                if (trie.length == 0) {
+                    hasNextCache = false;
+                    cacheValid = true;
+                    return;
+                }
+            }
             java.util.Arrays.sort(childrenTries, new ArrayFirstElementComparator());
         }
 
@@ -104,7 +104,8 @@ public class SpecificIteratorProducer extends BaseIteratorProducer {
         @Override
         public boolean hasNext() {
             if (cacheValid) return hasNextCache;
-            int prevIdx = (childIdx - 1) % numArrays;
+//            int prevIdx = (childIdx - 1) % numArrays;
+            int prevIdx = Math.floorMod((childIdx - 1), numArrays);
             Object curMax = childrenTries[prevIdx][currentCursors[prevIdx]];
             while (!cacheValid) {
                 valueCache = (double) childrenTries[childIdx][currentCursors[childIdx]];

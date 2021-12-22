@@ -16,7 +16,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
   val length = 7
   before {
     //    val theArray = Array("abc", 1, 3, 4.0, true, null)
-    testRow = new UnsafeInternalRow(7, true)
+    testRow = new UnsafeInternalRow(numFields = 7, autoInit = true)
 //    testRow.initWithByteArray(new Array[Byte](80), 80)
 //    for (i <- 0 to 6) testRow.setNullAt(i)
     testRow.setString(0, "abc")
