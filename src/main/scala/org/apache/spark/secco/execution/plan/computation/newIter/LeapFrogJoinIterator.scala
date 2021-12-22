@@ -1,17 +1,16 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
-import org.apache.spark.secco.execution.storage.block.{
-  ArrayTrieInternalBlock,
-  InternalBlock
-}
+import org.apache.spark.secco.execution.storage.block.{ArrayTrieInternalBlock, InternalBlock, InternalBlockBuilder, TrieInternalBlock, TrieInternalBlockBuilder}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.codegen.{BaseIteratorProducer, GenerateLeapFrogJoinIterator}
+import org.apache.spark.secco.types.StructType
 
 /** The base class for performing leapfrog join via iterator */
 sealed abstract class BaseLeapFrogJoinIterator extends SeccoIterator {
 
   /** The tries of the relations */
-  def tries: Array[ArrayTrieInternalBlock]
+  def tries: Array[TrieInternalBlock]
 }
 
 /** The iterator that performs leapfrog join
@@ -25,17 +24,96 @@ case class LeapFrogJoinIterator(
     localAttributeOrder: Array[Attribute]
 ) extends BaseLeapFrogJoinIterator {
 
-  override def tries: Array[ArrayTrieInternalBlock] = ???
+  private val childrenTries = children.map {
+    child =>
+      TrieInternalBlock(child.results().toArray(), StructType.fromAttributes(child.localAttributeOrder))
+  }.toArray
+
+  private val arity: Int = localAttributeOrder.length
+  private val rowSchema = StructType.fromAttributes(localAttributeOrder)
+  private val producers: Seq[BaseIteratorProducer] = (1 to arity).map {
+    curArity =>
+    GenerateLeapFrogJoinIterator.generate((localAttributeOrder.slice(0, curArity),
+      children.map(_.localAttributeOrder.toSeq)))
+  }
+
+  var iterators: Array[java.util.Iterator[AnyRef]] = new Array[java.util.Iterator[AnyRef]](arity)
+  //  private var rowCache: InternalRow = InternalRow(new Array[Any](arity))
+  private val arrayCache: Array[Any] = new Array[Any](arity)
+  private var hasNextCache: Boolean = _
+  private var hasNextCacheValid = false
+
+  init()
+
+  private def init(): Unit = {
+    var i = 0
+    while (!hasNextCacheValid && i < arity) {
+      val curIter = producers(i).getIterator(InternalRow(arrayCache.slice(0, i)), childrenTries)
+      iterators(i) = curIter
+      if (curIter.hasNext) {
+        arrayCache(i) = curIter.next()
+      }
+      else {
+        hasNextCache = false
+        hasNextCacheValid = true
+      }
+      i += 1
+    }
+  }
+
+  override def tries: Array[TrieInternalBlock] = childrenTries
 
   override def isSorted(): Boolean = true
 
   override def isBreakPoint(): Boolean = false
 
-  override def results(): InternalBlock = ???
+  override def results(): InternalBlock = {
+    val builder = new TrieInternalBlockBuilder(rowSchema)
+    while(hasNext){
+      builder.add(next())
+    }
+    builder.build()
+  }
 
-  override def hasNext: Boolean = ???
+  override def hasNext: Boolean = {
+    if (hasNextCacheValid) return hasNextCache
+    var i = arity
+    while(!hasNextCacheValid){
+      val curIter = iterators(i)
+      if (curIter.hasNext) {
+        arrayCache(i) = curIter.next()
+        if(i == arity){
+          hasNextCache = true
+          hasNextCacheValid = true
+        }
+        else{
+          i += 1
+          iterators(i) = producers(i).getIterator(InternalRow(arrayCache.slice(0, i)), childrenTries)
+        }
+      }
+      else {
+        if(i == 0)
+          {
+            hasNextCache = false
+            hasNextCacheValid = true
+          }
+        else{
+          i -= 1
+        }
+      }
+    }
+    return hasNextCache
+  }
 
-  override def next(): InternalRow = ???
+  override def next(): InternalRow = {
+    if(isBreakPoint())  throw new NoSuchMethodException()
+    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
+    else
+    {
+      hasNextCacheValid = false
+      InternalRow(arrayCache)
+    }
+  }
 }
 
 /** The iterator that performs leapfrog join with index-like operations
@@ -53,7 +131,7 @@ case class IndexableLeapFrogIterator(
 ) extends BaseLeapFrogJoinIterator
     with IndexableSeccoIterator {
 
-  override def tries: Array[ArrayTrieInternalBlock] = ???
+  override def tries: Array[TrieInternalBlock] = ???
 
   override def setKey(key: InternalRow): Boolean = ???
 
