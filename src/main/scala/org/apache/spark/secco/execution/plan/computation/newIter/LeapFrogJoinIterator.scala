@@ -3,7 +3,7 @@ package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.block.{ArrayTrieInternalBlock, InternalBlock, InternalBlockBuilder, TrieInternalBlock, TrieInternalBlockBuilder}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
-import org.apache.spark.secco.expression.codegen.{BaseIteratorProducer, GenerateLeapFrogJoinIterator}
+import org.apache.spark.secco.expression.codegen.{BaseUnaryIteratorProducer, GenerateUnaryIterator}
 import org.apache.spark.secco.types.StructType
 
 /** The base class for performing leapfrog join via iterator */
@@ -31,9 +31,9 @@ case class LeapFrogJoinIterator(
 
   private val arity: Int = localAttributeOrder.length
   private val rowSchema = StructType.fromAttributes(localAttributeOrder)
-  private val producers: Seq[BaseIteratorProducer] = (1 to arity).map {
+  private val producers: Seq[BaseUnaryIteratorProducer] = (1 to arity).map {
     curArity =>
-    GenerateLeapFrogJoinIterator.generate((localAttributeOrder.slice(0, curArity),
+    GenerateUnaryIterator.generate((localAttributeOrder.slice(0, curArity),
       children.map(_.localAttributeOrder.toSeq)))
   }
 

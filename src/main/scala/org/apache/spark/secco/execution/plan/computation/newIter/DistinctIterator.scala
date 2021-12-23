@@ -124,7 +124,7 @@ case class IndexableDistinctIterator(
 //  var encounterNewRow = false
 //  while(!encounterNewRow && childIter.hasNext){
 //  val row_temp = childIter.next()
-//  //lgh TODO: consider when localAttributeOrder elements are not instances of AttributeReference
+//  //lgh
 //  encounterNewRow = !localAttributeOrder().map(_.asInstanceOf[AttributeReference]).
 //  zipWithIndex.map( t => row_temp.get(t._2, t._1.dataType) == rowCache.get(t._2, t._1.dataType) ).reduce(_&&_)
 //  //        encounterNewRow = !row_temp.e

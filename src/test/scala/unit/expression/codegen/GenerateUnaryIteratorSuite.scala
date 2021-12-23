@@ -3,11 +3,11 @@ package unit.expression.codegen
 import org.apache.spark.secco.execution.storage.block.{TrieInternalBlock, TrieInternalBlockBuilder}
 import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, InternalRow}
 import org.apache.spark.secco.expression.{Ascending, Attribute, AttributeReference, BoundReference, SortOrder}
-import org.apache.spark.secco.expression.codegen.{GenerateLeapFrogJoinIterator, GenerateOrdering}
+import org.apache.spark.secco.expression.codegen.{GenerateUnaryIterator, GenerateOrdering}
 import org.apache.spark.secco.types._
 import org.scalatest.{BeforeAndAfter, FunSuite}
 
-class GenerateLeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
+class GenerateUnaryIteratorSuite extends FunSuite with BeforeAndAfter {
 
   var schema: Seq[Attribute] = _
   var prefixAndCurAttributes: Seq[Attribute] = _
@@ -91,14 +91,14 @@ class GenerateLeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
 
     tries = Array(child0, child1, child2, child3, child4, child5)
 
-    val prefixLength = 4 // prefixLength [0, 5)
+    val prefixLength = 0 // prefixLength [0, 5)
     prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
     prefixRow = InternalRow(Array[Any]("trousers", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
   }
 
   test("generate_leapFrogJoinUnaryIterator"){
 
-    val producer = GenerateLeapFrogJoinIterator.generate((prefixAndCurAttributes, childrenSchemas))
+    val producer = GenerateUnaryIterator.generate((prefixAndCurAttributes, childrenSchemas))
 
     val iter = producer.getIterator(prefixRow, tries)
 

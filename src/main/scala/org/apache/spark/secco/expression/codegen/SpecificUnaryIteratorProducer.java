@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import static org.apache.spark.secco.types.DataTypes.DoubleType;
 import static org.apache.spark.secco.types.DataTypes.StringType;
 
-public class SpecificIteratorProducer extends BaseIteratorProducer {
+public class SpecificUnaryIteratorProducer extends BaseUnaryIteratorProducer {
 
     private java.util.List<Attribute> schema = new ArrayList<Attribute>(4);
 
