@@ -22,6 +22,7 @@ import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.DataType
+import org.json4s.scalap.scalasig.Children
 
 abstract class BaseUnaryIteratorProducer {
   def getIterator(prefix: InternalRow, tries: Array[TrieInternalBlock]): java.util.Iterator[AnyRef]
@@ -46,14 +47,20 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
     in
   }
 
-  def UnaryIteratorCode(dt: DataType, ctx: CodegenContext): String = {
+  def getUnaryIteratorCode(ctx: CodegenContext, dt: DataType): (String, String) = {
 
     val jt = CodeGenerator.javaType(dt)
     val bt = CodeGenerator.boxedType(dt)
+    val fullPt = CodeGenerator.primitiveTypeName(dt)
+    val pt = fullPt.substring(fullPt.lastIndexOf(".") + 1)
+
+    val className = s"LeapFrogUnary${pt}Iterator"
 
     val defineArrayFirstElementComparator =
       s"""
          |static class ArrayFirstElementComparator implements java.util.Comparator<$jt[]> {
+         |
+         |    ${ctx.declareAddedFunctions()}
          |
          |    @Override
          |    public int compare(Object l, Object r) {
@@ -63,15 +70,19 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |        else if (o1.length == 0) return -1;
          |        else if (o2.length == 0) return 1;
          |
-         |        return ${ctx.genComp(dt, "o1[0]", "o2[0]")};
+         |        return compareElement(o1[0], o2[0]);
+         |    }
+         |
+         |    public static int compareElement($jt a, $jt b) {
+         |        return ${ctx.genComp(dt, "a", "b")};
          |    }
          |
          |}
          |""".stripMargin
 
-    val defineLeapFrogJoinUnaryIterator =
+    val classDefinition =
       s"""
-         |static class LeapFrogUnaryIterator implements java.util.Iterator<$bt> {
+         |static class $className implements java.util.Iterator<$bt> {
          |
          |    private final $jt[][] childrenInArrays;
          |    private int numArrays;
@@ -84,7 +95,7 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |    private int childIdx = 0;
          |
          |
-         |    LeapFrogUnaryIterator($jt[][] tries){
+         |    $className($jt[][] tries){
          |        childrenInArrays = tries;
          |        numArrays = tries.length;
          |        currentCursors = new int[numArrays];
@@ -108,7 +119,7 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |            int mid = left + (right - left) / 2;
          |            $jt midVal = array[mid];
          |
-         |            int comp = ${ctx.genComp(dt, "midVal", "value")};
+         |            int comp = ArrayFirstElementComparator.compareElement(midVal, value);
          |
          |            if (comp == 0)
          |                return mid;
@@ -170,20 +181,22 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |}
          |""".stripMargin
 
-    defineLeapFrogJoinUnaryIterator
+    (className, classDefinition)
   }
 
-  def create(schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]]): BaseUnaryIteratorProducer = {
-    val ctx = new CodegenContext
+  def getUnaryIteratorProducerCode(ctx: CodegenContext,
+                                   schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]],
+                                   unaryIteratorClassName: String): (String, String) = {
+    val className = ctx.freshName("SpecificUnaryIteratorProducer")
 
-    val relevantRelationIndicesForEachAttr : Seq[Seq[Int]] =
-      schema.indices.map { attrIdx =>
-        val curAttr = schema(attrIdx)
-        childrenSchemas.indices.filter { childIdx =>
-          val idx = childrenSchemas(childIdx).map(_.name).indexOf(curAttr.name)
-          idx > -1 && childrenSchemas(childIdx)(idx).dataType == curAttr.dataType
-        }
+    val relevantRelationIndicesForEachAttr: Seq[Seq[Int]] =
+    schema.indices.map { attrIdx =>
+      val curAttr = schema(attrIdx)
+      childrenSchemas.indices.filter { childIdx =>
+        val idx = childrenSchemas(childIdx).map(_.name).indexOf(curAttr.name)
+        idx > -1 && childrenSchemas(childIdx)(idx).dataType == curAttr.dataType
       }
+    }
 
     def getPrefixIndices(attrIdx: Int, childIdx: Int): Seq[Int] =
       relevantRelationIndicesForEachAttr.slice(0, attrIdx).zipWithIndex.filter {
@@ -215,27 +228,17 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
     val numRelevantRelations = curRelevantRelationIndices.length
     val prefixIndicesForEachChild = curRelevantRelationIndices.map(getPrefixIndices(curLevel, _))
 
-    val defineLeapFrogJoinUnaryIterator: String = UnaryIteratorCode(dt, ctx)
-
-    val codeBody =
+    val classDefinition =
       s"""
-         |public java.lang.Object generate(Object[] references) {
-         |  return new SpecificIteratorProducer();
-         |}
-         |
-         |public class SpecificIteratorProducer extends ${classOf[BaseUnaryIteratorProducer].getName} {
+         |public class $className extends ${classOf[BaseUnaryIteratorProducer].getName} {
          |
          |    final DataType[] dataTypes = ${prefixSchema.map("DataTypes." + _.dataType).mkString("{", ",", "}")};
          |    final int[] curRelevantRelationIndices = ${curRelevantRelationIndices.mkString("{", ",", "}")};
-         |    final int[][] prefixIndicesForEachChild = ${prefixIndicesForEachChild.map(_.mkString(","))
-                                                                                    .mkString("{{", "},{", "}}")};
+         |    final int[][] prefixIndicesForEachChild = ${prefixIndicesForEachChild
+                                                                 .map(_.mkString(",")).mkString("{{", "},{", "}}")};
          |    final $jt[][] childrenInArrays = new $jt[$numRelevantRelations][];
          |
-         |    ${ctx.declareAddedFunctions()}
-         |
-         |    $defineLeapFrogJoinUnaryIterator
-         |
-         |    // at the code generation time, the schema, curRelevantRelationIndices are known.
+         |    //at the code generation time, the schema, curRelevantRelationIndices are known.
          |    @Override
          |    public java.util.Iterator<java.lang.Object> getIterator(InternalRow prefix, TrieInternalBlock[] tries) {
          |        for (int i=0; i<$numRelevantRelations; i++) {
@@ -248,13 +251,33 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |            TrieInternalBlock curTrie = tries[curChildIndex];
          |            childrenInArrays[i] = curTrie.get$pt(InternalRow.apply(curPrefix));
          |        }
-         |        return new LeapFrogUnaryIterator(childrenInArrays);
+         |        return new $unaryIteratorClassName(childrenInArrays);
          |    }
+         |}""".stripMargin
+    (className, classDefinition)
+  }
+
+
+  def create(schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]]): BaseUnaryIteratorProducer = {
+    val ctx = new CodegenContext
+
+    val dt = schema.last.dataType
+    val (unaryIteratorClassName: String, unaryIteratorClassDefinition: String) = getUnaryIteratorCode(ctx, dt)
+    val (specificProducerClassName: String, specificProducerDefinition: String) = getUnaryIteratorProducerCode(ctx,
+                                                                  schema, childrenSchemas, unaryIteratorClassName)
+
+    val codeBody =
+      s"""
+         |public java.lang.Object generate(Object[] references) {
+         |  return new $specificProducerClassName();
          |}
+         |$unaryIteratorClassDefinition
+         |$specificProducerDefinition
+         |
          |""".stripMargin
 
     val code = CodeFormatter.stripOverlappingComments(new CodeAndComment(codeBody, Map.empty))
-    logDebug(s"SpecificIteratorProducer():\n${CodeFormatter.format(code)}")
+    logDebug(s"SpecificUnaryIteratorProducer():\n${CodeFormatter.format(code)}")
 
     val (clazz, _) = CodeGenerator.compile(code)
     clazz.generate(Array.empty).asInstanceOf[BaseUnaryIteratorProducer]
@@ -262,7 +285,7 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
 }
 
 
-//lgh code fragments:
+// lgh code fragments:
 
 // 1.
 //  def getIterator(prefix: InternalRow, tries: java.util.List[IndexableTableIterator]): SeccoIterator

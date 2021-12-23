@@ -15,31 +15,14 @@ import java.util.NoSuchElementException;
 //public class SpecificLeapFrogJoinIteratorProducer extends BaseLeapFrogJoinIteratorProducer{
 class LeapFrogJoinIterator implements java.util.Iterator<InternalRow> {
     private final TrieInternalBlock[] childrenTries;
-//    = children.map {
-//        child =>
-//        TrieInternalBlock(child.results().toArray(), StructType.fromAttributes(child.localAttributeOrder))
-//    }.toArray
-
     private final int arity;
-//        : Int = localAttributeOrder.length
     private final StructType rowSchema;
-//        = StructType.fromAttributes(localAttributeOrder)
-    private BaseUnaryIteratorProducer[] producers;
-//        : Seq[BaseUnaryIteratorProducer] = (1 to arity).map {
-//        curArity =>
-//        GenerateUnaryIterator.generate((localAttributeOrder.slice(0, curArity),
-//                children.map(_.localAttributeOrder.toSeq)))
-//    }
+    private final BaseUnaryIteratorProducer[] producers;
 
     private final java.util.Iterator<Object>[] iterators;
-//        : Array[java.util.Iterator[AnyRef]] = new Array[java.util.Iterator[AnyRef]](arity)
-    //  private var rowCache: InternalRow = InternalRow(new Array[Any](arity))
     private final Object[] arrayCache;
-//        : Array[Any] = new Array[Any](arity)
     private boolean hasNextCache;
-//        : Boolean = _
     private boolean hasNextCacheValid;
-//        = false
 
     public LeapFrogJoinIterator(Class<java.util.Iterator<Object>> clazz,
                                 TrieInternalBlock[] children, Attribute[] localAttributeOrder)
@@ -52,10 +35,8 @@ class LeapFrogJoinIterator implements java.util.Iterator<InternalRow> {
             fields[i] = new StructField(attr.name(), attr.dataType(), true);
         }
         rowSchema = new StructType(fields);
-//        rowSchema = StructType.fromAttributes(localAttributeOrder);
         arrayCache = new Object[arity];
         hasNextCacheValid = false;
-//        iterators = new java.util.Iterator[arity];
         producers = new BaseUnaryIteratorProducer[arity];
         iterators = (java.util.Iterator<Object>[]) java.lang.reflect.Array.newInstance(clazz, arity);
         init();

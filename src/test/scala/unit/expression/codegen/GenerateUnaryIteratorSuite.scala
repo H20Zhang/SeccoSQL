@@ -91,7 +91,7 @@ class GenerateUnaryIteratorSuite extends FunSuite with BeforeAndAfter {
 
     tries = Array(child0, child1, child2, child3, child4, child5)
 
-    val prefixLength = 0 // prefixLength [0, 5)
+    val prefixLength = 4 // prefixLength [0, 5)
     prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
     prefixRow = InternalRow(Array[Any]("trousers", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
   }
