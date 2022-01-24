@@ -22,7 +22,6 @@ import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.DataType
-import org.json4s.scalap.scalasig.Children
 
 abstract class BaseUnaryIteratorProducer {
   def getIterator(prefix: InternalRow, tries: Array[TrieInternalBlock]): java.util.Iterator[AnyRef]
@@ -76,7 +75,6 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |    public static int compareElement($jt a, $jt b) {
          |        return ${ctx.genComp(dt, "a", "b")};
          |    }
-         |
          |}
          |""".stripMargin
 
@@ -173,6 +171,7 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |            }else {
          |                childIdx = (childIdx + 1) % numArrays;
          |            }
+         |            System.out.println("in Unary next(): valueCache " + valueCache);
          |            return valueCache;
          |        }
          |    }
@@ -185,13 +184,13 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
   }
 
   def getUnaryIteratorProducerCode(ctx: CodegenContext,
-                                   schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]],
+                                   prefixAndCurAttributes: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]],
                                    unaryIteratorClassName: String): (String, String) = {
     val className = ctx.freshName("SpecificUnaryIteratorProducer")
 
     val relevantRelationIndicesForEachAttr: Seq[Seq[Int]] =
-    schema.indices.map { attrIdx =>
-      val curAttr = schema(attrIdx)
+    prefixAndCurAttributes.indices.map { attrIdx =>
+      val curAttr = prefixAndCurAttributes(attrIdx)
       childrenSchemas.indices.filter { childIdx =>
         val idx = childrenSchemas(childIdx).map(_.name).indexOf(curAttr.name)
         idx > -1 && childrenSchemas(childIdx)(idx).dataType == curAttr.dataType
@@ -209,7 +208,7 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
     // 3. relevant relations for cur level
     // 4. relevant prefix attributes for each relevant relation
 
-    val prefixLength = schema.size - 1
+    val prefixLength = prefixAndCurAttributes.size - 1
     val curLevel = prefixLength
 
 
@@ -218,12 +217,12 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
     //                                     "DataTypes." + boxedType.substring(boxedType.lastIndexOf(".") + 1) + "Type"
     //                                     }).mkString(", ")}};
 
-    val dt = schema(curLevel).dataType
+    val dt = prefixAndCurAttributes(curLevel).dataType
     val jt = CodeGenerator.javaType(dt)
     val fullPt = CodeGenerator.primitiveTypeName(dt)
     val pt = fullPt.substring(fullPt.lastIndexOf(".") + 1)
 
-    val prefixSchema = schema.slice(0, prefixLength)
+    val prefixSchema = prefixAndCurAttributes.slice(0, prefixLength)
     val curRelevantRelationIndices = relevantRelationIndicesForEachAttr(curLevel)
     val numRelevantRelations = curRelevantRelationIndices.length
     val prefixIndicesForEachChild = curRelevantRelationIndices.map(getPrefixIndices(curLevel, _))
@@ -249,7 +248,14 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
          |                curPrefix[j] = prefix.get(curPrefixIndices[j], dataTypes[curPrefixIndices[j]]);
          |            }
          |            TrieInternalBlock curTrie = tries[curChildIndex];
+         |            System.out.println("in getIterator: curTrie" + curTrie);
+         |            System.out.println("in getIterator: curPrefix" + InternalRow.apply(curPrefix));
          |            childrenInArrays[i] = curTrie.get$pt(InternalRow.apply(curPrefix));
+         |            java.lang.Object[] tempArray = new java.lang.Object[childrenInArrays[i].length];
+         |            for (int j=0; j<childrenInArrays[i].length; j++){
+         |                tempArray[j] = childrenInArrays[i][j];
+         |            }
+         |            System.out.printf("in getIterator: childrenInArrays[%d]: " + InternalRow.apply(tempArray) + "%n", i);
          |        }
          |        return new $unaryIteratorClassName(childrenInArrays);
          |    }

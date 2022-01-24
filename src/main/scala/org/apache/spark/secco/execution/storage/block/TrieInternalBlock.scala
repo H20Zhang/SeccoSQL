@@ -264,8 +264,8 @@ class TrieInternalBlock(
   //  }
 
   //  private var iterIndex = 0
-  private var endIdxArray: Array[Int] = _
-  private var idxArray: Array[Int] = _
+  private var endIdxArray: Array[Int] = Array[Int]()
+  private var idxArray: Array[Int] = Array[Int]()
   //
   //  {
   //    idxArray(0) = rootBegin
@@ -288,7 +288,13 @@ class TrieInternalBlock(
     * Note: The [[InternalRow]] returned by this class will be reused.
     */
   override def iterator: Iterator[InternalRow] = new Iterator[InternalRow]{
-    override def hasNext: Boolean = idxArray(0) < endIdxArray(0)
+    override def hasNext: Boolean =
+      {
+        if (idxArray == null || endIdxArray == null || idxArray.length < 1 || endIdxArray.length < 1)
+          false
+        else
+          idxArray(0) < endIdxArray(0)
+      }
 
     override def next(): InternalRow = {
       setRowWithIdxArray(idxArray, row)
@@ -650,13 +656,13 @@ object TrieInternalBlock {
 
 //    block.showLongContents()
 
-    println("after finalProcess, before iterator")
-    val trieIterator = block.iterator
-//    println("after block.iterator, before first = trieIterator.next().copy()")
-    val first = trieIterator.next().copy()
-    val second = trieIterator.next().copy()
-    val third = trieIterator.next().copy()
-    println(f"Iterator: ${first}, ${second}, ${third}")
+//    println("after finalProcess, before iterator")
+//    val trieIterator = block.iterator
+////    println("after block.iterator, before first = trieIterator.next().copy()")
+//    val first = trieIterator.next().copy()
+//    val second = trieIterator.next().copy()
+//    val third = trieIterator.next().copy()
+//    println(f"Iterator: ${first}, ${second}, ${third}")
     return block
     //    block
   }

@@ -113,7 +113,11 @@ object InternalBlock{
   /**
     * This method can be used to construct a [[InternalBlock]] with rows and the schema given .
     */
-  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = TrieInternalBlock(rows, schema)
+  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = ColumnarInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = GenericInternalBlock(rows, schema)
+  // edited by lgh
 
   /**
     * This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.

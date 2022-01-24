@@ -2,14 +2,16 @@ package org.apache.spark.secco
 
 import java.util.Locale
 import com.google.common.collect.Maps
-import org.apache.spark.secco.types.{
-  DataType,
-  NullType,
-  StructField,
-  StructType
-}
+import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.types.{DataType, NullType, StructField, StructType}
 
 package object expression {
+
+
+  /**
+    * Used as input into expressions whose output does not depend on any input value.
+    */
+  val EmptyRow: InternalRow = null
 
   /**
     * A place holder expressions used in code-gen, it does not change the corresponding value

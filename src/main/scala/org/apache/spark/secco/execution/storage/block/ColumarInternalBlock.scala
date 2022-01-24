@@ -50,7 +50,8 @@ class ColumnarInternalBlock(
     val variableLengthSize = stringRecordArrayBuffer.map(_.toInt).sum
 
     val numFields = structType.length
-    val row = new UnsafeInternalRow(numFields, numFields * 8 + variableLengthSize)
+    val rowSize = Utils.calculateBitMapWidthInBytes(numFields) + numFields * 8 + variableLengthSize
+    val row = new UnsafeInternalRow(numFields, rowSize)
     row.copyBitMapFrom(null, bitMapAddress + rowIndex * bitMapSizeInBytes)
 
     for(j <- columnAddresses.indices) {

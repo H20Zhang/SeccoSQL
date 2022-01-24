@@ -483,3 +483,6 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
     builder
   }
 }
+
+// A tag of a `TreeNode`, which defines name and type
+case class TreeNodeTag[T](name: String)

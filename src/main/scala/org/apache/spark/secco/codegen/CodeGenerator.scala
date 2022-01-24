@@ -383,6 +383,15 @@ class CodegenContext {
   // The collection of sub-expression result resetting methods that need to be called on each row.
   val subexprFunctions = mutable.ArrayBuffer.empty[String]
 
+  /**
+    * Returns the code for subexpression elimination after splitting it if necessary.
+    */
+  def subexprFunctionsCode: String = {
+    // Whole-stage codegen's subexpression elimination is handled in another code path
+    assert(currentVars == null || subexprFunctions.isEmpty)
+    splitExpressions(subexprFunctions.toSeq, "subexprFunc_split", Seq("InternalRow" -> INPUT_ROW))
+  }
+
   val outerClassName = "OuterClass"
 
   /** Holds the class and instance names to be generated, where `OuterClass` is a placeholder
@@ -573,7 +582,7 @@ class CodegenContext {
       case DoubleType =>
         s"((java.lang.Double.isNaN($c1) && java.lang.Double.isNaN($c2)) || $c1 == $c2)"
       case dt: DataType if isPrimitiveType(dt) => s"$c1 == $c2"
-//    case dt: DataType if dt.isInstanceOf[AtomicType] => s"$c1.equals($c2)"
+    case dt: DataType if dt.isInstanceOf[AtomicType] => s"$c1.equals($c2)"  // edited by lgh: uncommented
 //    case array: ArrayType => genComp(array, c1, c2) + " == 0"
 //    case struct: StructType => genComp(struct, c1, c2) + " == 0"
 //    case udt: UserDefinedType[_] => genEqual(udt.sqlType, c1, c2)
@@ -1312,7 +1321,7 @@ object CodeGenerator extends Logging {
 //    val maxLines = SQLConf.get.loggingMaxLinesForCodegen
     //TODO: add relevant configuration option in DolphinConfiguration.
 //    val maxLines = 100
-    val maxLines = 200 // Temporarily changed by lgh
+    val maxLines = 1000 // Temporarily changed by lgh
     if (Utils.isTesting) {
       logError(s"\n${CodeFormatter.format(code, maxLines)}")
     } else {
@@ -1531,27 +1540,28 @@ object CodeGenerator extends Logging {
 //      case udt: UserDefinedType[_] => setColumn(row, udt.sqlType, ordinal, value)
       // The UTF8String, InternalRow, ArrayData and MapData may came from UnsafeRow, we should copy
       // it to avoid keeping a "pointer" to a memory region which may get updated afterwards.
-      case StringType =>
+//      case StringType =>
 //           | _: StructType | _: ArrayType | _: MapType =>
-        s"$row.update($ordinal, $value.copy())"
+//        s"$row.update($ordinal, $value.copy())"
       case _ => s"$row.update($ordinal, $value)"
+      // edited by lgh, String class doesn't have a copy() method.
     }
   }
 
   /** Update a column in MutableRow from ExprCode.
     *
-    * //   * @param isVectorized True if the underlying row is of type `ColumnarBatch.Row`, false otherwise
-    * //
+    * @param isVectorized True if the underlying row is of type `ColumnarBatch.Row`, false otherwise
+    *
     */
-//  def updateColumn(
-//                    row: String,
-//                    dataType: DataType,
-//                    ordinal: Int,
-//                    ev: ExprCode,
-//                    nullable: Boolean,
-//                    isVectorized: Boolean = false): String = {
-//    if (nullable) {
-//      // Can't call setNullAt on DecimalType, because we need to keep the offset
+  def updateColumn(
+                    row: String,
+                    dataType: DataType,
+                    ordinal: Int,
+                    ev: ExprCode,
+                    nullable: Boolean,
+                    isVectorized: Boolean = false): String = {
+    if (nullable) {
+      // Can't call setNullAt on DecimalType, because we need to keep the offset
 //      if (!isVectorized && dataType.isInstanceOf[DecimalType]) {
 //        s"""
 //           |if (!${ev.isNull}) {
@@ -1561,18 +1571,18 @@ object CodeGenerator extends Logging {
 //           |}
 //         """.stripMargin
 //      } else {
-//        s"""
-//           |if (!${ev.isNull}) {
-//           |  ${setColumn(row, dataType, ordinal, ev.value)};
-//           |} else {
-//           |  $row.setNullAt($ordinal);
-//           |}
-//         """.stripMargin
+        s"""
+           |if (!${ev.isNull}) {
+           |  ${setColumn(row, dataType, ordinal, ev.value)};
+           |} else {
+           |  $row.setNullAt($ordinal);
+           |}
+         """.stripMargin
 //      }
-//    } else {
-//      s"""${setColumn(row, dataType, ordinal, ev.value)};"""
-//    }
-//  }
+    } else {
+      s"""${setColumn(row, dataType, ordinal, ev.value)};"""
+    }
+  }
 
   /** Returns the specialized code to set a given value in a column vector for a given `DataType`.
     */

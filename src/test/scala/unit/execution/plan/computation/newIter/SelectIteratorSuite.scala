@@ -1,21 +1,19 @@
 package unit.execution.plan.computation.newIter
 
-import org.apache.spark.secco.execution.plan.computation.newIter.TableIterator
+import org.apache.spark.secco.execution.plan.computation.newIter._
 import org.apache.spark.secco.execution.storage.block._
 import org.apache.spark.secco.execution.storage.row._
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.types._
 import org.scalatest.{BeforeAndAfter, FunSuite}
 
-import scala.collection.mutable.ArrayBuffer
-
-class TableIteratorSuite extends FunSuite with BeforeAndAfter{
+class SelectIteratorSuite extends FunSuite with BeforeAndAfter{
 
   var schema: Seq[Attribute] = _
   var childrenSchemas: Seq[Seq[Attribute]] = _
   var blocks: Array[InternalBlock] = _
-//  var iter: TableIterator = _
-  
+  //  var tableIter: TableIterator = _
+
   before {
     val names = Seq("name", "id", "price", "gender", "weight")
     val types = Seq(StringType, IntegerType, DoubleType, BooleanType, FloatType)
@@ -42,21 +40,21 @@ class TableIteratorSuite extends FunSuite with BeforeAndAfter{
       attrSeq =>
         StructType(attrSeq.map(attr => StructField(attr.name, attr.dataType)))
     }
-    
+
     val child0 = InternalBlock(Array(
       InternalRow(Array[Any]("jacket", 0, 2.5, false, 14.3f)),
       InternalRow(Array[Any]("socks", 0, 5.5, false, 30.6f)),
       InternalRow(Array[Any]("sportswear", 0, 5.5, false, 32.3f)),
       InternalRow(Array[Any]("shoes", 2, 8.9, true, 6.5f))
     ), childrenStructTypes.head)
-    
+
     val child1 = InternalBlock(Array(
-    InternalRow(Array[Any](0, 2.5, 14.3f)),
-    InternalRow(Array[Any](0, 5.5, 30.6f)),
-    InternalRow(Array[Any](0, 5.5, 32.3f)),
-    InternalRow(Array[Any](2, 8.9, 6.5f))
+      InternalRow(Array[Any](0, 2.5, 14.3f)),
+      InternalRow(Array[Any](0, 5.5, 30.6f)),
+      InternalRow(Array[Any](0, 5.5, 32.3f)),
+      InternalRow(Array[Any](2, 8.9, 6.5f))
     ), childrenStructTypes(1))
-    
+
     val child2 = InternalBlock(Array(
       InternalRow(Array[Any]("shoes", 2.5)),
       InternalRow(Array[Any]("shirts", 5.5)),
@@ -103,37 +101,68 @@ class TableIteratorSuite extends FunSuite with BeforeAndAfter{
     //    prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
     //    prefixRow = InternalRow(Array[Any]("trousers", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
   }
-  
-  test("basic_functions"){
+
+  var condition: Expression = _
+  var selectIter: SelectIterator = _
+  def showNextAndResults(iter: SelectIterator): Unit = {
+    while(selectIter.hasNext){
+      println("projectIter.next(): " + selectIter.next())
+    }
+    println("projectIter.results(): " + selectIter.results())
+    println()
+  }
+
+  test("basic_functions_1"){
     val childIdx = 0
     val childBlock = blocks(childIdx)
-    val iter = TableIterator(childBlock, childrenSchemas(childIdx).toArray, isSorted = true)
-    while (iter.hasNext){
-      println("iter.next(): " + iter.next())
-    }
-    println(iter.results())
-//    for (rowIdx <- 0 until  childBlock.size()){
-//      assert(iter.next().equals(childBlock(rowIdx)))
-//    }
+    val childSchema = childrenSchemas(childIdx).toArray
+    var tableIter = TableIterator(childBlock, childSchema, isSorted = false)
+
+    condition = EqualTo(childSchema(0), Literal("jacket"))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+    condition = EqualTo(childSchema(0), Literal("blouse"))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+    condition = EqualTo(childSchema(4), Literal(32.3f))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+  }
+
+  test("basic_functions_2"){
+    val childIdx = 3
+    val childBlock = blocks(childIdx)
+    val childSchema = childrenSchemas(childIdx).toArray
+    var tableIter = TableIterator(childBlock, childSchema, isSorted = false)
+
+    condition = EqualTo(childSchema(0), Literal(1))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+    tableIter = TableIterator(childBlock, childSchema, isSorted = false)
+    condition = EqualTo(childSchema(0), Literal(2))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+    tableIter = TableIterator(childBlock, childSchema, isSorted = false)
+    condition = EqualTo(childSchema(1), Literal(true))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
+
+    tableIter = TableIterator(childBlock, childSchema, isSorted = false)
+    condition = EqualTo(childSchema(1), Literal(false))
+    selectIter = SelectIterator(tableIter, condition)
+    showNextAndResults(selectIter)
+    assert(!selectIter.hasNext)
   }
 
 }
-
-
-// bak code fragments
-// var testRows: ArrayBuffer[UnsafeInternalRow] = ArrayBuffer[UnsafeInternalRow]()
-//  var testRow: UnsafeInternalRow = _
-//  val length = 7
-// before {
-// //    val theArray = Array("abc", 1, 3, 4.0, true, null)
-// testRow = new UnsafeInternalRow(7, true)
-// //    testRow.initWithByteArray(new Array[Byte](80), 80)
-// //    for (i <- 0 to 6) testRow.setNullAt(i)
-// testRow.setString(0, "abc")
-// testRow.setInt(1, 1)
-// //    testRow.setInt(2,3)
-// testRow.setShort(2, 3)
-// testRow.setDouble(3, 4.0)
-// testRow.setBoolean(4, true)
-// testRow.setNullAt(5)
-// testRow.setString(6, "variableLength") }

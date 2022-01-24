@@ -24,25 +24,25 @@ case class UnionIterator(left: SeccoIterator, right: SeccoIterator)
   private var rightRowCacheValid: Boolean = false
   private var nextIsLeft: Boolean = _
 
-  if (isSorted()) {
-    if (left.hasNext) {
-      leftRowCache = left.next();
-      leftRowCacheValid = true;
-      nextIsLeft = true
-    }
-    if (right.hasNext) {
-      rightRowCache = right.next();
-      rightRowCacheValid = true;
-      if(!leftRowCacheValid || comparator.compare(leftRowCache, rightRowCache) > 0) nextIsLeft = false
-    }
-  }
-
   lazy val ordering: Array[SortOrder] = localAttributeOrder().zipWithIndex.map {
     case(attr, index) =>
       SortOrder(BoundReference(index, attr.asInstanceOf[AttributeReference].dataType, nullable = true), Ascending)
   }
 
   lazy val comparator: BaseOrdering = GenerateOrdering.generate(ordering)
+//
+//  if (isSorted()) {
+//    if (left.hasNext) {
+//      leftRowCache = left.next();
+//      leftRowCacheValid = true;
+//      nextIsLeft = true
+//    }
+//    if (right.hasNext) {
+//      rightRowCache = right.next();
+//      rightRowCacheValid = true;
+//      if(!leftRowCacheValid || comparator.compare(leftRowCache, rightRowCache) > 0) nextIsLeft = false
+//    }
+//  }
 
   override def localAttributeOrder(): Array[Attribute] = left.localAttributeOrder()
 
@@ -50,33 +50,46 @@ case class UnionIterator(left: SeccoIterator, right: SeccoIterator)
 
   override def isBreakPoint(): Boolean = false
 
-  override def results(): InternalBlock = left.results().merge(right.results())
+  // lgh: sort is implemented in the merge method
+  override def results(): InternalBlock = left.results().merge(right.results(), maintainSortOrder = isSorted())
 
   override def children: Seq[SeccoIterator] = left :: right :: Nil
 
   override def hasNext: Boolean = if (!isSorted()) left.hasNext || right.hasNext else {
+    if (!leftRowCacheValid && left.hasNext) {
+      leftRowCache = left.next();
+      leftRowCacheValid = true;
+    }
+    if (!rightRowCacheValid && right.hasNext) {
+      rightRowCache = right.next();
+      rightRowCacheValid = true;
+    }
+    nextIsLeft = {
+      if(rightRowCacheValid && (!leftRowCacheValid || comparator.compare(leftRowCache, rightRowCache) > 0))
+        false
+      else
+        true
+    }
     leftRowCacheValid || rightRowCacheValid
   }
 
   override def next(): InternalRow = {
     if(!hasNext) throw new NoSuchElementException("next on empty iterator")
     if (!isSorted()) {if (left.hasNext) left.next() else right.next()} else{
-    val outRow =
-      if (nextIsLeft) {
-        val row = leftRowCache
-        leftRowCacheValid = false
-        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
-        row
-      }
-      else{
-        val row = rightRowCache
-        rightRowCacheValid = false
-        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
-        row
-      }
-    nextIsLeft =
-    if(!leftRowCacheValid || rightRowCacheValid && comparator.compare(leftRowCache, rightRowCache) > 0) false else true
-    outRow
+//    val outRow =
+    if (nextIsLeft) {
+      leftRowCacheValid = false
+//        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
+      leftRowCache
+    }
+    else{
+      rightRowCacheValid = false
+//        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
+      rightRowCache
+    }
+//    nextIsLeft =
+//    if(!leftRowCacheValid || rightRowCacheValid && comparator.compare(leftRowCache, rightRowCache) > 0) false else true
+//    outRow
   }
   }
 }

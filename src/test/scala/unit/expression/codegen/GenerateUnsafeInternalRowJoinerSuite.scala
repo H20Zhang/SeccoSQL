@@ -5,9 +5,16 @@ import org.apache.spark.secco.expression.codegen.GenerateUnsafeInternalRowJoiner
 import org.apache.spark.secco.types._
 import org.scalatest.FunSuite
 
+import java.lang.Thread.sleep
+import scala.concurrent._
+import ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+import scala.language.postfixOps
+
 class GenerateUnsafeInternalRowJoinerSuite extends FunSuite{
 
   test("generate_unsafeInternalRowJoiner") {
+
     val names1 = Seq("id", "price", "forGender", "weight", "comments")
     val types1 = Seq(IntegerType, DoubleType, BooleanType, DoubleType, StringType)
     val schema1 = StructType(names1.zip(types1).map {

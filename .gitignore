@@ -43,3 +43,4 @@ out
 # ignore log files
 *.log
 
+/err_log/

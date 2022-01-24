@@ -27,7 +27,7 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
   private var hasNextCacheValid = false
   private var hasNextCache: Boolean = _
 
-  override def filterFunc(): PredicateFunc = GeneratePredicate.generate(condition)
+  override lazy val filterFunc: PredicateFunc = GeneratePredicate.generate(condition, childIter.localAttributeOrder())
 
   override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
 
@@ -37,12 +37,17 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
 
   override def results(): InternalBlock = {
     val rowArrayBuffer = ArrayBuffer[InternalRow]()
-    while(hasNext) rowArrayBuffer += next()
-    val structFieldsArray = {
-      //lgh TODO: consider when localAttributeOrder elements are not instances of AttributeReference
-      localAttributeOrder().map(_.asInstanceOf[AttributeReference]).map(i => StructField(i.name, i.dataType))
+//    while(hasNext) rowArrayBuffer += next()
+//    val structFieldsArray =
+//    {
+//      //lgh TODO: consider when localAttributeOrder elements are not instances of AttributeReference
+//      localAttributeOrder().map(_.asInstanceOf[AttributeReference]).map(i => StructField(i.name, i.dataType))
+//    }
+//    val schema = StructType(structFieldsArray)
+    for (row <- childIter.results().toArray()){
+      if(filterFunc.eval(row)) rowArrayBuffer += row
     }
-    val schema = StructType(structFieldsArray)
+    val schema = StructType.fromAttributes(localAttributeOrder())
     GenericInternalBlock(rowArrayBuffer.toArray, schema)
   }
 
@@ -56,7 +61,7 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
       var evalResult = false
       while(!evalResult && childIter.hasNext){
         row = childIter.next()
-        evalResult = filterFunc().eval(row)
+        evalResult = filterFunc.eval(row)
       }
       hasNextCache = evalResult
       hasNextCacheValid = true

@@ -1,13 +1,13 @@
 package unit.expression.codegen
 
 import org.apache.spark.secco.execution.storage.block.{TrieInternalBlock, TrieInternalBlockBuilder}
-import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, InternalRow}
-import org.apache.spark.secco.expression.{Ascending, Attribute, AttributeReference, BoundReference, SortOrder}
-import org.apache.spark.secco.expression.codegen.{GenerateUnaryIterator, GenerateOrdering}
+import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.codegen.{GenerateLeapFrogJoinIterator, GenerateUnaryIterator}
+import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.types._
 import org.scalatest.{BeforeAndAfter, FunSuite}
 
-class GenerateUnaryIteratorSuite extends FunSuite with BeforeAndAfter {
+class GenerateLeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
 
   var schema: Seq[Attribute] = _
   var prefixAndCurAttributes: Seq[Attribute] = _
@@ -29,7 +29,8 @@ class GenerateUnaryIteratorSuite extends FunSuite with BeforeAndAfter {
       Seq(1, 3),
       Seq(0, 1, 2, 4),
       Seq(0, 2, 3),
-      Seq(2, 3)
+      Seq(2, 3),
+      Seq(0, 1, 2, 3, 4)
     )
 
     childrenSchemas = childrenSchemaIndices.map(_.map {
@@ -89,18 +90,28 @@ class GenerateUnaryIteratorSuite extends FunSuite with BeforeAndAfter {
       InternalRow(Array[Any](6.5, false))
     ), childrenStructTypes(5))
 
-    tries = Array(child0, child1, child2, child3, child4, child5)
+    val child6 = TrieInternalBlock(Array(
+      //      InternalRow(Array[Any]("jacket", 0, 2.5, false, 14.3f)),
+      //      InternalRow(Array[Any]("socks", 0, 5.5, false, 30.6f)),
+      //      InternalRow(Array[Any]("socks", 0, 5.3, false, 30.6f)),
+      //      InternalRow(Array[Any]("book", 1, 8.9, true, 6.5f)),
+      InternalRow(Array[Any]("trousers", 2, 8.9 ,true, 6.5f))
+      //      InternalRow(Array[Any]("sportswear", 0, 5.5, false, 32.3f)),
+      //      InternalRow(Array[Any]("shoes", 2, 8.9, true, 6.5f))
+    ), childrenStructTypes(6))
 
-    val prefixLength = 4 // prefixLength [0, 5)
-    prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
-    prefixRow = InternalRow(Array[Any]("trousers", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
+    tries = Array(child0, child1, child2, child3, child4, child5, child6)
+
+//    val prefixLength = 4 // prefixLength [0, 5)
+//    prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
+//    prefixRow = InternalRow(Array[Any]("trousers", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
   }
 
-  test("generate_UnaryIterator"){
+  test("generate_leapFrogJoinIterator"){
 
-    val producer = GenerateUnaryIterator.generate((prefixAndCurAttributes, childrenSchemas))
+    val producer = GenerateLeapFrogJoinIterator.generate((schema, childrenSchemas))
 
-    val iter = producer.getIterator(prefixRow, tries)
+    val iter = producer.getIterator(tries)
 
     val hasNext1 = iter.hasNext
     println(s"hasNext1: $hasNext1")

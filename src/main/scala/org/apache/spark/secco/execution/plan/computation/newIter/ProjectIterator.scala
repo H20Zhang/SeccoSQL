@@ -1,10 +1,10 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.Utils
-import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock, UnsafeInternalBlock}
+import org.apache.spark.secco.execution.storage.block._
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.codegen.{BaseProjectionFunc, GenerateSafeProjection}
-import org.apache.spark.secco.expression.{Attribute, AttributeReference, Expression, NamedExpression, codegen}
-import org.apache.spark.secco.types.{StructField, StructType}
+import org.apache.spark.secco.expression._
+import org.apache.spark.secco.types._
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -27,8 +27,8 @@ case class ProjectIterator(
 //    val result = projectionList.map(expr => GenerateSafeProjection.generate(Seq(expr)).asInstanceOf[BaseProjectionFunc])
 //    result
 //  }
-  override def projectionFunction: BaseProjectionFunc =
-    GenerateSafeProjection.generate(projectionList).asInstanceOf[BaseProjectionFunc]
+  override lazy val projectionFunction: BaseProjectionFunc =
+    GenerateSafeProjection.generate(projectionList, childIter.localAttributeOrder()).asInstanceOf[BaseProjectionFunc]
 
   override def localAttributeOrder(): Array[Attribute] = projectionList.map(_.toAttribute)
 
@@ -38,7 +38,9 @@ case class ProjectIterator(
 
   override def results(): InternalBlock = {
     val schema = StructType.fromAttributes(localAttributeOrder())
-    InternalBlock(childIter.results().toArray().map(projectionFunction(_)), schema)
+    val childRows = childIter.results().toArray()
+    val resultRows = childRows.map(projectionFunction(_).copy())
+    InternalBlock(resultRows, schema)
   }
 
   override def hasNext: Boolean = childIter.hasNext

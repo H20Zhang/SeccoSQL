@@ -3,6 +3,11 @@ import org.apache.commons.lang.NotImplementedException
 import org.apache.spark.secco.execution.storage.block.{IndexLike, InternalBlock, MapLike, SetLike, TrieLike}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.types.StructType
+
+import scala.collection.immutable.HashMap
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 /** The base class for table iterator */
 sealed abstract class BaseTableIterator extends SeccoIterator {
@@ -21,13 +26,15 @@ case class TableIterator(
     isSorted: Boolean
 ) extends BaseTableIterator {
 
+  private val blockIter = block.iterator
+
   override def isBreakPoint(): Boolean = false
 
   override def results(): InternalBlock = block
 
-  override def hasNext: Boolean = block.iterator.hasNext
+  override def hasNext: Boolean = blockIter.hasNext
 
-  override def next(): InternalRow = block.iterator.next()
+  override def next(): InternalRow = blockIter.next()
 
   override def children: Seq[SeccoIterator] = Seq()
 }
@@ -83,4 +90,53 @@ case class IndexableTableIterator(
   override def next(): InternalRow = block.iterator.next()
 
   override def children: Seq[SeccoIterator] = Seq()
+}
+
+
+case class IndexableHashMapTableIterator(
+                                          map: mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]],
+                                          localAttributeOrder: Array[Attribute],
+                                          isSorted: Boolean = false
+                                        ) extends BaseTableIterator
+  with IndexableSeccoIterator {
+
+  val keyAttributes: Array[Attribute] = null
+
+  private var rowArrayIter: Iterator[InternalRow] = Array[InternalRow]().toIterator
+
+
+  def hasKey(key: InternalRow): Boolean = map.contains(key)
+
+  override def setKey(key: InternalRow): Boolean = {
+    rowArrayIter = map.getOrElse(key, ArrayBuffer[InternalRow]()).toIterator
+    return hasKey(key)
+  }
+
+  override def getOneRow(key: InternalRow): Option[InternalRow] = {
+    if(hasKey(key) && map(key).nonEmpty)
+      Some(map(key)(0))
+    else
+      None
+  }
+
+  override def unsafeGetOneRow(key: InternalRow): InternalRow = {
+    if(hasKey(key) && map(key).nonEmpty )
+      map(key)(0)
+    else
+      null
+  }
+
+  override def isBreakPoint(): Boolean = false
+
+  override def results(): InternalBlock =
+    InternalBlock(map.values.flatten.toArray, StructType.fromAttributes(localAttributeOrder))
+
+  override def hasNext: Boolean = rowArrayIter.hasNext
+
+  override def next(): InternalRow = rowArrayIter.next()
+
+  override def children: Seq[SeccoIterator] = Seq()
+
+  /** The underlying [[InternalBlock]] that supports the iterator */
+  override def block(): InternalBlock = results()
 }

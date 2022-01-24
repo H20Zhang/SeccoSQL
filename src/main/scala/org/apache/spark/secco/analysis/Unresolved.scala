@@ -133,8 +133,11 @@ case class UnresolvedFunction(
 
   override def dataType: DataType =
     throw new UnresolvedException(this, "dataType")
-  override def foldable: Boolean =
-    throw new UnresolvedException(this, "foldable")
+
+//  // commented by lgh, "method foldable cannot override final member"
+//  override def foldable: Boolean =
+//    throw new UnresolvedException(this, "foldable")
+
   override def nullable: Boolean =
     throw new UnresolvedException(this, "nullable")
   override lazy val resolved = false

@@ -40,10 +40,10 @@ case class CartesianProductIterator(left: SeccoIterator, right: SeccoIterator)
   override def results(): InternalBlock = {
     val outputRowsArrayBuffer = ArrayBuffer[InternalRow]()
     val rightRows = right.results().toArray()
-    for(leftRow <- left.results().iterator){
+    for(leftRow <- left.results().toArray()){
       for(rightRow <- rightRows){
-        outputRowsArrayBuffer :+ joiner.join(leftRow.asInstanceOf[UnsafeInternalRow],
-          rightRow.asInstanceOf[UnsafeInternalRow])
+        outputRowsArrayBuffer.append(joiner.join(leftRow.asInstanceOf[UnsafeInternalRow],
+          rightRow.asInstanceOf[UnsafeInternalRow]).copy())
       }
     }
     InternalBlock(outputRowsArrayBuffer.toArray, StructType(leftSchema ++ rightSchema))

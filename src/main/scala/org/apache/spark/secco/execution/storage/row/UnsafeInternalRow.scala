@@ -44,7 +44,7 @@ class UnsafeInternalRow extends InternalRow {
   def this(numFields: Int) = {
     this()
     assert(numFields >= 0, "numFields (" + numFields + ") should >= 0")
-    val bitMapWidthInWords = calculateBitMapWidthInWords(numFields)
+    val bitMapWidthInWords = Utils.calculateBitMapWidthInWords(numFields)
     this.numberOfFields = numFields
     this.bitSetWidthInBytes = bitMapWidthInWords * 8
   }
@@ -61,7 +61,7 @@ class UnsafeInternalRow extends InternalRow {
       this.baseOffset = Utils.allocateMemory(sizeInBytes.toLong)
 
       // 29/11/2021 lgh: set notNull at all fields, to make it support GenerateUnsafeInternalRowJoiner
-      for(i <- 0 until calculateBitMapWidthInWords(numFields)) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0L)
+      for(i <- 0 until Utils.calculateBitMapWidthInWords(numFields)) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0L)
     }
   }
 
@@ -79,7 +79,7 @@ class UnsafeInternalRow extends InternalRow {
     this.baseOffset = Utils.allocateMemory(sizeInBytes.toLong)
 
     // 29/11/2021 lgh: set notNull at all fields, to make it support GenerateUnsafeInternalRowJoiner
-    for(i <- 0 until calculateBitMapWidthInWords(numFields)) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0L)
+    for(i <- 0 until Utils.calculateBitMapWidthInWords(numFields)) _UNSAFE.putLong(baseObject, baseOffset + i * 8, 0L)
   }
 
   /**
@@ -255,9 +255,7 @@ class UnsafeInternalRow extends InternalRow {
     }
   }
 
-  private def calculateBitMapWidthInBytes(numFields: Int): Int =  ((numFields + 63) / 64) * 8   // lgh: this method is static in spark's Java implementation
 
-  private def calculateBitMapWidthInWords(numFields: Int): Int =  (numFields + 63) / 64
 
 
   /**
@@ -587,6 +585,33 @@ object UnsafeInternalRow {
 
   //lgh TODO: currently we only support 6 data types, and all of them except for StrintType are fix-lengthed.
   def isFixedLength(dt: DataType): Boolean = fixedLengthZoneTypes.contains(dt)
+
+  def fromInternalRow(schema: StructType, row: InternalRow): UnsafeInternalRow ={
+    val numFields = schema.length
+    val dataTypes = schema.map(_.dataType)
+    var unsafeRow: UnsafeInternalRow = null
+    if (dataTypes.contains(StringType))
+      unsafeRow = new UnsafeInternalRow(numFields, autoInit = true)
+    else
+      unsafeRow = new UnsafeInternalRow(numFields, 8 * numFields + Utils.calculateBitMapWidthInBytes(numFields))
+    for(i <- dataTypes.indices) {
+      dataTypes(i) match {
+        case BooleanType => unsafeRow.setBoolean(i, row.getBoolean(i))
+        case IntegerType => unsafeRow.setInt(i, row.getInt(i))
+        case LongType => unsafeRow.setLong(i, row.getLong(i))
+        case FloatType => unsafeRow.setFloat(i, row.getFloat(i))
+        case DoubleType => unsafeRow.setDouble(i, row.getDouble(i))
+        case StringType => unsafeRow.setString(i, row.getString(i))
+        case dt => throw new NotImplementedError(s"Unsupported Type: $dt")
+      }
+    }
+    unsafeRow
+  }
+
+//  // lgh: this method is static in spark's Java implementation
+//  def calculateBitMapWidthInBytes(numFields: Int): Int =  ((numFields + 63) / 64) * 8
+//
+//  def calculateBitMapWidthInWords(numFields: Int): Int =  (numFields + 63) / 64
 }
 
 

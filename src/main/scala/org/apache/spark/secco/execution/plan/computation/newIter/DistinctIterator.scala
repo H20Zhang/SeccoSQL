@@ -39,8 +39,9 @@ case class DistinctIterator(childIter: SeccoIterator)
     val rows = childIter.results().toArray()
     java.util.Arrays.sort(rows, comparator)
     val rowIter = rows.toIterator
-    if(!rowIter.hasNext) return GenericInternalBlock(Array(),schema)
+    if(!rowIter.hasNext) return InternalBlock(Array(), schema)
     var rowTemp1 = rowIter.next()
+    rowArrayBuffer += rowTemp1.copy()
     while(rowIter.hasNext){
       val rowTemp2 = rowIter.next()
       val encounterNewRow = comparator.compare(rowTemp2, rowTemp1) != 0
@@ -49,7 +50,7 @@ case class DistinctIterator(childIter: SeccoIterator)
         rowTemp1 = rowTemp2
       }
     }
-    UnsafeInternalBlock(rowArrayBuffer.toArray, schema)
+    InternalBlock(rowArrayBuffer.toArray, schema)
   }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
@@ -61,13 +62,18 @@ case class DistinctIterator(childIter: SeccoIterator)
       if(!rowCacheAssignedOnce && childIter.hasNext) {
         rowCache=childIter.next()
         rowCacheAssignedOnce = true
+        hasNextCache = true
+        hasNextCacheValid = true
         return true
       }
       var encounterNewRow = false
       while(!encounterNewRow && childIter.hasNext){
         val row_temp = childIter.next()
         encounterNewRow = comparator.compare(row_temp, rowCache) != 0
+        if (encounterNewRow)
+          rowCache = row_temp
       }
+
       hasNextCache = encounterNewRow
       hasNextCacheValid = true
     }
