@@ -33,4 +33,10 @@ class SeccoFunSuite
     SparkSingle.close()
   }
 
+  def clearSession(): Unit = {
+    super.beforeAll()
+    SeccoSession.setCurrentSession(SeccoSession.newDefaultSession)
+    setupDB()
+  }
+
 }

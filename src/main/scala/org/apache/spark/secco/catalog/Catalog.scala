@@ -20,50 +20,42 @@ class CatalogException(
   */
 abstract class Catalog extends Serializable {
 
-  /**
-    * create the database in the catalog
+  /** create the database in the catalog
     * @param database catalog of the database
     */
   def createDatabase(database: CatalogDatabase): Unit
 
-  /**
-    * drop the database
+  /** drop the database
     * @param dbName name of the database
     */
   def dropDatabase(dbName: String): Unit
 
-  /**
-    * alter the catalog of the database specified by `database.name`
+  /** alter the catalog of the database specified by `database.name`
     * @param database catalog of the database
     */
   def alterDatabase(database: CatalogDatabase): Unit
 
-  /**
-    * get the database with name
+  /** get the database with name
     * @param dbName name of the database
     */
   def getDatabase(dbName: String): Option[CatalogDatabase]
 
-  /**
-    * list all databases
+  /** list all databases
     */
   def listDatabase(): Seq[CatalogDatabase]
 
-  /**
-    * create an entry in catalog
+  /** create an entry in catalog
     * @param table the catalog of the table
     */
   def createTable(table: CatalogTable, replaceExisting: Boolean = false)
 
-  /**
-    * drop the table
+  /** drop the table
     * @param tableName name of the table
     * @param dbName name of the database
     */
   def dropTable(tableName: String, dbName: Option[String] = None): Unit
 
-  /**
-    * get the table
+  /** get the table
     * @param tableName name of the table
     * @param dbName name of the database
     * @return catalog of the table
@@ -73,52 +65,49 @@ abstract class Catalog extends Serializable {
       dbName: Option[String] = None
   ): Option[CatalogTable]
 
-  /**
-    * alter the catalog of the table specified by the tableName
+  /** alter the catalog of the table specified by the tableName
     * @param table catalog of the table
     */
   def alterTable(table: CatalogTable): Unit
 
-  /**
-    * list the tables in a database
+  /** list the tables in a database
     * @param dbName name of the database
     * @return Seq of the catalog of the table
     */
   def listTable(dbName: String): Seq[CatalogTable]
 
-//  /**
-//    * create view in the database
-//    * @param view catalog of the view
-//    */
-//  def createView(view: CatalogView): Unit
-//
-//  /**
-//    * drop view in the current database
-//    * @param viewName name of the view
-//    */
-//  def dropView(viewName: String): Unit
-//
-//  /**
-//    * list all view in the current database
-//    * @return Seq of the catalog of the view
-//    */
-//  def listView(): Seq[CatalogView]
-//
-//  /**
-//    * get view in the current database
-//    * @param viewName name of the view
-//    * @return catalog of the view
-//    */
-//  def getView(viewName: String): Option[CatalogView]
-//
-//  /**
-//    * alter the catalog of the view as specified in `view.identified`
-//    * @param view new catalog of the view
-//    */
-//  def alterView(view: CatalogView): Unit
+  /** Create a graph in the database
+    * @param graph a catalog of the graph
+    */
+  def createGraph(
+      graph: CatalogGraphTable,
+      replaceExisting: Boolean = false
+  ): Unit
 
-  /**
-    * create function in the catalog
+  /** Drop a graph in the current database
+    * @param graphName name of the view
+    */
+  def dropGraph(graphName: String, dbName: Option[String] = None): Unit
+
+  /** List all graphs in the current database
+    */
+  def listGraph(dbName: String): Seq[CatalogGraphTable]
+
+  /** Get the graph with given name in the current database
+    * @param graphName name of the graph
+    * @return catalog of the graph
+    */
+  def getGraph(
+      graphName: String,
+      dbName: Option[String] = None
+  ): Option[CatalogGraphTable]
+
+  /** Alter the catalog of the graph as specified in `graph.identifier`
+    * @param graph new catalog of the graph
+    */
+  def alterGraph(graph: CatalogGraphTable): Unit
+
+  /** create function in the catalog
     * @param function catalog of the function
     * @param replaceExisting whether to replace existing function with name  `function.identified` in db
     */
@@ -127,8 +116,7 @@ abstract class Catalog extends Serializable {
       replaceExisting: Boolean = false
   )
 
-  /**
-    * get the function
+  /** get the function
     * @param functionName name of the function
     * @param dbName name of the database
     * @return
@@ -138,15 +126,13 @@ abstract class Catalog extends Serializable {
       dbName: Option[String] = None
   ): Option[CatalogFunction]
 
-  /**
-    * drop the function in the current database
+  /** drop the function in the current database
     * @param functionName name of the function
     * @param dbName name of the database
     */
   def dropFunction(functionName: String, dbName: Option[String] = None)
 
-  /**
-    * rename the function in the current database to new name
+  /** rename the function in the current database to new name
     * @param oldName old name of the function
     * @param newName new name of the function
     * @param dbName name of the database
@@ -157,8 +143,7 @@ abstract class Catalog extends Serializable {
       dbName: Option[String] = None
   )
 
-  /**
-    * list function in the catalog
+  /** list function in the catalog
     * @return Seq of catalog of function
     */
   def listFunctions(dbName: Option[String] = None): Seq[CatalogFunction]
@@ -180,8 +165,7 @@ object Catalog {
   }
 }
 
-/**
-  * An in-memory catalog for storing the meta-data temporarily
+/** An in-memory catalog for storing the meta-data temporarily
   */
 class InMemoryCatalog extends Catalog {
 
@@ -278,8 +262,85 @@ class InMemoryCatalog extends Catalog {
 
   override def listTable(dbName: String): Seq[CatalogTable] = {
     catalogMap.get(dbName) match {
-      case Some(db) => db.tables.values.toSeq
-      case None     => throw new NoSuchDatabaseException(db = dbName)
+      case Some(db) =>
+        db.tables.values.toSeq
+          .filter(_.isInstanceOf[CatalogTable])
+          .map(_.asInstanceOf[CatalogTable])
+      case None => throw new NoSuchDatabaseException(db = dbName)
+    }
+  }
+
+  override def createGraph(
+      graph: CatalogGraphTable,
+      replaceExisting: Boolean
+  ): Unit = {
+    val dbName = graph.database.getOrElse(defaultDBName)
+
+    catalogMap.get(dbName) match {
+      case Some(db) =>
+        db.containsGraph(graph) match {
+          case true =>
+            if (replaceExisting) {
+              db.dropGraph(graph.graphName)
+              db.addGraph(graph)
+            } else {
+              throw new TableAlreadyExistsException(
+                table = graph.graphName,
+                db = dbName
+              )
+            }
+          case false => db.addGraph(graph)
+        }
+
+      case None => throw new NoSuchDatabaseException(db = dbName)
+    }
+  }
+
+  override def dropGraph(
+      graphName: String,
+      dbName: Option[String] = None
+  ): Unit = {
+    val dbName_ = dbName.getOrElse(defaultDBName)
+    catalogMap.get(dbName_) match {
+      case Some(db) => db.dropGraph(graphName)
+      case None     => throw new NoSuchDatabaseException(db = dbName_)
+    }
+  }
+
+  override def getGraph(
+      graphName: String,
+      dbName: Option[String] = None
+  ): Option[CatalogGraphTable] = {
+    val dbName_ = dbName.getOrElse(defaultDBName)
+    catalogMap.get(dbName_) match {
+      case Some(db) => db.findGraph(graphName)
+      case None     => throw new NoSuchDatabaseException(db = dbName_)
+    }
+  }
+
+  override def alterGraph(graph: CatalogGraphTable): Unit = {
+    val dbName = graph.database.getOrElse(defaultDBName)
+    catalogMap.get(dbName) match {
+      case Some(db) =>
+        db.findGraph(graph.graphName) match {
+          case Some(_) =>
+            db.dropGraph(graph.graphName)
+            db.addGraph(graph)
+          case None =>
+            throw new NoSuchTableException(db = dbName, table = graph.graphName)
+        }
+
+      case None => throw new NoSuchDatabaseException(db = dbName)
+    }
+  }
+
+  override def listGraph(dbName: String): Seq[CatalogGraphTable] = {
+    catalogMap.get(dbName) match {
+      case Some(db) =>
+        db.tables.values.toSeq
+          .filter(_.isInstanceOf[CatalogGraphTable])
+          .map(_.asInstanceOf[CatalogGraphTable])
+      case None => throw new NoSuchDatabaseException(db = dbName)
     }
   }
 
@@ -338,8 +399,7 @@ class InMemoryCatalog extends Catalog {
     }
   }
 
-  /**
-    * rename the function in the current database to new name
+  /** rename the function in the current database to new name
     *
     * @param oldName old name of the function
     * @param newName new name of the function
@@ -369,8 +429,7 @@ class InMemoryCatalog extends Catalog {
     }
   }
 
-  /**
-    * list function in the catalog
+  /** list function in the catalog
     *
     * @return Seq of catalog of function
     */

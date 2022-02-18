@@ -18,8 +18,7 @@ import org.apache.spark.secco.types.BooleanType
  * 1.  Intersection: intersect the results of left child and right child.
  * 2.  Diff: perform difference between results of left child and right child.
  * 3.  BinaryJoin: perform join between left child and right child.
- * 4.  PKFKJoin: perform primary-key foreign-key join between left child and right child.
- * 5.  UnionByUpdate: update results of left child by results of right child.
+ * 4.  UnionByUpdate: update results of left child by results of right child.
  *
  * ---------------------------------------------------------------------------------------------------------------------
  */

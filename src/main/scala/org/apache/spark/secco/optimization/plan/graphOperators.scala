@@ -1,7 +1,11 @@
 package org.apache.spark.secco.optimization.plan
 
 import org.apache.spark.secco.catalog.TableIdentifier
-import org.apache.spark.secco.expression.{Attribute, NamedExpression}
+import org.apache.spark.secco.expression.{
+  Attribute,
+  Expression,
+  NamedExpression
+}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 
@@ -12,7 +16,7 @@ trait Indexed {
   def keys: Seq[Seq[Attribute]]
 }
 
-trait View {
+trait GraphSupport {
   self: LogicalPlan =>
 }
 
@@ -40,7 +44,7 @@ trait Graph extends Node with Edge {
   self: LogicalPlan =>
 }
 
-case class NodeView(
+case class NodeRelation(
     child: LogicalPlan,
     idAttr: Attribute,
     nodeLabelAttr: Option[Attribute] = None,
@@ -48,9 +52,9 @@ case class NodeView(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode
     with Node
-    with View {}
+    with GraphSupport {}
 
-case class EdgeView(
+case class EdgeRelation(
     child: LogicalPlan,
     srcAttr: Attribute,
     dstAttr: Attribute,
@@ -59,27 +63,29 @@ case class EdgeView(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode
     with Edge
-    with View {}
+    with GraphSupport {}
 
-case class GraphView(
-    nodeLogicalPlan: LogicalPlan with Node,
-    edgeLogicalPlan: LogicalPlan with Edge,
+case class GraphRelation(
+    nodeRelation: NodeRelation,
+    edgeRelation: EdgeRelation,
+    nodeCondition: Option[Expression] = None,
+    edgeCondition: Option[Expression] = None,
     mode: ExecMode = ExecMode.Atomic
 ) extends BinaryNode
     with Graph
-    with View {
+    with GraphSupport {
 
-  def srcAttr: Attribute = edgeLogicalPlan.srcAttr
-  def dstAttr: Attribute = edgeLogicalPlan.dstAttr
-  def idAttr: Attribute = nodeLogicalPlan.idAttr
-  def nodeLabelAttr: Option[Attribute] = nodeLogicalPlan.nodeLabelAttr
-  def edgeLabelAttr: Option[Attribute] = edgeLogicalPlan.edgeLabelAttr
-  def nodePropertyAttrs: Seq[Attribute] = nodeLogicalPlan.nodePropertyAttrs
-  def edgePropertyAttrs: Seq[Attribute] = edgeLogicalPlan.edgePropertyAttrs
+  def srcAttr: Attribute = edgeRelation.srcAttr
+  def dstAttr: Attribute = edgeRelation.dstAttr
+  def idAttr: Attribute = nodeRelation.idAttr
+  def nodeLabelAttr: Option[Attribute] = nodeRelation.nodeLabelAttr
+  def edgeLabelAttr: Option[Attribute] = edgeRelation.edgeLabelAttr
+  def nodePropertyAttrs: Seq[Attribute] = nodeRelation.nodePropertyAttrs
+  def edgePropertyAttrs: Seq[Attribute] = edgeRelation.edgePropertyAttrs
 
-  override def left: LogicalPlan = nodeLogicalPlan
+  override def left: LogicalPlan = nodeRelation
 
-  override def right: LogicalPlan = edgeLogicalPlan
+  override def right: LogicalPlan = edgeRelation
 }
 
 case class MessagePassing(

@@ -36,11 +36,6 @@ abstract class LeafNode extends LogicalPlan {
   def computeStats(): Statistics = throw new UnsupportedOperationException
 }
 
-case class EmptyRelation(
-    override val output: Seq[Attribute] = Seq(),
-    mode: ExecMode = ExecMode.Atomic
-) extends LeafNode {}
-
 //case class LocalRelation
 
 //case class ExternalRDD(output:Seq[Attribute], primaryKey:Seq[Attribute])
@@ -126,6 +121,11 @@ case class Relation(
 ) extends BaseRelation {
   override def newInstance(): LogicalPlan = copy()
 }
+
+case class EmptyRelation(
+    override val output: Seq[Attribute] = Seq(),
+    mode: ExecMode = ExecMode.Atomic
+) extends LeafNode {}
 
 /** An operator that holds an GHD node
   * @param chi attributes of the GHD node

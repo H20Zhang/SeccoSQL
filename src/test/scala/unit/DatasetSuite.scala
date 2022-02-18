@@ -26,11 +26,6 @@ class DatasetSuite extends SeccoFunSuite {
     val V = Dataset.empty("V", "id" :: "vLabel" :: Nil)
     val E = Dataset.empty("E", "src" :: "dst" :: "eLabel" :: Nil)
 
-    val G = E.toGraph(eLabel = Some("eLabel"))(V, vLabel = Some("vLabel"))
-    val res = G.pattern("(a)-[]->(b)-[]->(c)")
-
-    println(res.queryExecution.logical)
-
   }
 
 }

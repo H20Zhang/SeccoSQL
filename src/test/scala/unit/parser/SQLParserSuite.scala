@@ -267,8 +267,8 @@ class SQLParserSuite extends SeccoFunSuite {
       assert(res.isSuccess, res.failed.toString)
     }
 
-//    var plan = seccoSession.sql(patternQuery2).queryExecution.logical
-//    println(plan)
+    var plan = seccoSession.sql(patternQuery2).queryExecution.logical
+    println(plan)
 
   }
 
