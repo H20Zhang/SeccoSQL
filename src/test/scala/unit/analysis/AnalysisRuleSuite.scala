@@ -76,4 +76,7 @@ class AnalysisRuleSuite extends SeccoFunSuite {
 
     assert(plan.resolved)
   }
+
+  //TODO: implement the test
+  test("subgraphQuery_resolution") {}
 }

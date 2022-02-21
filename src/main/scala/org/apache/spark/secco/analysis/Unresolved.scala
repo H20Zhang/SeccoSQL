@@ -5,9 +5,14 @@ import org.apache.spark.secco.expression.{Attribute, Star}
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.plan.{LeafNode, UnaryNode}
+import org.apache.spark.secco.optimization.plan.{
+  GraphRelation,
+  LeafNode,
+  UnaryNode
+}
 import org.apache.spark.secco.execution.storage.row
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.utils.AttributeMap
 import org.apache.spark.secco.parsing.{
   BiDirection,
   EdgeDirection,
@@ -156,11 +161,12 @@ case class UnresolvedRelation(
     mode: ExecMode = ExecMode.Coupled
 ) extends LeafNode {}
 
-case class Edge(
+case class UnresolvedEdge(
     id: Attribute,
-    src: Attribute,
-    dst: Attribute,
+    src: UnresolvedNode,
+    dst: UnresolvedNode,
     edgeLabels: Seq[Literal],
+    edgeCondition: Option[Expression],
     edgeDirection: EdgeDirection
 ) {
   override def toString: String = {
@@ -178,9 +184,10 @@ case class Edge(
   }
 }
 
-case class Node(
+case class UnresolvedNode(
     id: Attribute,
-    nodeLabels: Seq[Literal]
+    nodeLabels: Seq[Literal],
+    nodeCondition: Option[Expression]
 ) {
   override def toString: String = {
     nodeLabels.isEmpty match {
@@ -191,24 +198,22 @@ case class Node(
 }
 
 case class UnresolvedPattern(
-    nodes: Seq[Node],
-    edges: Seq[Edge],
-    nodePropertyCondition: Option[Expression],
-    edgePropertyCondition: Option[Expression]
+    edges: Seq[UnresolvedEdge],
+    projectionList: Seq[Attribute]
 ) extends Expression
     with Unevaluable {
+
   override def nullable: Boolean =
     throw new UnresolvedException(this, "nullable")
 
   override def dataType: DataType =
     throw new UnresolvedException(this, "dataType")
 
-  override def children: Seq[Expression] =
-    edges.flatMap(e => e.src :: e.dst :: Nil)
+  override def children: Seq[Expression] = Nil
 }
 
 case class UnresolvedSubgraphQuery(
-    graph: LogicalPlan,
+    graph: GraphRelation,
     pattern: UnresolvedPattern,
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {

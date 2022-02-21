@@ -8,8 +8,11 @@ import org.apache.spark.secco.analysis.{
   NoSuchTableException,
   UnresolvedAlias,
   UnresolvedAttribute,
+  UnresolvedEdge,
   UnresolvedFunction,
-  UnresolvedRelation
+  UnresolvedNode,
+  UnresolvedRelation,
+  UnresolvedSubgraphQuery
 }
 import org.apache.spark.secco.catalog.TableIdentifier
 import org.apache.spark.secco.expression.{
@@ -29,15 +32,24 @@ import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   BinaryJoin,
   FullOuter,
+  GraphRelation,
   InnerLike,
   JoinType,
   LeftExistence,
   LeftOuter,
+  MatchingEdgeRelation,
   NaturalJoin,
   Project,
   Relation,
   RightOuter,
+  Union,
   UsingJoin
+}
+import org.apache.spark.secco.parsing.{
+  BiDirection,
+  EdgeDirection,
+  Left2Right,
+  Right2Left
 }
 
 import scala.collection.mutable
@@ -326,6 +338,84 @@ object ResolveAliases extends Rule[LogicalPlan] {
         p.copy(projectionList = assignAliases(projectionList))
 
     }
+}
+
+/** This rule resolves and rewrite subgraph query into natural join query.
+  * Note: the input of subgraph query must be GraphRelation.
+  */
+//TODO: implement this rule
+object ResolveSubgraphQuery extends Rule[LogicalPlan] {
+
+  private def generateGraphCopy(
+      edge: UnresolvedEdge,
+      graph: GraphRelation
+  ): LogicalPlan = {
+    val direction = edge.edgeDirection
+
+    // generate the matching edges in given direction
+    def generateDirectionalEdge(direction: EdgeDirection) = {
+      val (src, dst) = direction match {
+        case Left2Right => (edge.src, edge.dst)
+        case Right2Left => (edge.dst, edge.src)
+      }
+
+      val output = src.id :: dst.id :: Nil
+      val attrMap = AttributeMap(output.zip(Seq(graph.srcAttr, graph.dstAttr)))
+
+      MatchingEdgeRelation(
+        graph,
+        output,
+        attrMap,
+        src.nodeLabels,
+        dst.nodeLabels,
+        src.nodeCondition,
+        dst.nodeCondition,
+        edge.edgeLabels,
+        edge.edgeCondition
+      )
+    }
+
+    // generate the matching edges
+    direction match {
+      case Left2Right | Right2Left => generateDirectionalEdge(direction)
+      case BiDirection =>
+        Union(
+          generateDirectionalEdge(Left2Right) :: generateDirectionalEdge(
+            Right2Left
+          ) :: Nil
+        )
+    }
+
+  }
+
+  private def resolveSubgraphQuery(
+      subgraphQuery: UnresolvedSubgraphQuery
+  ): LogicalPlan = {
+    val pattern = subgraphQuery.pattern
+    val graph = subgraphQuery.graph
+
+    val edgeCopies = pattern.edges.map { edge =>
+      generateGraphCopy(edge, graph)
+    }
+
+    val joinedQuery = edgeCopies.reduce { case (l, r) =>
+      BinaryJoin(l, r, NaturalJoin(JoinType("inner")), None)
+    }
+
+    Project(joinedQuery, pattern.projectionList)
+  }
+
+  override def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperators {
+    case subgraphQuery: UnresolvedSubgraphQuery =>
+      resolveSubgraphQuery(subgraphQuery)
+  }
+}
+
+/** This rule resolves and rewrite message passing query into iterative join-aggregate query.
+  */
+//TODO: implement this rule
+object ResolveMessagePassingQuery extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan = ???
 }
 
 /** This rule resolves and rewrites subqueries inside expressions.

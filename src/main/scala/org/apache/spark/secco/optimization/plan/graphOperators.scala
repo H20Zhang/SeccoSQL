@@ -1,20 +1,17 @@
 package org.apache.spark.secco.optimization.plan
 
 import org.apache.spark.secco.catalog.TableIdentifier
+import org.apache.spark.secco.expression.utils.AttributeMap
 import org.apache.spark.secco.expression.{
   Attribute,
   Expression,
+  Literal,
   NamedExpression
 }
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 
 //abstract class GraphLogicalPlan extends LogicalPlan {}
-
-trait Indexed {
-  self: LogicalPlan =>
-  def keys: Seq[Seq[Attribute]]
-}
 
 trait GraphSupport {
   self: LogicalPlan =>
@@ -44,6 +41,13 @@ trait Graph extends Node with Edge {
   self: LogicalPlan =>
 }
 
+/** The logical plan that represents the node set of a graph.
+  * @param child the data of the node set
+  * @param idAttr the attribute for node id
+  * @param nodeLabelAttr the attribute for node label
+  * @param nodePropertyAttrs the attributes for node properties
+  * @param mode the execution mode
+  */
 case class NodeRelation(
     child: LogicalPlan,
     idAttr: Attribute,
@@ -54,6 +58,14 @@ case class NodeRelation(
     with Node
     with GraphSupport {}
 
+/** The logical plan that represents the edge set of a graph.
+  * @param child the data of the edge set
+  * @param srcAttr the attribute for source node id
+  * @param dstAttr the attribute for destination node id
+  * @param edgeLabelAttr the attribute for edge label
+  * @param edgePropertyAttrs the attributes for edge properties
+  * @param mode the execution mode
+  */
 case class EdgeRelation(
     child: LogicalPlan,
     srcAttr: Attribute,
@@ -65,11 +77,14 @@ case class EdgeRelation(
     with Edge
     with GraphSupport {}
 
+/** The logical plan that represents a graph, which consists of node relation and edge relation.
+  * @param nodeRelation the logical plan that stores node relation
+  * @param edgeRelation the logical plan that stores edge relation
+  * @param mode the execution mode
+  */
 case class GraphRelation(
     nodeRelation: NodeRelation,
     edgeRelation: EdgeRelation,
-    nodeCondition: Option[Expression] = None,
-    edgeCondition: Option[Expression] = None,
     mode: ExecMode = ExecMode.Atomic
 ) extends BinaryNode
     with Graph
@@ -88,15 +103,70 @@ case class GraphRelation(
   override def right: LogicalPlan = edgeRelation
 }
 
+/** The logical plan that represents a data copy of the edges to be matched
+  * @param graph the graph to be matched
+  * @param output the output attributes for the matching edge
+  * @param attrMap the map from output attributes to graph's output
+  * @param srcNodeLabels labels of the source node
+  * @param dstNodeLabels labels of the destination node
+  * @param srcNodeCondition property conditions on the source node
+  * @param dstNodeCondition property conditions on the destination node
+  * @param edgeLabels labels of the edge
+  * @param edgeCondition filtering conditions on edge
+  * @param mode the execution mode
+  */
+case class MatchingEdgeRelation(
+    graph: GraphRelation,
+    override val output: Seq[Attribute],
+    attrMap: AttributeMap[Attribute],
+    srcNodeLabels: Seq[Literal],
+    dstNodeLabels: Seq[Literal],
+    srcNodeCondition: Option[Expression] = None,
+    dstNodeCondition: Option[Expression] = None,
+    edgeLabels: Seq[Literal],
+    edgeCondition: Option[Expression] = None,
+    mode: ExecMode = ExecMode.Atomic
+) extends UnaryNode {
+  override def child: LogicalPlan = graph
+}
+
+/** The logical plan that represents a subgraph of the graph
+  * @param graph the graph
+  * @param nodeCondition the filtering conditions on node
+  * @param edgeCondition the filtering conditions on edge
+  * @param mode te execution mode
+  */
+case class SubgraphRelation(
+    graph: GraphRelation,
+    nodeCondition: Option[Expression] = None,
+    edgeCondition: Option[Expression] = None,
+    mode: ExecMode = ExecMode.Atomic
+) extends UnaryNode {
+  override def child: LogicalPlan = graph
+}
+
+/** The logical plan that represents message passing in the graph.
+  * @param child The graph
+  * @param initialState the initial state of the node
+  * @param message the messages computed from the node
+  * @param mergeFunction the merge function to merge the messages gathered
+  * @param updateFunction the update function to compute the new state
+  * @param mode the execution mode
+  */
 case class MessagePassing(
     child: LogicalPlan with Graph,
-    initialMessage: Option[NamedExpression],
+    initialState: Option[NamedExpression],
     message: NamedExpression,
     mergeFunction: NamedExpression,
     updateFunction: NamedExpression,
-    mode: ExecMode = ExecMode.Coupled
+    mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {}
 
+/** The logical plan that incurs the child plan repeatedly up to `round` times
+  * @param child the child logical plan
+  * @param round the numbers of round to invoke child logical plan
+  * @param mode the execution mode
+  */
 case class Recursion(
     child: LogicalPlan,
     round: Int,

@@ -300,84 +300,89 @@ object LogicalPlanBuilder {
         val hiddenNodeID = Counter("", "nodeID")
         val hiddenEdgeID = Counter("", "edgeID")
 
-        val parsedNodes = paths.flatMap(path => path.nodes)
-        val nodes = parsedNodes.map { node =>
-          hiddenNodeID.increment()
-          A.Node(
-            UnresolvedAttribute(
-              node.name
-                .map(_.d)
-                .getOrElse(s"hiddenNode-${hiddenNodeID.value}") :: Nil
-            ),
-            node.labels.map(f => E.Literal(f.d))
-          )
-        }
+        val matchingEdges = paths.flatMap { path =>
+          val parsedNodes = path.nodes
 
-        // we need a hashmap which compare elements based on eq rather than equal to distinguish different case class object
-        class IdentityHashMap[A <: AnyRef, B]
-            extends scala.collection.mutable.HashMap[A, B] {
-          protected override def elemEquals(key1: A, key2: A): Boolean =
-            (key1 eq key2)
-        }
-
-        val parsedNode2Node = new IdentityHashMap[Node, A.Node]()
-        parsedNodes.zip(nodes).foreach { case (key, value) =>
-          parsedNode2Node(key) = value
-        }
-
-        val edges = paths.flatMap { path =>
-          path.edges.map { edge =>
-            hiddenEdgeID.increment()
-            A.Edge(
+          // build the UnresolvedNode for each parsed node
+          val nodes = parsedNodes.map { node =>
+            hiddenNodeID.increment()
+            A.UnresolvedNode(
               UnresolvedAttribute(
-                edge._2.name
+                node.name
                   .map(_.d)
-                  .getOrElse(s"hiddenEdge-${hiddenEdgeID.value}") :: Nil
+                  .getOrElse(s"hiddenNode-${hiddenNodeID.value}") :: Nil
               ),
-              parsedNode2Node(edge._1).id,
-              parsedNode2Node(edge._3).id,
-              edge._2.labels.map(f => E.Literal(f.d)),
-              edge._4
+              node.labels.map(f => E.Literal(f.d)),
+              node.properties
+                .map { case (identifier, literal) =>
+                  E.EqualTo(
+                    fromExpression(ColumnRef(None, identifier)),
+                    fromExpression(LiteralExpr(literal))
+                  )
+                }
+                .reduceOption(E.And)
             )
-
           }
+
+          // build the hashmap to map from parsed node to UnresolvedNode
+          // we need a hashmap which compare elements based on eq rather than equal to distinguish different case class object
+          class IdentityHashMap[A <: AnyRef, B]
+              extends scala.collection.mutable.HashMap[A, B] {
+            protected override def elemEquals(key1: A, key2: A): Boolean =
+              (key1 eq key2)
+          }
+
+          val parsedNode2Node = new IdentityHashMap[Node, A.UnresolvedNode]()
+          parsedNodes.zip(nodes).foreach { case (key, value) =>
+            parsedNode2Node(key) = value
+          }
+
+          // build the UnresolvedEdge for each parsed edge
+          val edges = paths.flatMap { path =>
+            path.edges.map { edge =>
+              hiddenEdgeID.increment()
+              A.UnresolvedEdge(
+                UnresolvedAttribute(
+                  edge._2.name
+                    .map(_.d)
+                    .getOrElse(s"hiddenEdge-${hiddenEdgeID.value}") :: Nil
+                ),
+                parsedNode2Node(edge._1),
+                parsedNode2Node(edge._3),
+                edge._2.labels.map(f => E.Literal(f.d)),
+                edge._2.properties
+                  .map { case (identifier, literal) =>
+                    E.EqualTo(
+                      fromExpression(ColumnRef(None, identifier)),
+                      fromExpression(LiteralExpr(literal))
+                    )
+                  }
+                  .reduceOption(E.And),
+                edge._4
+              )
+
+            }
+          }
+          edges
         }
 
-        val nodeCondition = paths
+        // build the list of attributes (with user-defind names in node/edge,
+        // and column names in node/edge properties) to preserve
+        val projectionList = paths
           .flatMap { path =>
-            path.nodes.flatMap { node =>
-              node.properties.toSeq
-            }
-          }
-          .distinct
-          .map { case (identifier, literal) =>
-            E.EqualTo(
-              fromExpression(ColumnRef(None, identifier)),
-              fromExpression(LiteralExpr(literal))
-            )
-          }
-          .reduceOption(E.And)
+            val nodeIds = path.nodes.flatMap(_.name.map(_.d))
+            val nodeProperties = path.nodes.flatMap(_.properties.keys.map(_.d))
+            val edgeIds = path.edges.flatMap(e => e._2.name.map(_.d))
+            val edgeProperties =
+              path.edges.flatMap(e => e._2.properties.keys.map(_.d))
 
-        val edgeCondition = paths
-          .flatMap { path =>
-            path.edges.flatMap { edge =>
-              edge._2.properties.toSeq
-            }
+            nodeIds ++ nodeProperties ++ edgeIds ++ edgeProperties
           }
-          .distinct
-          .map { case (identifier, literal) =>
-            E.EqualTo(
-              fromExpression(ColumnRef(None, identifier)),
-              fromExpression(LiteralExpr(literal))
-            )
-          }
-          .reduceOption(E.And)
+          .map(nodeName => UnresolvedAttribute(nodeName :: Nil))
 
         UnresolvedPattern(
-          nodes,
-          edges,
-          nodeCondition,
-          edgeCondition
+          matchingEdges,
+          projectionList
         )
     }
   }
