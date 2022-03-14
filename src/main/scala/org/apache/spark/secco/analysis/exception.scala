@@ -1,5 +1,6 @@
 package org.apache.spark.secco.analysis
 
+import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.optimization.LogicalPlan
 
 /** Thrown when a query fails to analyze, usually because the query itself is invalid.
@@ -46,6 +47,11 @@ class DatabaseAlreadyExistsException(db: String)
 class TableAlreadyExistsException(db: String, table: String)
     extends AnalysisException(
       s"Table '$table' already exists in database '$db'"
+    )
+
+class ViewAlreadyExistsException(db: String, table: String)
+    extends AnalysisException(
+      s"View '$table' already exists in database '$db'"
     )
 
 class GraphAlreadyExistsException(db: String, table: String)

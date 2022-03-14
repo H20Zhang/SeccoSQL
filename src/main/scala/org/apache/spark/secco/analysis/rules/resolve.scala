@@ -398,7 +398,7 @@ object ResolveSubgraphQuery extends Rule[LogicalPlan] {
       generateGraphCopy(edge, graph)
     }
 
-    val joinedQuery = edgeCopies.reduce { case (l, r) =>
+    val joinedQuery = edgeCopies.reduce { (l: LogicalPlan, r: LogicalPlan) =>
       BinaryJoin(l, r, NaturalJoin(JoinType("inner")), None)
     }
 

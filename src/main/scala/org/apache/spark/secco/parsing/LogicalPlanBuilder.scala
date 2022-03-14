@@ -3,6 +3,7 @@ package org.apache.spark.secco.parsing
 import org.apache.spark.secco.analysis.{UnresolvedAttribute, UnresolvedPattern}
 import org.apache.spark.secco.catalog.TableIdentifier
 import org.apache.spark.secco.expression.EqualTo
+import org.apache.spark.secco.optimization.plan.GraphRelation
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, plan => L}
 import org.apache.spark.secco.types.{
   BooleanType,
@@ -41,7 +42,10 @@ object LogicalPlanBuilder {
           throw new Exception(s"${pattern} is invalid cypher pattern")
         )
 
-        A.UnresolvedSubgraphQuery(fromTableRef(graph), patternExpression)
+        A.UnresolvedSubgraphQuery(
+          fromTableRef(graph).asInstanceOf[GraphRelation],
+          patternExpression
+        )
 
       case StoredTable(Identifier(name), alias) =>
         val table = A.UnresolvedRelation(name)

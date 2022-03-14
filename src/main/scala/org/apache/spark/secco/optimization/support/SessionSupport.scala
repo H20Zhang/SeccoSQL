@@ -4,7 +4,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.analysis.Analyzer
 import org.apache.spark.secco.catalog.{
-  CachedDataManager,
+  TempViewManager,
   Catalog,
   FunctionRegistry
 }
@@ -28,7 +28,7 @@ trait SessionSupport {
   def analyzer: Analyzer = seccoSession.sessionState.analyzer
   def optimizer: SeccoOptimizer = seccoSession.sessionState.optimizer
   def planner: SeccoPlanner = seccoSession.sessionState.planner
-  def cachedDataManager: CachedDataManager =
-    seccoSession.sessionState.cachedDataManager
+  def cachedDataManager: TempViewManager =
+    seccoSession.sessionState.tempViewManager
 
 }

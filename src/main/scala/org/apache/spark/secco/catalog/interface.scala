@@ -103,21 +103,21 @@ case class CatalogTable(
     stats: Option[Statistics]
 ) extends AbstractCatalogTable {
 
-  /** Link data (i.e., RDD[InternalBlock]) with the catalog table. */
-  def attachData(content: RDD[InternalBlock]) = {
-    val dataManager =
-      SeccoSession.currentSession.sessionState.cachedDataManager
-    dataManager.storeRelation(identifier.toString, content)
-    this
-  }
-
-  /** Link data (i.e., url location for storing the data) with the catalog table. */
-  def attachData(dataAddress: String) = {
-    val dataManager =
-      SeccoSession.currentSession.sessionState.cachedDataManager
-    dataManager.storeRelation(identifier.toString, dataAddress)
-    this
-  }
+//  /** Link data (i.e., RDD[InternalBlock]) with the catalog table. */
+//  def attachData(content: RDD[InternalBlock]) = {
+//    val dataManager =
+//      SeccoSession.currentSession.sessionState.tempViewManager
+//    dataManager.storeRelation(identifier.toString, content)
+//    this
+//  }
+//
+//  /** Link data (i.e., url location for storing the data) with the catalog table. */
+//  def attachData(dataAddress: String) = {
+//    val dataManager =
+//      SeccoSession.currentSession.sessionState.tempViewManager
+//    dataManager.storeRelation(identifier.toString, dataAddress)
+//    this
+//  }
 }
 
 object CatalogTable {

@@ -1,7 +1,6 @@
 package org.apache.spark.secco.execution.plan.communication.utils
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.benchmark.BenchmarkResult
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.util.misc.LogAble

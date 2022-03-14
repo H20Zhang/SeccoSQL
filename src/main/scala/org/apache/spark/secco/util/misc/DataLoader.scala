@@ -4,13 +4,14 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.execution.sources.DataLoader
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.sql.SparkSession
 
 /** A class for loading the data for benchmark. */
 object DataLoader {
 
   /** Load TSV file. */
-  def loadTSV(path: String, separator: String = "\\s"): RDD[Array[Double]] = {
+  def loadTSV(path: String, separator: String = "\\s"): RDD[InternalRow] = {
     val dlSession = SeccoSession.currentSession
     val sc = SparkSingle.getSparkContext()
     val fileRDD = sc.textFile(path)
@@ -19,7 +20,7 @@ object DataLoader {
         f.startsWith("#") match {
           case false =>
             try {
-              Some(f.split(separator).map(_.toDouble))
+              Some(InternalRow(f.split(separator).map(_.toDouble)))
             } catch {
               case _: Throwable => None
             }

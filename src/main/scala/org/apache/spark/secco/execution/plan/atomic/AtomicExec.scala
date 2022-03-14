@@ -45,28 +45,30 @@ case class AssignExec(child: SeccoPlan, tableIdentifier: String)
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
-
-    dataManager(tableIdentifier) match {
-      case Some(childRDD) =>
-        val childRDD =
-          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
-        childRDD.count()
-
-        dataManager.storeRelation(tableIdentifier, childRDD)
-        childRDD
-
-//        childRDD.asInstanceOf[RDD[InternalBlock]]
-      case None =>
-        val childRDD =
-          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
-        childRDD.count()
-
-        dataManager.storeRelation(tableIdentifier, childRDD)
-        childRDD
-    }
-
-  }
+  override protected def doExecute(): RDD[InternalBlock] = ???
+  //TODO: refactor below
+//  {
+//
+//    dataManager(tableIdentifier) match {
+//      case Some(childRDD) =>
+//        val childRDD =
+//          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
+//        childRDD.count()
+//
+//        dataManager.storeRelation(tableIdentifier, childRDD)
+//        childRDD
+//
+////        childRDD.asInstanceOf[RDD[InternalBlock]]
+//      case None =>
+//        val childRDD =
+//          child.execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
+//        childRDD.count()
+//
+//        dataManager.storeRelation(tableIdentifier, childRDD)
+//        childRDD
+//    }
+//
+//  }
 
   /** The output attributes */
   override def outputOld: Seq[String] = child.outputOld
@@ -341,42 +343,44 @@ case class UpdateExec(
     (newHashMapRDD, diffRDD)
   }
 
-  def genFinalTable(): Unit = {
-    val outputRDD = hashMapRDDOption match {
-      case Some(hashMapRDD) =>
-        hashMapRDD.map {
-          case b: GeneralBlock[
-                mutable.HashMap[mutable.WrappedArray[
-                  OldInternalDataType
-                ], OldInternalDataType]
-              ] =>
-            val hashMap = b.blockContent.content
-            val mutableArray = ArrayBuffer[OldInternalRow]()
-            val keyPosSize = keyPos.length
-            hashMap.foreach { case (key, value) =>
-              val res = new Array[OldInternalDataType](outputOld.size)
-              var i = 0
-              while (i < keyPosSize) {
-                res(i) = key(i)
-                i += 1
-              }
-              res(keyPosSize) = value
-              mutableArray += res
-            }
-            val content = mutableArray.toArray
-            RowBlock(outputOld, RowBlockContent(content))
-              .asInstanceOf[InternalBlock]
-          case _ => throw new Exception("blockType not supported")
-        }
-      case None =>
-        throw new Exception(
-          "hashMapRDD shouldn't be empty when calling genFinalTable"
-        )
-    }
-
-//    outputRDD.cache().count()
-    dataManager.storeRelation(tableIdentifier, outputRDD)
-  }
+  def genFinalTable(): Unit = ???
+//  TODO: refactor below
+//  {
+//    val outputRDD = hashMapRDDOption match {
+//      case Some(hashMapRDD) =>
+//        hashMapRDD.map {
+//          case b: GeneralBlock[
+//                mutable.HashMap[mutable.WrappedArray[
+//                  OldInternalDataType
+//                ], OldInternalDataType]
+//              ] =>
+//            val hashMap = b.blockContent.content
+//            val mutableArray = ArrayBuffer[OldInternalRow]()
+//            val keyPosSize = keyPos.length
+//            hashMap.foreach { case (key, value) =>
+//              val res = new Array[OldInternalDataType](outputOld.size)
+//              var i = 0
+//              while (i < keyPosSize) {
+//                res(i) = key(i)
+//                i += 1
+//              }
+//              res(keyPosSize) = value
+//              mutableArray += res
+//            }
+//            val content = mutableArray.toArray
+//            RowBlock(outputOld, RowBlockContent(content))
+//              .asInstanceOf[InternalBlock]
+//          case _ => throw new Exception("blockType not supported")
+//        }
+//      case None =>
+//        throw new Exception(
+//          "hashMapRDD shouldn't be empty when calling genFinalTable"
+//        )
+//    }
+//
+////    outputRDD.cache().count()
+//    dataManager.storeRelation(tableIdentifier, outputRDD)
+//  }
 
   private var iter = 0
   private var checkpointRDDOption: Option[RDD[InternalBlock]] = None
@@ -385,65 +389,67 @@ case class UpdateExec(
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
-    val childRDD = child.execute()
-
-    //TODO: find out if caching is needed
-
-//      .cache()
-    childRDD.count()
-
-    val diffRDD = hashMapRDDOption match {
-      case Some(hashMapRDD) =>
-        val partitionRDD = genPartitionRDD(childRDD, sentryRDD)
-        val zippedRDD = genZippedRDD(hashMapRDD, partitionRDD)
-        val (newHashMapRDD, diffRDD) = update(zippedRDD)
-
-//        iter += 1
-//        if (iter % 5 == 0) {
-////          newHashMapRDD.cache().count()
-//          val oldCheckpointRDDOption = checkpointRDDOption
+  override protected def doExecute(): RDD[InternalBlock] = ???
+  //TODO: refactor below
+//  {
+//    val childRDD = child.execute()
 //
-//          checkpointRDDOption = Some(newHashMapRDD.localCheckpoint())
-//          checkpointRDDOption.get.count()
+//    //TODO: find out if caching is needed
 //
-//          oldCheckpointRDDOption match {
-//            case Some(x) =>
-//              checkpointRDDOption.get.unpersist(false)
-//            case None =>
-//          }
-//        } else {
-
-//        diffRDD.cache().count()
-//        }
-
-        //store the diffRDD in deltaTable
-        dataManager.storeRelation(deltaTableName, diffRDD)
-
-        newHashMapRDD.cache().count()
-        hashMapRDDOption = Some(newHashMapRDD)
-        hashMapRDD.unpersist(false)
-
-        diffRDD
-      case None =>
-        val partitionRDD = genPartitionRDD(childRDD, sentryRDD)
-        val hashMapRDD = genHashMapRDD(partitionRDD)
-
-        hashMapRDD.cache().count()
-        hashMapRDDOption = Some(hashMapRDD)
-        val diffRDD = childRDD
-
-        //store the diffRDD in deltaTable
-        dataManager.storeRelation(deltaTableName, diffRDD)
-
-        diffRDD
-
-    }
-
-    childRDD.unpersist(false)
-
-    diffRDD
-  }
+////      .cache()
+//    childRDD.count()
+//
+//    val diffRDD = hashMapRDDOption match {
+//      case Some(hashMapRDD) =>
+//        val partitionRDD = genPartitionRDD(childRDD, sentryRDD)
+//        val zippedRDD = genZippedRDD(hashMapRDD, partitionRDD)
+//        val (newHashMapRDD, diffRDD) = update(zippedRDD)
+//
+////        iter += 1
+////        if (iter % 5 == 0) {
+//////          newHashMapRDD.cache().count()
+////          val oldCheckpointRDDOption = checkpointRDDOption
+////
+////          checkpointRDDOption = Some(newHashMapRDD.localCheckpoint())
+////          checkpointRDDOption.get.count()
+////
+////          oldCheckpointRDDOption match {
+////            case Some(x) =>
+////              checkpointRDDOption.get.unpersist(false)
+////            case None =>
+////          }
+////        } else {
+//
+////        diffRDD.cache().count()
+////        }
+//
+//        //store the diffRDD in deltaTable
+//        dataManager.storeRelation(deltaTableName, diffRDD)
+//
+//        newHashMapRDD.cache().count()
+//        hashMapRDDOption = Some(newHashMapRDD)
+//        hashMapRDD.unpersist(false)
+//
+//        diffRDD
+//      case None =>
+//        val partitionRDD = genPartitionRDD(childRDD, sentryRDD)
+//        val hashMapRDD = genHashMapRDD(partitionRDD)
+//
+//        hashMapRDD.cache().count()
+//        hashMapRDDOption = Some(hashMapRDD)
+//        val diffRDD = childRDD
+//
+//        //store the diffRDD in deltaTable
+//        dataManager.storeRelation(deltaTableName, diffRDD)
+//
+//        diffRDD
+//
+//    }
+//
+//    childRDD.unpersist(false)
+//
+//    diffRDD
+//  }
 
   /** The output attributes */
   override def outputOld: Seq[String] = child.outputOld

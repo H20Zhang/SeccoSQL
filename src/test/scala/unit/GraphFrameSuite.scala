@@ -1,7 +1,8 @@
 package unit
 
 import org.apache.spark.secco.GraphFrame.{EdgeMetaData, NodeMetaData}
-import org.apache.spark.secco.{Dataset, GraphFrame, SeccoSession}
+import org.apache.spark.secco.types.{DataTypes, StructField, StructType}
+import org.apache.spark.secco.{Dataframe, GraphFrame, SeccoSession, types}
 import org.apache.spark.secco.util.misc.SparkSingle
 import util.SeccoFunSuite
 
@@ -11,8 +12,23 @@ class GraphFrameSuite extends SeccoFunSuite {
 
     clearSession()
 
-    val V = Dataset.empty("V", "id" :: "vLabel" :: Nil)
-    val E = Dataset.empty("E", "src" :: "dst" :: "eLabel" :: Nil)
+    val nodeSchema = StructType(
+      Seq(
+        StructField("id", DataTypes.LongType),
+        StructField("vLabel", DataTypes.IntegerType)
+      )
+    )
+
+    val edgeSchema = StructType(
+      Seq(
+        StructField("src", DataTypes.LongType),
+        StructField("dst", DataTypes.LongType),
+        StructField("eLabel", DataTypes.IntegerType)
+      )
+    )
+
+    val V = Dataframe.empty(nodeSchema).alias("V")
+    val E = Dataframe.empty(edgeSchema).alias("E")
 
     val graph = GraphFrame(
       V,
@@ -26,8 +42,23 @@ class GraphFrameSuite extends SeccoFunSuite {
 
     clearSession()
 
-    val V = Dataset.empty("V", "id" :: "vLabel" :: Nil)
-    val E = Dataset.empty("E", "src" :: "dst" :: "eLabel" :: Nil)
+    val nodeSchema = StructType(
+      Seq(
+        StructField("id", DataTypes.LongType),
+        StructField("vLabel", DataTypes.IntegerType)
+      )
+    )
+
+    val edgeSchema = StructType(
+      Seq(
+        StructField("src", DataTypes.LongType),
+        StructField("dst", DataTypes.LongType),
+        StructField("eLabel", DataTypes.IntegerType)
+      )
+    )
+
+    val V = Dataframe.empty(nodeSchema).alias("V")
+    val E = Dataframe.empty(edgeSchema).alias("E")
 
     val graph = GraphFrame(
       V,

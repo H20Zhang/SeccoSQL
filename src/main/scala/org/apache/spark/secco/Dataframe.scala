@@ -28,12 +28,12 @@ import org.apache.spark.secco.analysis.{
   UnresolvedPattern,
   UnresolvedSubgraphQuery
 }
+import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   BinaryJoin,
   Distinct,
   EdgeRelation,
-  EmptyRelation,
   Except,
   Filter,
   Graph,
@@ -42,6 +42,9 @@ import org.apache.spark.secco.optimization.plan.{
   Intersection,
   JoinType,
   Limit,
+  LocalRows,
+  RDDBlocks,
+  RDDRows,
   MessagePassing,
   NodeRelation,
   Project,
@@ -50,13 +53,14 @@ import org.apache.spark.secco.optimization.plan.{
   SubqueryAlias,
   Union
 }
+import org.apache.spark.secco.types.{DataType, StructType}
 
 import scala.util.Try
 
 /** A Dataset is a strongly typed collection of domain-specific objects that can be transformed
   * in parallel using functional or relational operations.
   */
-class Dataset(
+class Dataframe(
     @transient val seccoSession: SeccoSession,
     @transient val queryExecution: QueryExecution
 ) {
@@ -80,12 +84,34 @@ class Dataset(
   }
 
   /** Assign the results of the dataset to an relation in DB. */
-  def createOrReplaceTable(tableName: String): Unit = ???
+  def createOrReplaceTable(tableName: String): Unit = {
+    seccoSession.sessionState.tempViewManager
+      .createOrReplaceView(tableName, logical)
+  }
 
   /** logical plan of this dataset */
   def logical: LogicalPlan = queryExecution.logical
 
   /* == actions == */
+
+  /** Cache the dataframe. */
+  def cache(): Dataframe = {
+    val rdd = queryExecution.executionPlan.execute().cache()
+    val outputs = queryExecution.logical.output
+    val schema = StructType.fromAttributes(outputs)
+    val qualifier = queryExecution.logical.output.map(_.qualifier).head
+
+    val logicPlan = qualifier match {
+      case Some(prefix) => SubqueryAlias(RDDBlocks(rdd, schema), prefix)
+      case None         => RDDBlocks(rdd, schema)
+    }
+
+    Dataframe(
+      seccoSession,
+      logicPlan
+    )
+
+  }
 
   /** Return rows of the dataset in RDD. */
   def rdd(): RDD[OldInternalRow] = queryExecution.executionPlan.rdd()
@@ -102,7 +128,7 @@ class Dataset(
     * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
     * @return a new dataset
     */
-  def filter(predicates: String): Dataset = {
+  def filter(predicates: String): Dataframe = {
     select(predicates)
   }
 
@@ -110,8 +136,8 @@ class Dataset(
     * @param predicates the predicates used to perform the selection, e.g., R1.select("a < b")
     * @return a new dataset
     */
-  def select(predicates: String): Dataset = {
-    Dataset(
+  def select(predicates: String): Dataframe = {
+    Dataframe(
       seccoSession,
       Filter(
         queryExecution.logical,
@@ -124,7 +150,7 @@ class Dataset(
     * @param projectionList the list of columns to preserve after projection, e.g., R1.project("a").
     * @return a new dataset.
     */
-  def project(projectionList: String): Dataset = {
+  def project(projectionList: String): Dataframe = {
 
     val namedProjectionList = projectionList
       .replaceAll(",\\s+", ",") //trim whitespace
@@ -135,7 +161,7 @@ class Dataset(
         )
       )
 
-    Dataset(
+    Dataframe(
       seccoSession,
       Project(
         queryExecution.logical,
@@ -149,11 +175,11 @@ class Dataset(
     * @return a new dataset.
     */
   def join(
-      others: Dataset,
+      others: Dataframe,
       joinCondition: String = "",
       joinType: JoinType = Inner
-  ): Dataset = {
-    Dataset(
+  ): Dataframe = {
+    Dataframe(
       seccoSession,
       BinaryJoin(
         queryExecution.logical,
@@ -173,7 +199,7 @@ class Dataset(
   def aggregate(
       aggregateExpressions: Seq[String],
       groupByExpressions: Seq[String] = Seq()
-  ): Dataset = {
+  ): Dataframe = {
 
     val parsedAggregateExpressions = aggregateExpressions.map(aggExpr =>
       UnresolvedAlias(
@@ -193,7 +219,7 @@ class Dataset(
       )
     }
 
-    Dataset(
+    Dataframe(
       seccoSession,
       Aggregate(
         queryExecution.logical,
@@ -207,8 +233,8 @@ class Dataset(
     * @param newName the new name for the dataset
     * @return a new dataset.
     */
-  def alias(newName: String): Dataset = {
-    Dataset(
+  def alias(newName: String): Dataframe = {
+    Dataframe(
       seccoSession,
       SubqueryAlias(
         queryExecution.logical,
@@ -223,30 +249,30 @@ class Dataset(
     * @param others other datasets to be unioned.
     * @return a new dataset.
     */
-  def union(others: Dataset*): Dataset = {
+  def union(others: Dataframe*): Dataframe = {
     val children =
       queryExecution.logical +: others.map(_.queryExecution.logical)
 
-    Dataset(seccoSession, Distinct(Union(children)))
+    Dataframe(seccoSession, Distinct(Union(children)))
   }
 
   /** Perform union between this dataset and other datasets, and only retains distinct tuples
     * @param others other datasets to be unioned.
     * @return a new dataset.
     */
-  def unionAll(others: Dataset*): Dataset = {
+  def unionAll(others: Dataframe*): Dataframe = {
     val children =
       queryExecution.logical +: others.map(_.queryExecution.logical)
 
-    Dataset(seccoSession, Union(children))
+    Dataframe(seccoSession, Union(children))
   }
 
   /** Perform difference between this dataset and the other dataset.
     * @param other the other dataset to be unioned.
     * @return a new dataset.
     */
-  def difference(other: Dataset): Dataset = {
-    Dataset(
+  def difference(other: Dataframe): Dataframe = {
+    Dataframe(
       seccoSession,
       Except(queryExecution.logical, other.queryExecution.logical)
     )
@@ -256,8 +282,8 @@ class Dataset(
     * @param other the other dataset to be unioned.
     * @return a new dataset.
     */
-  def intersection(other: Dataset): Dataset = {
-    Dataset(
+  def intersection(other: Dataframe): Dataframe = {
+    Dataframe(
       seccoSession,
       Intersection(queryExecution.logical, other.queryExecution.logical)
     )
@@ -268,16 +294,16 @@ class Dataset(
   /** Perform distinction of this datasets by only retain distinctive tuples.
     * @return a new dataset.
     */
-  def distinct(): Dataset = {
-    Dataset(
+  def distinct(): Dataframe = {
+    Dataframe(
       seccoSession,
       Distinct(queryExecution.logical)
     )
   }
 
   /** Return only k results */
-  def limit(k: Int): Dataset = {
-    Dataset(
+  def limit(k: Int): Dataframe = {
+    Dataframe(
       seccoSession,
       Limit(queryExecution.logical, k)
     )
@@ -348,173 +374,65 @@ class Dataset(
 
 }
 
-object Dataset {
+object Dataframe {
 
-  private val tempTableId = new AtomicLong()
-  private val tempTableNamePrefix = "T"
-
-  /** Create an instance of [[Dataset]]
+  /** Create an instance of [[Dataframe]]
     *
     * @param seSession the [[SeccoSession]] to create the dataset
     * @param logicalPlan    the logical plan of the dataset
-    * @return a new [[Dataset]]
+    * @return a new [[Dataframe]]
     */
   def apply(
       seSession: SeccoSession,
       logicalPlan: LogicalPlan
-  ): Dataset = {
+  ): Dataframe = {
     val qe = new QueryExecution(seSession, logicalPlan)
-    new Dataset(seSession, qe)
+    new Dataframe(seSession, qe)
   }
 
-  /** Create an [[Dataset]] from [[RDD]]
+  /** Create an [[Dataframe]] from [[RDD]]
     *
-    * @param rdd          the rdd that stores the data
-    * @param catalogTable the catalog of the dataset
-    * @param dlSession    the [[SeccoSession]] to create the dataset
-    * @return a new [[Dataset]]
+    * @param rdd a rdd that stores a set of [[InternalRow]]
+    * @param schema schema of this [[Dataframe]]
+    * @param attributeName attribute names of this [[Dataframe]]
+    * @param dlSession    the [[SeccoSession]] to create the [[Dataframe]]
+    * @return a new [[Dataframe]]
     */
   def fromRDD(
-      rdd: RDD[OldInternalRow],
-      catalogTable: CatalogTable,
-      dlSession: SeccoSession
-  ): Dataset = {
-
-    val catalog = dlSession.sessionState.catalog
-    val cachedDataManager = dlSession.sessionState.cachedDataManager
-    val relationName = catalogTable.identifier.table
-    val schema = catalogTable.schema.map(_.columnName)
-
-    // register catalogTable in Catalog
-    catalog.createTable(catalogTable)
-
-    // store rdd in cachedDataManager
-    val internalRDD = rdd
-      .mapPartitions { it =>
-        val blockContent = RowBlockContent(it.toArray)
-        val rowBlock =
-          RowBlock(schema, blockContent).asInstanceOf[InternalBlock]
-        Iterator(rowBlock)
-      }
-      .persist(dlSession.sessionState.conf.rddCacheLevel)
-
-    cachedDataManager.storeRelation(relationName, internalRDD)
-
-    Dataset(dlSession, Relation(TableIdentifier(relationName)))
+      rdd: RDD[InternalRow],
+      schema: StructType,
+      dlSession: SeccoSession = SeccoSession.currentSession
+  ): Dataframe = {
+    Dataframe(dlSession, RDDRows(rdd, schema))
   }
 
-  /** Create an [[Dataset]] from [[RDD]]
-    *
-    * @param rdd           the rdd that stores the data
-    * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
-    * @param _schema       the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
-    * @param _primaryKey   the primary key of the schema
-    * @param dl            the [[SeccoSession]] to create the dataset
-    * @return a new [[Dataset]]
-    */
-  def fromRDD(
-      rdd: RDD[OldInternalRow],
-      _relationName: Option[String] = None,
-      _schema: Option[Seq[String]] = None,
-      _primaryKey: Option[Seq[String]] = None,
-      dl: SeccoSession = SeccoSession.currentSession
-  ): Dataset = {
-
-    val relationName = _relationName match {
-      case Some(relationName) => relationName
-      case None               => s"${tempTableNamePrefix}${tempTableId.incrementAndGet()}"
-    }
-
-    val schema = _schema match {
-      case Some(schema) => schema
-      case None =>
-        assert(
-          rdd.count() != 0,
-          "size of rdd must be greater than 0 if no schema is provided."
-        )
-
-        val arity = rdd.take(1)(0).size
-
-        assert(
-          rdd.map(f => f.size == arity).reduce { case (l, r) =>
-            l != false && r != false
-          },
-          s"internal row must be have same width:${arity}"
-        )
-
-        val schema = 0 until (arity) map (f => s"${f}")
-
-        schema
-    }
-
-    val catalogTable = CatalogTable(
-      relationName,
-      schema.map(f => CatalogColumn(f)),
-      _primaryKey.map(_.map(f => CatalogColumn(f))).getOrElse(Seq())
-    )
-
-    fromRDD(
-      rdd,
-      catalogTable,
-      dl
-    )
-  }
-
-  /** Create an [[Dataset]] from [[Seq]]
+  /** Create an [[Dataframe]] from [[Seq]]
     *
     * @param seq           the [[Seq]] that stores the data
-    * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
-    * @param _schema       the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
-    * @param _primaryKey   the primary key of the schema
-    * @param dl            the [[SeccoSession]] to create the dataset
-    * @return a new [[Dataset]]
+    * @param schema schema of this [[Dataframe]]
+    * @param attributeName attribute names of this [[Dataframe]]
+    * @param dlSession            the [[SeccoSession]] to create the dataset
+    * @return a new [[Dataframe]]
     */
   def fromSeq(
-      seq: Seq[OldInternalRow],
-      _relationName: Option[String] = None,
-      _schema: Option[Seq[String]] = None,
-      _primaryKey: Option[Seq[String]] = None,
-      dl: SeccoSession = SeccoSession.currentSession
-  ): Dataset = {
-    val sc = dl.sessionState.sc
-    val rdd = sc.parallelize(seq)
-    fromRDD(rdd, _relationName, _schema, _primaryKey, dl)
+      seq: Seq[InternalRow],
+      schema: StructType,
+      dlSession: SeccoSession = SeccoSession.currentSession
+  ): Dataframe = {
+    Dataframe(dlSession, LocalRows(seq, schema))
   }
 
-  /** Create an [[Dataset]] from file
+  /** Create an empty [[Dataframe]]
     *
-    * @param path          the path that point to the location of datasets
-    * @param _relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
-    * @param _schema       the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
-    * @param _primaryKey   the primary key of the schema
-    * @param dl            the [[SeccoSession]] to create the dataset
-    * @return a new [[Dataset]]
-    */
-  def fromFile(
-      path: String,
-      _relationName: Option[String] = None,
-      _schema: Option[Seq[String]] = None,
-      _primaryKey: Option[Seq[String]] = None,
-      dl: SeccoSession = SeccoSession.currentSession
-  ): Dataset = {
-    val rdd = DataLoader.loadTSV(path)
-    fromRDD(rdd, _relationName, _schema, _primaryKey, dl)
-  }
-
-  /** Create an empty [[Dataset]]
-    *
-    * @param relationName the name of the dataset, if None, it will be assigned an temporary name, e.g., T1
-    * @param schema       the schema of the dataset, if None, it will be deduced from the tuples of the dataset, e.g., T1(1, 2, 3)
-    * @param _primaryKey  the primary key of the schema
-    * @param dl           the [[SeccoSession]] to create the dataset
-    * @return a new empty [[Dataset]]
+    * @param schema schema of this [[Dataframe]]
+    * @param attributeName attribute names of this [[Dataframe]]
+    * @param dlSession           the [[SeccoSession]] to create the dataset
+    * @return a new empty [[Dataframe]]
     */
   def empty(
-      relationName: String,
-      schema: Seq[String],
-      _primaryKey: Option[Seq[String]] = None,
-      dl: SeccoSession = SeccoSession.currentSession
-  ): Dataset = {
-    fromSeq(Seq(), Some(relationName), Some(schema), _primaryKey, dl)
+      schema: StructType,
+      dlSession: SeccoSession = SeccoSession.currentSession
+  ): Dataframe = {
+    fromSeq(Seq(), schema, dlSession)
   }
 }

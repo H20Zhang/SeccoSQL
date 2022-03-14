@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.planning
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.catalog.CachedDataManager
+import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.execution.plan.atomic._

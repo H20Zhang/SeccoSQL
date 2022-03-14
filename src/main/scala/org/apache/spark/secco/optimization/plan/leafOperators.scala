@@ -6,9 +6,9 @@ import org.apache.spark.secco.analysis.{
   NoSuchTableException
 }
 import org.apache.spark.secco.catalog.{
-  CachedDataManager,
   Catalog,
-  TableIdentifier
+  TableIdentifier,
+  TempViewManager
 }
 import org.apache.spark.secco.execution.InternalBlock
 import org.apache.spark.secco.execution.statsComputation.HistogramStatisticComputer
@@ -17,6 +17,8 @@ import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.statsEstimation.Statistics
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.types.{DataType, StructType}
 
 /* ---------------------------------------------------------------------------------------------------------------------
  * This file contains logical plans with no child.
@@ -111,7 +113,7 @@ abstract class BaseRelation extends LeafNode with MultiInstanceRelation {
   }
 }
 
-/** An operator that output table specified by [[tableIdentifier]]
+/** An operator that represents table specified by [[tableIdentifier]]
   * @param tableIdentifier identifier of the table
   * @param mode execution mode
   */
@@ -122,10 +124,69 @@ case class Relation(
   override def newInstance(): LogicalPlan = copy()
 }
 
-case class EmptyRelation(
-    override val output: Seq[Attribute] = Seq(),
+/** An operator that represents a set of [[InternalRow]] stored in [[RDD]].
+  * @param rdd the rdd that stores a set of [[InternalRow]]
+  * @param schema the schema of [[InternalRow]]
+  * @param attributeName the attribute names of the row
+  * @param mode the execution mode
+  */
+case class RDDRows(
+    rdd: RDD[InternalRow],
+    schema: StructType,
     mode: ExecMode = ExecMode.Atomic
-) extends LeafNode {}
+) extends LeafNode {
+
+  override def output: Seq[Attribute] = {
+    schema.toAttributes
+  }
+}
+
+/** An operator that represents a set of [[InternalRow]] stored in [[Seq]].
+  * @param seq the [[Seq]] that stores a set of [[InternalRow]]
+  * @param schema the schema of [[InternalRow]]
+  * @param attributeName the attribute names of the row
+  * @param mode the execution mode
+  */
+case class LocalRows(
+    seq: Seq[InternalRow],
+    schema: StructType,
+    mode: ExecMode = ExecMode.Atomic
+) extends LeafNode {
+
+  override def output: Seq[Attribute] = {
+    schema.toAttributes
+  }
+}
+
+/** An operator that represents a set of [[InternalBlock]] stored in [[RDD]], where each [[InternalBlock]]
+  * contains a set of [[InternalRow]].
+  *
+  * @param rdd the rdd that stores a set of [[InternalBlock]]
+  * @param schema the schema of [[InternalRow]] inside [[InternalBlock]]
+  * @param attributeName the attribute names of the row
+  * @param mode the execution mode
+  */
+case class RDDBlocks(
+    blocks: RDD[InternalBlock],
+    schema: StructType,
+    mode: ExecMode = ExecMode.Atomic
+) extends LeafNode {
+
+  override def output: Seq[Attribute] = {
+    schema.toAttributes
+  }
+
+  override def computeStats(): Statistics = {
+    val rawData = blocks
+    val attributes = output
+    val attributeInString = attributes.map(_.name)
+    val statistics =
+      HistogramStatisticComputer.compute(attributeInString, rawData)
+
+    statistics
+  }
+
+}
 
 /** An operator that holds an GHD node
   * @param chi attributes of the GHD node

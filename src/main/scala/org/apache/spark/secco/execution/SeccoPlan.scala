@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.catalog.CachedDataManager
+import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.execution.plan.computation.utils.Alg
 import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
 import org.apache.spark.secco.execution.statsComputation.{
@@ -25,7 +25,7 @@ abstract class SeccoPlan
   @transient lazy val statisticKeeper = StatisticKeeper(this)
   @transient var cachedExecuteResult: Option[RDD[InternalBlock]] = None
   @transient val dataManager =
-    SeccoSession.currentSession.sessionState.cachedDataManager
+    SeccoSession.currentSession.sessionState.tempViewManager
 
   def taskPartitioner(): PairPartitioner = {
     throw new Exception(s"taskPartition not avaiable for ${this.getClass}")
