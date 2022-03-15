@@ -4,8 +4,8 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.execution.{
   InternalBlock,
   OldInternalDataType,
-  RowBlock,
-  RowBlockContent
+  ArrayBlock,
+  ArrayData
 }
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
@@ -37,14 +37,14 @@ object HistogramStatisticComputer {
     val contentInOnePartition = content
       .flatMap { block =>
         block match {
-          case RowBlock(output, blockContent) =>
+          case ArrayBlock(output, blockContent) =>
             blockContent.content
           case _ => throw new Exception("only RowBlock supports statistic")
         }
       }
       .repartition(1)
       .mapPartitions { rows =>
-        Iterator(RowBlock(Seq(), RowBlockContent(rows.toArray)))
+        Iterator(ArrayBlock(Seq(), ArrayData(rows.toArray)))
       }
 
     //count distinct numbers of value of attributes and
@@ -53,7 +53,7 @@ object HistogramStatisticComputer {
       .mapPartitions { blocks =>
         blocks.flatMap { block =>
           block match {
-            case RowBlock(output, blockContent) =>
+            case ArrayBlock(output, blockContent) =>
               val array = blockContent.content
 
               //compute row count

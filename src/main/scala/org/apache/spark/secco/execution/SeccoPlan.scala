@@ -11,6 +11,7 @@ import org.apache.spark.secco.execution.statsComputation.{
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.storage.StorageLevel
 
 /** The base class for physical operators.
@@ -57,8 +58,8 @@ abstract class SeccoPlan
     val time1 = System.currentTimeMillis()
     val rows = internalBlockRDD
       .flatMap { block =>
-        if (block.isInstanceOf[RowBlock]) {
-          val rowBlock = block.asInstanceOf[RowBlock]
+        if (block.isInstanceOf[ArrayBlock]) {
+          val rowBlock = block.asInstanceOf[ArrayBlock]
           rowBlock.blockContent.content
         } else {
           throw new Exception(
@@ -130,13 +131,13 @@ abstract class SeccoPlan
     *
     * Concrete implementations of SparkPlan should override `doRDD`.
     */
-  final def rdd(): RDD[OldInternalRow] = {
+  final def rdd(): RDD[InternalRow] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
       case Some(rdd) =>
         rdd.flatMap {
-          case r: RowBlock => r.blockContent.content
+          case r: ArrayBlock => r.blockContent.content
           case t: InternalBlock =>
             throw new Exception(s"${t.getClass} not supported.")
         }
@@ -178,8 +179,8 @@ abstract class SeccoPlan
     */
   protected def doRDD(): RDD[OldInternalRow] = {
     doExecute().flatMap {
-      case r: RowBlock            => r.blockContent.content.iterator
-      case c: ConsecutiveRowBlock => c.blockContent.content.iterator
+      case r: ArrayBlock    => r.blockContent.content.iterator
+      case c: RawArrayBlock => c.blockContent.content.iterator
       case b: InternalBlock =>
         throw new Exception(s"${b.getClass} not supported.")
     }

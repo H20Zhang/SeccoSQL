@@ -29,7 +29,7 @@ case class PartitionExchangeExec(
     val spark = SparkSingle.getSparkSession()
 
     val relationRDD = child.execute().flatMap {
-      case RowBlock(_, blockContent) =>
+      case ArrayBlock(_, blockContent) =>
         blockContent.content.iterator.map(g => (g, false))
       case _ => throw new Exception(s"child of $this must output RowBlock")
     }

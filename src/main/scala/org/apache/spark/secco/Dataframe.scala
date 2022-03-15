@@ -10,8 +10,8 @@ import org.apache.spark.secco.execution.{
   InternalBlock,
   OldInternalRow,
   QueryExecution,
-  RowBlock,
-  RowBlockContent
+  ArrayBlock,
+  ArrayData
 }
 import org.apache.spark.secco.expression.{
   Attribute,

@@ -198,7 +198,7 @@ case class UpdateExec(
       sentryRDD: RDD[(OldInternalRow, Boolean)]
   ): RDD[InternalBlock] = {
     val rowRDD = rdd.flatMap {
-      case r: RowBlock => r.blockContent.content.map(f => (f, true))
+      case r: ArrayBlock => r.blockContent.content.map(f => (f, true))
       case _ =>
         throw new Exception("blockType not supported.")
     }
@@ -210,7 +210,7 @@ case class UpdateExec(
         .mapPartitions { it =>
           val content = it.filter(_._2).map(_._1).toArray
           Iterator(
-            RowBlock(outputOld, RowBlockContent(content))
+            RowBlock(outputOld, ArrayData(content))
               .asInstanceOf[InternalBlock]
           )
         }
@@ -220,7 +220,7 @@ case class UpdateExec(
 
   def genHashMapRDD(rdd: RDD[InternalBlock]): RDD[InternalBlock] = {
     rdd.map {
-      case r: RowBlock =>
+      case r: ArrayBlock =>
         val content = r.blockContent.content
         val hashMap =
           mutable
@@ -239,7 +239,7 @@ case class UpdateExec(
           val value = row(valuePos)
           hashMap(key) = value
         }
-        GeneralBlock(outputOld, GeneralBlockContent(hashMap))
+        GeneralBlock(outputOld, GeneralRawData(hashMap))
       case _ => throw new Exception("blockType not supported.")
     }
   }
@@ -268,7 +268,7 @@ case class UpdateExec(
               OldInternalDataType
             ], OldInternalDataType]
           ]]
-        val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
+        val block1 = m.subBlocks(1).asInstanceOf[ArrayBlock]
 
         val hashMap = block0.blockContent.content
         val rows = block1.blockContent.content
@@ -294,7 +294,7 @@ case class UpdateExec(
           }
         }
 
-        RowBlock(outputOld, RowBlockContent(diffRows))
+        RowBlock(outputOld, ArrayData(diffRows))
           .asInstanceOf[InternalBlock]
       case _ => throw new Exception("blockType not supported")
     }
@@ -308,7 +308,7 @@ case class UpdateExec(
               OldInternalDataType
             ], OldInternalDataType]
           ]]
-        val block1 = m.subBlocks(1).asInstanceOf[RowBlock]
+        val block1 = m.subBlocks(1).asInstanceOf[ArrayBlock]
 
         val hashMap = block0.blockContent.content
         val rows = block1.blockContent.content

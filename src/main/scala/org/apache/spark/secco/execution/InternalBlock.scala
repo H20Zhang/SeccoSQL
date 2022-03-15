@@ -1,142 +1,176 @@
 package org.apache.spark.secco.execution
 
+import org.apache.spark.Partitioner
 import org.apache.spark.secco.execution.plan.computation.utils.{
   ConsecutiveRowArray,
   InternalRowHashMap,
   Trie
 }
+import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.types.StructType
 
+/** The abstract class for representing a set of [[InternalRow]] stored in a block. */
 abstract class InternalBlock extends Serializable {
-  def output: Seq[String]
-  def blockContents: Seq[InternalBlockContent]
+
+  /** The output attributes of the block. */
+  def output: Seq[Attribute]
+
+  /** The schema of the block. */
+  def schema: StructType = StructType.fromAttributes(output)
+
+  /** The actual data in the block. */
+  def blockContents: Seq[RawData]
+
+  /** Check if the block is empty. */
   def isEmpty: Boolean
 }
 
-/** Block Contents */
-trait InternalBlockContent {}
-case class RowBlockContent(content: Array[OldInternalRow])
-    extends InternalBlockContent
-case class TrieBlockContent(content: Trie) extends InternalBlockContent
-case class HashMapBlockContent(content: InternalRowHashMap)
-    extends InternalBlockContent
-case class ConsecitiveRowBlockContent(content: ConsecutiveRowArray)
-    extends InternalBlockContent
-case class GeneralBlockContent[V](content: V) extends InternalBlockContent
-
-trait IndexedBlockCapability {
+/** The trait for [[InternalBlock]] that can be indexed, which is a partition of a relation. */
+trait Indexed {
   self: InternalBlock =>
+  def partitioner: Partitioner = ???
   def index: Array[Int]
 }
 
+/** The abstract class for representing raw data inside the block. */
+trait RawData {}
+
+/** The raw block data organized as [[Array]]. */
+case class ArrayData(content: Array[InternalRow]) extends RawData
+
+/** The raw block data organized as [[Trie]]. */
+case class TrieData(content: Trie) extends RawData
+
+/** The row block data organized as [[InternalRowHashMap]] */
+case class HashMapData(content: InternalRowHashMap) extends RawData
+
+/** The row block organized as an consecutive memory of tuples. */
+case class RawArrayData(content: ConsecutiveRowArray) extends RawData
+
+/** The generic raw block. */
+case class GeneralRawData[V](content: V) extends RawData
+
+/** The indexed block that composes of multiple [[InternalBlock]] */
 case class MultiTableIndexedBlock(
-    output: Seq[String],
+    output: Seq[Attribute],
     index: Array[Int],
     subBlocks: Seq[InternalBlock]
 ) extends InternalBlock
-    with IndexedBlockCapability {
+    with Indexed {
 
-  override def blockContents: Seq[InternalBlockContent] =
+  override def blockContents: Seq[RawData] =
     subBlocks.flatMap(_.blockContents)
 
   override def isEmpty: Boolean = subBlocks.forall(_.isEmpty)
 }
 
-case class RowIndexedBlock(
-    output: Seq[String],
+/** The indexed block that stores Array[InternalRow]. */
+case class ArrayIndexedBlock(
+    output: Seq[Attribute],
     index: Array[Int],
-    blockContent: RowBlockContent
+    blockContent: ArrayData
 ) extends InternalBlock
-    with IndexedBlockCapability {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+    with Indexed {
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
+/** The indexed block that stores [[InternalRowHashMap]]. */
 case class HashMapIndexedBlock(
-    output: Seq[String],
+    output: Seq[Attribute],
     index: Array[Int],
-    blockContent: HashMapBlockContent
+    blockContent: HashMapData
 ) extends InternalBlock
-    with IndexedBlockCapability {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+    with Indexed {
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
+/** The indexed block that stores [[Trie]]. */
 case class TrieIndexedBlock(
-    output: Seq[String],
+    output: Seq[Attribute],
     index: Array[Int],
-    blockContent: TrieBlockContent
+    blockContent: TrieData
 ) extends InternalBlock
-    with IndexedBlockCapability {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+    with Indexed {
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   //TODO: implement more efficient version
   override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
 }
 
-case class ConsecutiveRowIndexedBlock(
-    output: Seq[String],
+/** The indexed block that stores [[ConsecutiveRowArray]]. */
+case class RawArrayIndexedBlock(
+    output: Seq[Attribute],
     index: Array[Int],
-    blockContent: ConsecitiveRowBlockContent
+    blockContent: RawArrayData
 ) extends InternalBlock
-    with IndexedBlockCapability {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+    with Indexed {
+  override def blockContents: Seq[RawData] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
+/** The block that stores [[InternalRowHashMap]]. */
 case class HashMapBlock(
-    output: Seq[String],
-    blockContent: HashMapBlockContent
+    output: Seq[Attribute],
+    blockContent: HashMapData
 ) extends InternalBlock {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
+/** The block that stores [[Trie]]. */
 case class TrieBlock(
-    output: Seq[String],
-    blockContent: TrieBlockContent
+    output: Seq[Attribute],
+    blockContent: TrieData
 ) extends InternalBlock {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   //TODO: implement more efficient version
   override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
 }
 
-case class ConsecutiveRowBlock(
-    output: Seq[String],
-    blockContent: ConsecitiveRowBlockContent
+/** The block that stores [[ConsecutiveRowArray]]. */
+case class RawArrayBlock(
+    output: Seq[Attribute],
+    blockContent: RawArrayData
 ) extends InternalBlock {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+  override def blockContents: Seq[RawData] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
-case class RowBlock(
-    output: Seq[String],
-    blockContent: RowBlockContent
+/** The block that stores Array[InternalRow]. */
+case class ArrayBlock(
+    output: Seq[Attribute],
+    blockContent: ArrayData
 ) extends InternalBlock {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
+/** The block that stores multiple blocks. */
 case class MultiBlock(
-    output: Seq[String],
+    output: Seq[Attribute],
     subBlocks: Seq[InternalBlock]
 ) extends InternalBlock {
 
-  override def blockContents: Seq[InternalBlockContent] =
+  override def blockContents: Seq[RawData] =
     subBlocks.flatMap(_.blockContents)
 
   override def isEmpty: Boolean = subBlocks.forall(_.isEmpty)
 }
 
+/** The block that stores any data. */
 case class GeneralBlock[V](
-    output: Seq[String],
-    blockContent: GeneralBlockContent[V]
+    output: Seq[Attribute],
+    blockContent: GeneralRawData[V]
 ) extends InternalBlock {
-  override def blockContents: Seq[InternalBlockContent] = Seq(blockContent)
+  override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = {
     throw new Exception("isEmpty is not implemented for GeneralBlock")

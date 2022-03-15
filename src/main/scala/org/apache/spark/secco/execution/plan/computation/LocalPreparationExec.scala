@@ -14,8 +14,7 @@ import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
-/**
-  * A local preprocessing operator.
+/** A local preprocessing operator.
   * @param child child of this operator
   * @param sharedAttributeOrder shared attribute orders
   */
@@ -33,8 +32,7 @@ case class LocalPreparationExec(
 
   def preparationTask: PreparationTask = sharedPreparationTask.res.head
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
@@ -44,7 +42,7 @@ case class LocalPreparationExec(
         case PreparationTask.ConstructTrie =>
           block match {
 
-            case RowIndexedBlock(output, shareVector, blockContent) =>
+            case ArrayIndexedBlock(output, shareVector, blockContent) =>
               val content = blockContent.content
               val schema = output
 
@@ -60,9 +58,9 @@ case class LocalPreparationExec(
               TrieIndexedBlock(
                 attributeOrder.filter(output.contains),
                 shareVector,
-                TrieBlockContent(trie)
+                TrieData(trie)
               )
-            case RowBlock(output, blockContent) =>
+            case ArrayBlock(output, blockContent) =>
               val content = blockContent.content
               val schema = output
 
@@ -78,7 +76,7 @@ case class LocalPreparationExec(
 
               TrieBlock(
                 attributeOrder.filter(output.contains),
-                TrieBlockContent(trie)
+                TrieData(trie)
               )
             case _ =>
               throw new Exception(
@@ -87,7 +85,7 @@ case class LocalPreparationExec(
           }
         case PreparationTask.Sort =>
           block match {
-            case RowIndexedBlock(output, shareVector, blockContent) =>
+            case ArrayIndexedBlock(output, shareVector, blockContent) =>
               val content = blockContent.content
               val schema = output
 
@@ -96,15 +94,15 @@ case class LocalPreparationExec(
               val comparator = new LexicalOrderComparator(schema.size)
               java.util.Arrays.sort(content, comparator)
 
-              ConsecutiveRowIndexedBlock(
+              RawArrayIndexedBlock(
                 attributeOrder.filter(output.contains),
                 shareVector,
-                ConsecitiveRowBlockContent(
+                RawArrayData(
                   ConsecutiveRowArray(schema.size, content)
                 )
               )
 
-            case RowBlock(output, blockContent) =>
+            case ArrayBlock(output, blockContent) =>
               val content = blockContent.content
               val schema = output
 
@@ -114,9 +112,9 @@ case class LocalPreparationExec(
               val comparator = new LexicalOrderComparator(schema.size)
               java.util.Arrays.sort(content, comparator)
 
-              ConsecutiveRowBlock(
+              RawArrayBlock(
                 attributeOrder.filter(output.contains),
-                ConsecitiveRowBlockContent(
+                RawArrayData(
                   ConsecutiveRowArray(schema.size, content)
                 )
               )
@@ -127,7 +125,7 @@ case class LocalPreparationExec(
           }
         case PreparationTask.ConstructHashMap(keyAttr) =>
           block match {
-            case RowIndexedBlock(output, shareVector, blockContent) =>
+            case ArrayIndexedBlock(output, shareVector, blockContent) =>
               val content = blockContent.content
               val schema = output
               val localAttributeOrder =
@@ -143,7 +141,7 @@ case class LocalPreparationExec(
               HashMapIndexedBlock(
                 attributeOrder.filter(output.contains),
                 shareVector,
-                HashMapBlockContent(
+                HashMapData(
                   InternalRowHashMap(
                     localKeyOrder,
                     localAttributeOrder,
@@ -152,7 +150,7 @@ case class LocalPreparationExec(
                 )
               )
 
-            case RowBlock(output, blockContent) =>
+            case ArrayBlock(output, blockContent) =>
               val content = blockContent.content
               val schema = output
               val localAttributeOrder =
@@ -167,7 +165,7 @@ case class LocalPreparationExec(
 
               HashMapBlock(
                 attributeOrder.filter(output.contains),
-                HashMapBlockContent(
+                HashMapData(
                   InternalRowHashMap(
                     localKeyOrder,
                     localAttributeOrder,

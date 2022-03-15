@@ -5,8 +5,8 @@ import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.execution.{
   InternalBlock,
   OldInternalDataType,
-  RowBlock,
-  RowBlockContent
+  ArrayBlock,
+  ArrayData
 }
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,

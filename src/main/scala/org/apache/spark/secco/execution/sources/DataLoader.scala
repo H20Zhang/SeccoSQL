@@ -1,11 +1,7 @@
 package org.apache.spark.secco.execution.sources
 
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.{
-  InternalBlock,
-  RowBlock,
-  RowBlockContent
-}
+import org.apache.spark.secco.execution.{InternalBlock, ArrayBlock, ArrayData}
 import org.apache.spark.secco.util.misc.SparkSingle
 
 class DataLoader(
