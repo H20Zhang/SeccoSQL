@@ -95,4 +95,10 @@ object BindReferences extends Logging {
         A
       ] // Kind of a hack, but safe.  TODO: Tighten return type when possible.
   }
+
+  def bindReferences[A <: Expression](
+      expressions: Seq[A],
+      input: AttributeSeq): Seq[A] = {
+    expressions.map(BindReferences.bindReference(_, input))
+  }
 }

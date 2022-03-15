@@ -1,32 +1,61 @@
 package org.apache.spark.secco.expression
 
-import org.apache.spark.secco.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.secco.codegen._
+import org.apache.spark.secco.codegen.Block._
 import org.apache.spark.secco.execution.storage.row.InternalRow
-import org.apache.spark.secco.types.DataType
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.secco.types._
 
-/** Returns the first non-null argument if exists. Otherwise, null. */
-case class Coalesce(children: Seq[Expression]) extends Expression {
-  override def nullable: Boolean = children.exists(_.nullable)
+/** An expression that is evaluated to true if the input is null.
+  */
+case class IsNull(child: Expression) extends UnaryExpression with Predicate {
 
-  /** Returns the result of evaluating this expression on a given input Row */
-  override def eval(input: InternalRow): Any = ???
+  override def nullable: Boolean = false
 
-  /** Returns Java source code that can be compiled to evaluate this expression.
-    * The default behavior is to call the eval method of the expression. Concrete expression
-    * implementations should override this to do actual code generation.
-    *
-    * @param ctx a [[CodegenContext]]
-    * @param ev  an [[ExprCode]] with unique terms， which is to be assigned value of the expression.
-    * @return an [[ExprCode]] containing the Java source code to generate the given expression
-    */
-  override protected def doGenCode(
-      ctx: CodegenContext,
-      ev: ExprCode
-  ): ExprCode = ???
+//  final override val nodePatterns: Seq[TreePattern] = Seq(NULL_CHECK)
 
-  /** Returns the [[DataType]] of the result of evaluating this expression.  It is
-    * invalid to query the dataType of an unresolved expression (i.e., when `resolved` == false).
-    */
-  override def dataType: DataType = children.head.dataType
+  override def eval(input: InternalRow): Any = {
+    child.eval(input) == null
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val eval = child.genCode(ctx)
+    ExprCode(code = eval.code, isNull = FalseLiteralValue, value = eval.isNull)
+  }
+
+  override def sql: String = s"(${child.sql} IS NULL)"
+
+//  override protected def withNewChildInternal(newChild: Expression): IsNull = copy(child = newChild)
+}
+
+/** An expression that is evaluated to true if the input is not null.
+  */
+case class IsNotNull(child: Expression) extends UnaryExpression with Predicate {
+  override def nullable: Boolean = false
+
+//  final override val nodePatterns: Seq[TreePattern] = Seq(NULL_CHECK)
+
+  override def eval(input: InternalRow): Any = {
+    child.eval(input) != null
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val eval = child.genCode(ctx)
+    val (value, newCode) = eval.isNull match {
+      case TrueLiteralValue  => (FalseLiteralValue, EmptyBlock)
+      case FalseLiteralValue => (TrueLiteralValue, EmptyBlock)
+      case v =>
+        val value = ctx.freshName("value")
+        (JavaCode.variable(value, BooleanType), code"boolean $value = !$v;")
+    }
+    ExprCode(
+      code = eval.code + newCode,
+      isNull = FalseLiteralValue,
+      value = value
+    )
+  }
+
+  override def sql: String = s"(${child.sql} IS NOT NULL)"
+
+//  override protected def withNewChildInternal(newChild: Expression): IsNotNull =
+//    copy(child = newChild)
 }

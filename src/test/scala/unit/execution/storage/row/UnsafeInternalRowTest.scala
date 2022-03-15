@@ -11,12 +11,12 @@ import org.scalatest._
 import java.util.Date
 
 class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
-//  var testRow = new UnsafeInternalRow(7)
+//  var testRow = new UnsafeInternalRow(7, true)
   var testRow: UnsafeInternalRow = _
   val length = 7
   before {
     //    val theArray = Array("abc", 1, 3, 4.0, true, null)
-    testRow = new UnsafeInternalRow(7)
+    testRow = new UnsafeInternalRow(numFields = 7, autoInit = true)
 //    testRow.initWithByteArray(new Array[Byte](80), 80)
 //    for (i <- 0 to 6) testRow.setNullAt(i)
     testRow.setString(0, "abc")
@@ -111,7 +111,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
   }
 
   test("test using [this] method to construct a UnsafeInternalRow") {
-    val row0 = new UnsafeInternalRow(3)
+    val row0 = new UnsafeInternalRow(3, true)
     assert(row0.numFields == 3)
   }
 
@@ -121,7 +121,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
 
   test("test grow") {
     val numFields = 64
-    val testRow2 = new UnsafeInternalRow(numFields)
+    val testRow2 = new UnsafeInternalRow(numFields, true)
 //    testRow2.initWithByteArray(new Array[Byte](64 * 9), 64 * 9)
 //    for (i <- 0 to 63) testRow2.setNullAt(i)
 //    testRow2.setLong(0, (1).toLong)
@@ -147,7 +147,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
   }
 
   test("test update") {
-    val testRow2 = new UnsafeInternalRow(2)
+    val testRow2 = new UnsafeInternalRow(2, true)
 //    testRow2.initWithByteArray(new Array[Byte](24), 32)
 //    for (i <- 0 to 1) testRow2.setNullAt(i)
     testRow2.setLong(0, (1).toLong)
@@ -156,7 +156,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
     testRow2.update(1, "CU")
     assert(testRow2.getString(1) == "CU")
 
-    val testRow3 = new UnsafeInternalRow(3)
+    val testRow3 = new UnsafeInternalRow(3, true)
 //    testRow3.initWithByteArray(new Array[Byte](32), 32)
 //    for (i <- 0 to 2) testRow3.setNullAt(i)
     testRow3.update(0, "test")
@@ -230,7 +230,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
 
     // UnsafeInternalRow
 //    val backingArray = new Array[Byte]((length + 2) * 8)
-//    val testRow2 = new UnsafeInternalRow(length)
+//    val testRow2 = new UnsafeInternalRow(length, true)
 //    testRow2.initWithByteArray(backingArray, (length + 2) * 8)
     val testRow2 = testRow.copy()
 
@@ -330,7 +330,7 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
     )
 
     // UnsafeInternalRow
-    val testRow2 = new UnsafeInternalRow(length)
+    val testRow2 = new UnsafeInternalRow(length, true)
     i = 0
     start_time = new Date().getTime
     while (i < threshold) {

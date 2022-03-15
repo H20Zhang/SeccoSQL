@@ -1,19 +1,14 @@
 package org.apache.spark.secco.expression
 
 import java.util.Locale
-
 import org.apache.spark.secco.codegen.Block.BlockHelper
-import org.apache.spark.secco.codegen.{
-  CodeGenerator,
-  CodegenContext,
-  ExprCode,
-  FalseLiteralValue,
-  JavaCode
-}
+import org.apache.spark.secco.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteralValue, JavaCode}
+import org.apache.spark.secco.errors.QueryExecutionErrors
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.trees.TreeNode
 import org.apache.spark.secco.types.{AbstractDataType, DataType}
+import org.apache.spark.secco.analysis.TypeCoercion
 import org.apache.spark.util.Utils
 
 /** An expression in Catalyst.
@@ -197,18 +192,14 @@ abstract class Expression extends TreeNode[Expression] {
   * time (e.g. Star). This trait is used by those expressions.
   */
 trait Unevaluable extends Expression {
-  final override def eval(input: InternalRow = null): Any =
-    throw new UnsupportedOperationException(
-      s"Cannot evaluate expression: $this"
-    )
+  /** Unevaluable is not foldable because we don't have an eval for it. */
+  final override def foldable: Boolean = false
 
-  final override protected def doGenCode(
-      ctx: CodegenContext,
-      ev: ExprCode
-  ): ExprCode =
-    throw new UnsupportedOperationException(
-      s"Cannot evaluate expression: $this"
-    )
+  final override def eval(input: InternalRow = null): Any =
+    throw QueryExecutionErrors.cannotEvaluateExpressionError(this)
+
+  final override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    throw QueryExecutionErrors.cannotGenerateCodeForExpressionError(this)
 }
 
 /** A leaf expression, i.e. one without any child expressions.
@@ -442,4 +433,45 @@ abstract class BinaryOperator extends BinaryExpression {
 object BinaryOperator {
   def unapply(e: BinaryOperator): Option[(Expression, Expression)] =
     Some((e.left, e.right))
+}
+
+/**
+  * A trait used for resolving nullable flags, including `nullable`, `containsNull` of [[ArrayType]]
+  * and `valueContainsNull` of [[MapType]], containsNull, valueContainsNull flags of the output date
+  * type. This is usually utilized by the expressions (e.g. [[CaseWhen]]) that combine data from
+  * multiple child expressions of non-primitive types.
+  */
+trait ComplexTypeMergingExpression extends Expression {
+
+  /**
+    * A collection of data types used for resolution the output type of the expression. By default,
+    * data types of all child expressions. The collection must not be empty.
+    */
+  @transient
+  lazy val inputTypesForMerging: Seq[DataType] = children.map(_.dataType)
+
+  def dataTypeCheck: Unit = {
+    require(
+      inputTypesForMerging.nonEmpty,
+      "The collection of input data types must not be empty.")
+    require(
+      TypeCoercion.haveSameType(inputTypesForMerging),
+      "All input types must be the same except nullable, containsNull, valueContainsNull flags." +
+        s" The input types found are\n\t${inputTypesForMerging.mkString("\n\t")}")
+  }
+
+  private lazy val internalDataType: DataType = {
+    dataTypeCheck
+    inputTypesForMerging.reduceLeft(TypeCoercion.findCommonTypeDifferentOnlyInNullFlags(_, _).get)
+  }
+
+  override def dataType: DataType = internalDataType
+}
+
+/**
+  * Common base trait for user-defined functions, including UDF/UDAF/UDTF of different languages
+  * and Hive function wrappers.
+  */
+trait UserDefinedExpression {
+  def name: String
 }

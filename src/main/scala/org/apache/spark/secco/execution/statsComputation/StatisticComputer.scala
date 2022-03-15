@@ -2,12 +2,7 @@ package org.apache.spark.secco.execution.statsComputation
 
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.{
-  InternalBlock,
-  OldInternalDataType,
-  ArrayBlock,
-  ArrayData
-}
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
   Histogram,
@@ -16,6 +11,7 @@ import org.apache.spark.secco.optimization.statsEstimation.{
 }
 import org.apache.spark.secco.util.`extension`.SeqExtension
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.communication.InternalPartition
 
 import scala.collection.mutable
 
@@ -30,6 +26,6 @@ trait StatisticComputer {
     */
   def compute(
       attributes: Seq[String],
-      content: RDD[InternalBlock]
+      content: RDD[InternalPartition]
   ): Statistics
 }

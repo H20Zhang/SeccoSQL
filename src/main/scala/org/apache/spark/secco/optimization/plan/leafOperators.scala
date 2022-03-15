@@ -10,13 +10,12 @@ import org.apache.spark.secco.catalog.{
   TableIdentifier,
   TempViewManager
 }
-import org.apache.spark.secco.execution.InternalBlock
-import org.apache.spark.secco.execution.statsComputation.HistogramStatisticComputer
 import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.statsEstimation.Statistics
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.communication.InternalPartition
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.types.{DataType, StructType}
 
@@ -82,35 +81,37 @@ abstract class BaseRelation extends LeafNode with MultiInstanceRelation {
 
   override def relationalSymbol: String = tableIdentifier.toString
 
-  override def computeStats(): Statistics = {
+  override def computeStats(): Statistics = ???
 
-    if (
-      catalog.getTable(tableIdentifier.table, tableIdentifier.database).nonEmpty
-    ) {
-      val tableCatalog =
-        catalog.getTable(tableIdentifier.table, tableIdentifier.database).get
-      tableCatalog.stats match {
-        case Some(statistics) => statistics
-        case None =>
-          val rawData =
-            cachedDataManager(tableIdentifier.table).get
-              .asInstanceOf[RDD[InternalBlock]]
-          val attributes = output
-          val attributeInString = attributes.map(_.name)
-          val statistics =
-            HistogramStatisticComputer.compute(attributeInString, rawData)
-          catalog.alterTable(tableCatalog.copy(stats = Some(statistics)))
-
-          statistics
-      }
-
-    } else {
-      throw new NoSuchTableException(
-        tableIdentifier.database.getOrElse(currentDatabase),
-        tableIdentifier.table
-      )
-    }
-  }
+//  {
+//
+//    if (
+//      catalog.getTable(tableIdentifier.table, tableIdentifier.database).nonEmpty
+//    ) {
+//      val tableCatalog =
+//        catalog.getTable(tableIdentifier.table, tableIdentifier.database).get
+//      tableCatalog.stats match {
+//        case Some(statistics) => statistics
+//        case None =>
+//          val rawData =
+//            cachedDataManager(tableIdentifier.table).get
+//              .asInstanceOf[RDD[InternalPartition]]
+//          val attributes = output
+//          val attributeInString = attributes.map(_.name)
+//          val statistics =
+//            HistogramStatisticComputer.compute(attributeInString, rawData)
+//          catalog.alterTable(tableCatalog.copy(stats = Some(statistics)))
+//
+//          statistics
+//      }
+//
+//    } else {
+//      throw new NoSuchTableException(
+//        tableIdentifier.database.getOrElse(currentDatabase),
+//        tableIdentifier.table
+//      )
+//    }
+//  }
 }
 
 /** An operator that represents table specified by [[tableIdentifier]]
@@ -158,16 +159,16 @@ case class LocalRows(
   }
 }
 
-/** An operator that represents a set of [[InternalBlock]] stored in [[RDD]], where each [[InternalBlock]]
+/** An operator that represents a set of [[InternalPartition]] stored in [[RDD]], where each [[InternalPartition]]
   * contains a set of [[InternalRow]].
   *
-  * @param rdd the rdd that stores a set of [[InternalBlock]]
-  * @param schema the schema of [[InternalRow]] inside [[InternalBlock]]
+  * @param rdd the rdd that stores a set of [[InternalPartition]]
+  * @param schema the schema of [[InternalRow]] inside [[InternalPartition]]
   * @param attributeName the attribute names of the row
   * @param mode the execution mode
   */
 case class RDDBlocks(
-    blocks: RDD[InternalBlock],
+    blocks: RDD[InternalPartition],
     schema: StructType,
     mode: ExecMode = ExecMode.Atomic
 ) extends LeafNode {
@@ -176,15 +177,17 @@ case class RDDBlocks(
     schema.toAttributes
   }
 
-  override def computeStats(): Statistics = {
-    val rawData = blocks
-    val attributes = output
-    val attributeInString = attributes.map(_.name)
-    val statistics =
-      HistogramStatisticComputer.compute(attributeInString, rawData)
+  override def computeStats(): Statistics = ???
 
-    statistics
-  }
+//  {
+//    val rawData = blocks
+//    val attributes = output
+//    val attributeInString = attributes.map(_.name)
+//    val statistics =
+//      HistogramStatisticComputer.compute(attributeInString, rawData)
+//
+//    statistics
+//  }
 
 }
 

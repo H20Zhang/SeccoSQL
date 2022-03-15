@@ -8,8 +8,8 @@ package object execution {
     * our system will store `char`, `char`, `int`, `float`, `long(small than < 10^15)`, `double` as Double.
     * It is worth noting that secco may fail when trying to store a long value that is too large.
     */
-//  type OldInternalDataType = Double
-//  type OldInternalRow = Array[Double]
+  type OldInternalDataType = Double
+  type OldInternalRow = Array[Double]
   type Strategy = SeccoStrategy
 
   //TODO: this is a special case class whose equals are reference based, this is a bit strange, makes it a normal class.

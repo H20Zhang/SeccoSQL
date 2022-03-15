@@ -47,7 +47,7 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
 
   before {
     // create two InternalRows with different type
-    val unsafeInternalRow = new UnsafeInternalRow(7)
+    val unsafeInternalRow = new UnsafeInternalRow(numFields = 7, autoInit = true)
 
     val genericInternalRow: GenericInternalRow =
       new GenericInternalRow(theArray)
@@ -296,7 +296,7 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
       new GenericInternalRow(theArray3)
     val genericInternalRow4: GenericInternalRow =
       new GenericInternalRow(theArray4)
-    val unsafeInternalRow = new UnsafeInternalRow(7)
+    val unsafeInternalRow = new UnsafeInternalRow(7, true)
     unsafeInternalRow.setString(0, "abc")
     unsafeInternalRow.setInt(1, 1)
     unsafeInternalRow.setInt(2, 3)

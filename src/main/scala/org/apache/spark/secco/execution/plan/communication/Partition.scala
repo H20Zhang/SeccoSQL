@@ -1,17 +1,16 @@
-package org.apache.spark.secco.execution
+package org.apache.spark.secco.execution.plan.communication
 
 import org.apache.spark.Partitioner
 import org.apache.spark.secco.execution.plan.computation.utils.{
   ConsecutiveRowArray,
-  InternalRowHashMap,
-  Trie
+  InternalRowHashMap
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
 
 /** The abstract class for representing a set of [[InternalRow]] stored in a block. */
-abstract class InternalBlock extends Serializable {
+abstract class InternalPartition extends Serializable {
 
   /** The output attributes of the block. */
   def output: Seq[Attribute]
@@ -26,9 +25,9 @@ abstract class InternalBlock extends Serializable {
   def isEmpty: Boolean
 }
 
-/** The trait for [[InternalBlock]] that can be indexed, which is a partition of a relation. */
+/** The trait for [[InternalPartition]] that can be indexed, which is a partition of a relation. */
 trait Indexed {
-  self: InternalBlock =>
+  self: InternalPartition =>
   def partitioner: Partitioner = ???
   def index: Array[Int]
 }
@@ -39,8 +38,8 @@ trait RawData {}
 /** The raw block data organized as [[Array]]. */
 case class ArrayData(content: Array[InternalRow]) extends RawData
 
-/** The raw block data organized as [[Trie]]. */
-case class TrieData(content: Trie) extends RawData
+///** The raw block data organized as [[Trie]]. */
+//case class TrieData(content: Trie) extends RawData
 
 /** The row block data organized as [[InternalRowHashMap]] */
 case class HashMapData(content: InternalRowHashMap) extends RawData
@@ -51,12 +50,12 @@ case class RawArrayData(content: ConsecutiveRowArray) extends RawData
 /** The generic raw block. */
 case class GeneralRawData[V](content: V) extends RawData
 
-/** The indexed block that composes of multiple [[InternalBlock]] */
-case class MultiTableIndexedBlock(
+/** The indexed block that composes of multiple [[InternalPartition]] */
+case class MultiTableIndexedPartition(
     output: Seq[Attribute],
     index: Array[Int],
-    subBlocks: Seq[InternalBlock]
-) extends InternalBlock
+    subBlocks: Seq[InternalPartition]
+) extends InternalPartition
     with Indexed {
 
   override def blockContents: Seq[RawData] =
@@ -66,11 +65,11 @@ case class MultiTableIndexedBlock(
 }
 
 /** The indexed block that stores Array[InternalRow]. */
-case class ArrayIndexedBlock(
+case class ArrayIndexedPartition(
     output: Seq[Attribute],
     index: Array[Int],
     blockContent: ArrayData
-) extends InternalBlock
+) extends InternalPartition
     with Indexed {
   override def blockContents: Seq[RawData] = Seq(blockContent)
 
@@ -78,11 +77,11 @@ case class ArrayIndexedBlock(
 }
 
 /** The indexed block that stores [[InternalRowHashMap]]. */
-case class HashMapIndexedBlock(
+case class HashMapIndexedPartition(
     output: Seq[Attribute],
     index: Array[Int],
     blockContent: HashMapData
-) extends InternalBlock
+) extends InternalPartition
     with Indexed {
   override def blockContents: Seq[RawData] = Seq(blockContent)
 
@@ -90,74 +89,74 @@ case class HashMapIndexedBlock(
 }
 
 /** The indexed block that stores [[Trie]]. */
-case class TrieIndexedBlock(
-    output: Seq[Attribute],
-    index: Array[Int],
-    blockContent: TrieData
-) extends InternalBlock
-    with Indexed {
-  override def blockContents: Seq[RawData] = Seq(blockContent)
-
-  //TODO: implement more efficient version
-  override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
-}
+//case class TrieIndexedPartition(
+//    output: Seq[Attribute],
+//    index: Array[Int],
+//    blockContent: TrieData
+//) extends InternalPartition
+//    with Indexed {
+//  override def blockContents: Seq[RawData] = Seq(blockContent)
+//
+//  //TODO: implement more efficient version
+//  override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
+//}
 
 /** The indexed block that stores [[ConsecutiveRowArray]]. */
-case class RawArrayIndexedBlock(
+case class RawArrayIndexedPartition(
     output: Seq[Attribute],
     index: Array[Int],
     blockContent: RawArrayData
-) extends InternalBlock
+) extends InternalPartition
     with Indexed {
   override def blockContents: Seq[RawData] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
 /** The block that stores [[InternalRowHashMap]]. */
-case class HashMapBlock(
+case class HashMapPartition(
     output: Seq[Attribute],
     blockContent: HashMapData
-) extends InternalBlock {
+) extends InternalPartition {
   override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
 /** The block that stores [[Trie]]. */
-case class TrieBlock(
-    output: Seq[Attribute],
-    blockContent: TrieData
-) extends InternalBlock {
-  override def blockContents: Seq[RawData] = Seq(blockContent)
-
-  //TODO: implement more efficient version
-  override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
-}
+//case class TriePartition(
+//    output: Seq[Attribute],
+//    blockContent: TrieData
+//) extends InternalPartition {
+//  override def blockContents: Seq[RawData] = Seq(blockContent)
+//
+//  //TODO: implement more efficient version
+//  override def isEmpty: Boolean = blockContent.content.toInternalRows().isEmpty
+//}
 
 /** The block that stores [[ConsecutiveRowArray]]. */
-case class RawArrayBlock(
+case class RawArrayPartition(
     output: Seq[Attribute],
     blockContent: RawArrayData
-) extends InternalBlock {
+) extends InternalPartition {
   override def blockContents: Seq[RawData] = Seq(blockContent)
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
 /** The block that stores Array[InternalRow]. */
-case class ArrayBlock(
+case class ArrayPartition(
     output: Seq[Attribute],
     blockContent: ArrayData
-) extends InternalBlock {
+) extends InternalPartition {
   override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = blockContent.content.isEmpty
 }
 
 /** The block that stores multiple blocks. */
-case class MultiBlock(
+case class MultiPartition(
     output: Seq[Attribute],
-    subBlocks: Seq[InternalBlock]
-) extends InternalBlock {
+    subBlocks: Seq[InternalPartition]
+) extends InternalPartition {
 
   override def blockContents: Seq[RawData] =
     subBlocks.flatMap(_.blockContents)
@@ -166,10 +165,10 @@ case class MultiBlock(
 }
 
 /** The block that stores any data. */
-case class GeneralBlock[V](
+case class GeneralPartition[V](
     output: Seq[Attribute],
     blockContent: GeneralRawData[V]
-) extends InternalBlock {
+) extends InternalPartition {
   override def blockContents: Seq[RawData] = Seq(blockContent)
 
   override def isEmpty: Boolean = {

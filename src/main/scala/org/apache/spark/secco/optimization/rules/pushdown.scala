@@ -1,6 +1,6 @@
 package org.apache.spark.secco.optimization.rules
 
-import org.apache.spark.secco.expression.aggregate.AggregateExpression
+import org.apache.spark.secco.expression.aggregate.AggregateFunction
 import org.apache.spark.secco.expression.{
   Alias,
   And,
@@ -59,7 +59,7 @@ object PushDownSelection extends Rule[LogicalPlan] with PredicateHelper {
       // We just consider attributes exists in aggregate.child, i.e., attribute is not produced in aggregateExpression.
       val aliasMap = AttributeMap(aggregate.aggregateExpressions.collect {
         case a: Alias
-            if a.child.find(_.isInstanceOf[AggregateExpression]).isEmpty =>
+            if a.child.find(_.isInstanceOf[AggregateFunction]).isEmpty =>
           (a.toAttribute, a.child)
       })
 

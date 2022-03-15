@@ -4,16 +4,11 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
-import org.apache.spark.secco.execution.plan.atomic._
 import org.apache.spark.secco.execution.plan.computation._
-import org.apache.spark.secco.execution.plan.computation.iter.SeccoIterator
-import org.apache.spark.secco.execution.plan.communication.{
-  PartitionExchangeExec
-}
+import org.apache.spark.secco.execution.plan.communication.{InternalPartition}
 //import org.apache.spark.secco.execution.plan.io.{DiskScanExec, InMemoryScanExec}
 import org.apache.spark.secco.execution.{
   SeccoPlan,
-  InternalBlock,
   LeafExecNode,
   SharedParameter,
   Strategy
@@ -43,7 +38,7 @@ case class PlanLater(plan: LogicalPlan) extends LeafExecNode {
 
   override def outputOld: Seq[String] = plan.outputOld
 
-  protected override def doExecute(): RDD[InternalBlock] = {
+  protected override def doExecute(): RDD[InternalPartition] = {
     throw new UnsupportedOperationException()
   }
 }

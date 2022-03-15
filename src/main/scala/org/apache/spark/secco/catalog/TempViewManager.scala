@@ -1,9 +1,9 @@
 package org.apache.spark.secco.catalog
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.InternalBlock
 import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.analysis.ViewAlreadyExistsException
+import org.apache.spark.secco.execution.plan.communication.InternalPartition
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.optimization.plan.SubqueryAlias
 

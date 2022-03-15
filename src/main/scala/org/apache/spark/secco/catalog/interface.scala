@@ -1,7 +1,7 @@
 package org.apache.spark.secco.catalog
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.{InternalBlock, SeccoPlan}
+import org.apache.spark.secco.execution.SeccoPlan
 import org.apache.spark.secco.optimization.statsEstimation.{
   ColumnStat,
   Statistics

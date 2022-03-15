@@ -1,8 +1,11 @@
 package org.apache.spark.secco.execution.storage
 
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.types._
 import sun.misc.Unsafe
+
+import java.util.Comparator
 
 object Utils {
 
@@ -22,8 +25,7 @@ object Utils {
   def calculateBitMapWidthInWords(numFields: Int): Int = (numFields + 63) / 64
 
   // lgh: this method is static in spark's Java implementation
-  def calculateBitMapWidthInBytes(numFields: Int): Int =
-    ((numFields + 63) / 64) * 8
+  def calculateBitMapWidthInBytes(numFields: Int): Int = ((numFields + 63) / 64) * 8
 
   /**
     * lgh: This method is from org.apache.spark.unsafe.array.ByteArrayMethods,
@@ -45,25 +47,40 @@ object Utils {
     f.get(null).asInstanceOf[Unsafe]
   }
 
-  def getStringAtColumnAddress(
-      columnAddress: Long,
-      variableLengthZoneAddress: Long,
-      i: Int,
-      elemSize: Int
-  ): String = {
-    val offsetAndSize = Utils._UNSAFE.getLong(columnAddress + i * elemSize)
-    val stringAddress = variableLengthZoneAddress + offsetAndSize >>> 32
+
+
+  def getStringAtColumnAddress(columnAddress: Long, variableLengthZoneAddress: Long, i: Int, elemSize: Int): String = {
+    val offsetAndSize = Utils._UNSAFE.getLong(null, columnAddress + i * elemSize)
+    val stringAddress = variableLengthZoneAddress + (offsetAndSize >>> 32)   //lgh: !!! the bracelet is necessary
     val stringSize = offsetAndSize.toInt
     val buf = new Array[Byte](stringSize)
-    Utils.copyMemory(
-      null,
-      stringAddress,
-      buf,
-      Utils.BYTE_ARRAY_OFFSET,
-      stringSize.toLong
-    )
-    return new String(buf)
+    Utils.copyMemory(null, stringAddress, buf, Utils.BYTE_ARRAY_OFFSET, stringSize.toLong)
+    val str = new String(buf)
+    return str
   }
+
+
+//
+//  def getStringAtColumnAddress(
+//      columnAddress: Long,
+//      variableLengthZoneAddress: Long,
+//      i: Int,
+//      elemSize: Int
+//  ): String = {
+//    val offsetAndSize = Utils._UNSAFE.getLong(columnAddress + i * elemSize)
+//    val stringAddress = variableLengthZoneAddress + (offsetAndSize >>> 32)   //lgh: !!! the bracelet is necessary
+//    val stringSize = offsetAndSize.toInt
+//    val buf = new Array[Byte](stringSize)
+//    Utils.copyMemory(
+//      null,
+//      stringAddress,
+//      buf,
+//      Utils.BYTE_ARRAY_OFFSET,
+//      stringSize.toLong
+//    )
+//    val str = new String(buf)
+//    return str
+//  }
 
   def calculateBitMapForRow(
       blockSchema: StructType,
@@ -82,6 +99,9 @@ object Utils {
     bitMapData
   }
 
+  // lgh: always use this method to allocate new memory
+  // In this method, the newly allocated memory is immediately initialized with 0
+  // In practice, some errors may occur if we don't do this initialization.
   def allocateMemory(size: Long): Long = {
     val address = _UNSAFE.allocateMemory(size)
     for (i <- 0.toLong until size) _UNSAFE.putByte(address + i, 0)
@@ -104,6 +124,7 @@ object Utils {
   ): Unit = {
     // Check if dstOffset is before or after srcOffset to determine if we should copy
     // forward or backwards. This is necessary in case src and dst overlap.
+    println("copying memory happened")
     var lengthRemained = length
     var curSrcOffset = srcOffset
     var curDstOffset = dstOffset
@@ -148,6 +169,7 @@ object Utils {
           "exceeds size limitation " + ARRAY_MAX
       )
     }
+    println("growing memory happened")
     val length: Int = usedSize + newlyNeededSize
     // This will not happen frequently, because the buffer is re-used.
     var newLength: Int = 0
@@ -155,7 +177,8 @@ object Utils {
     else newLength = ARRAY_MAX
     val roundedSize = Utils.roundNumberOfBytesToNearestWord(newLength)
 
-    val newAddress = Utils._UNSAFE.allocateMemory(roundedSize.toLong)
+//    val newAddress = Utils._UNSAFE.allocateMemory(roundedSize.toLong)
+    val newAddress = Utils.allocateMemory(roundedSize.toLong)
     Utils.copyMemory(null, address, null, newAddress, usedSize)
     Utils._UNSAFE.freeMemory(address)
     return (newAddress, roundedSize)
@@ -212,4 +235,62 @@ object Utils {
     _UNSAFE.freeMemory(tempAddress)
     out
   }
+
+  class InternalRowComparator(rowSchema: StructType)
+    extends Comparator[InternalRow]
+      with Serializable {
+
+    var indexMapArray: Array[Int] = {
+      val array = new Array[Int](rowSchema.length);
+      for (idx <- 0 until rowSchema.length) array(idx) = idx;
+      array
+    }
+
+    var directions: Array[Boolean] = rowSchema.fields.map(_ => true)
+
+    // later added by lgh
+    def this(rowSchema: StructType, indexMap: Array[Int]){
+      this(rowSchema)
+      indexMapArray = indexMap
+    }
+
+    // later added by lgh
+    def this(rowSchema: StructType, sortDirections: Array[Boolean]){
+      this(rowSchema)
+      directions = sortDirections
+    }
+
+    override def compare(
+                          o1: InternalRow,
+                          o2: InternalRow
+                        ): Int = {
+
+      var i = 0
+      while (i < rowSchema.length) {
+        val dataType = rowSchema(indexMapArray(i)).dataType
+        val item1: Any = o1.get(indexMapArray(i), dataType)
+        val item2: Any = o2.get(indexMapArray(i), dataType)
+        val compResult = Utils.anyCompare(item1, item2)
+        if (compResult != 0) {
+//          return compResult
+          return if(directions(i)) compResult else -compResult // later added by lgh
+        } else {
+          i += 1
+        }
+      }
+      return 0
+    }
+  }
+
+//  def attributeArrayToStructType(attributeArray: Array[Attribute]): StructType = StructType(attributeArray.map{
+//    i => StructField(i.name, i.dataType, i.nullable)
+//  })
+//  {
+//    val structFieldsArray = {
+//      //lgh DONE: consider when localAttributeOrder elements are not instances of AttributeReference
+////      attributeArray.map(_.asInstanceOf[AttributeReference]).map(i => StructField(i.name, i.dataType))
+//      attributeArray.map(i => StructField(i.name, i.dataType, i.nullable))
+//    }
+//    StructType(structFieldsArray)
+//  }
 }

@@ -4,13 +4,15 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.execution.plan.computation.utils.Alg
 import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
-import org.apache.spark.secco.execution.statsComputation.{
-  FullCardinalityStatisticComputer,
-  StatisticKeeper
-}
+import org.apache.spark.secco.execution.statsComputation.{StatisticKeeper}
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.communication.{
+  ArrayPartition,
+  InternalPartition,
+  RawArrayPartition
+}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.storage.StorageLevel
 
@@ -24,7 +26,7 @@ abstract class SeccoPlan
     with Serializable {
 
   @transient lazy val statisticKeeper = StatisticKeeper(this)
-  @transient var cachedExecuteResult: Option[RDD[InternalBlock]] = None
+  @transient var cachedExecuteResult: Option[RDD[InternalPartition]] = None
   @transient val dataManager =
     SeccoSession.currentSession.sessionState.tempViewManager
 
@@ -52,14 +54,14 @@ abstract class SeccoPlan
     simpleString + s"-> (${outputOld.mkString(",")})"
 
   /** Collect the results as [[Seq[InternalRow]]] */
-  def collectSeq(): Seq[OldInternalRow] = {
+  def collectSeq(): Seq[InternalRow] = {
     val internalBlockRDD = execute()
 
     val time1 = System.currentTimeMillis()
     val rows = internalBlockRDD
       .flatMap { block =>
-        if (block.isInstanceOf[ArrayBlock]) {
-          val rowBlock = block.asInstanceOf[ArrayBlock]
+        if (block.isInstanceOf[ArrayPartition]) {
+          val rowBlock = block.asInstanceOf[ArrayPartition]
           rowBlock.blockContent.content
         } else {
           throw new Exception(
@@ -73,11 +75,7 @@ abstract class SeccoPlan
       s"execute `collectSeq` of ${this.verboseString} in ${time2 - time1}ms"
     )
 
-    val attributeOrder = outputOld.sorted
-
-    Alg.reorder(attributeOrder, outputOld, rows)
-
-    rows.toSeq.map(_.toArray)
+    rows
   }
 
   /** Returns the numbers of tuples */
@@ -107,7 +105,7 @@ abstract class SeccoPlan
     *
     * Concrete implementations of SparkPlan should override `doExecute`.
     */
-  final def execute(): RDD[InternalBlock] = {
+  final def execute(): RDD[InternalPartition] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
@@ -137,8 +135,8 @@ abstract class SeccoPlan
     cachedExecuteResult match {
       case Some(rdd) =>
         rdd.flatMap {
-          case r: ArrayBlock => r.blockContent.content
-          case t: InternalBlock =>
+          case r: ArrayPartition => r.blockContent.content
+          case t: InternalPartition =>
             throw new Exception(s"${t.getClass} not supported.")
         }
       case None =>
@@ -170,18 +168,17 @@ abstract class SeccoPlan
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doExecute(): RDD[InternalBlock]
+  protected def doExecute(): RDD[InternalPartition]
 
   /** Perform the computation for computing the result of the query as an `RDD[InternalRow]`,
     * which allows very large result to be output in iterator form
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doRDD(): RDD[OldInternalRow] = {
+  protected def doRDD(): RDD[InternalRow] = {
     doExecute().flatMap {
-      case r: ArrayBlock    => r.blockContent.content.iterator
-      case c: RawArrayBlock => c.blockContent.content.iterator
-      case b: InternalBlock =>
+      case r: ArrayPartition => r.blockContent.content.iterator
+      case b: InternalPartition =>
         throw new Exception(s"${b.getClass} not supported.")
     }
   }

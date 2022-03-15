@@ -6,13 +6,7 @@ import org.apache.spark.secco.catalog.{
   CatalogTable,
   TableIdentifier
 }
-import org.apache.spark.secco.execution.{
-  InternalBlock,
-  OldInternalRow,
-  QueryExecution,
-  ArrayBlock,
-  ArrayData
-}
+import org.apache.spark.secco.execution.{QueryExecution}
 import org.apache.spark.secco.expression.{
   Attribute,
   Expression,
@@ -114,10 +108,10 @@ class Dataframe(
   }
 
   /** Return rows of the dataset in RDD. */
-  def rdd(): RDD[OldInternalRow] = queryExecution.executionPlan.rdd()
+  def rdd(): RDD[InternalRow] = queryExecution.executionPlan.rdd()
 
   /** Return rows of the dataset in Seq. */
-  def collect(): Seq[OldInternalRow] = queryExecution.executionPlan.collectSeq()
+  def collect(): Seq[InternalRow] = queryExecution.executionPlan.collectSeq()
 
   /** Return the numbers of row of the dataset. */
   def count(): Long = queryExecution.executionPlan.count()

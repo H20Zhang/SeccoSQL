@@ -49,7 +49,7 @@ class MapAndSetBlockTest extends FunSuite with BeforeAndAfter {
   val genericInternalRow4: GenericInternalRow = new GenericInternalRow(
     theArray4
   )
-  val unsafeInternalRow = new UnsafeInternalRow(7)
+  val unsafeInternalRow = new UnsafeInternalRow(7, true)
   val addedRows: Array[InternalRow] = Array[InternalRow](
     genericInternalRow,
     genericInternalRow2,

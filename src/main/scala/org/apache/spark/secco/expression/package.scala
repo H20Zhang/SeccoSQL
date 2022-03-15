@@ -12,6 +12,10 @@ import org.apache.spark.secco.types.{
 
 package object expression {
 
+  /** Used as input into expressions whose output does not depend on any input value.
+    */
+  val EmptyRow: InternalRow = null
+
   /** A place holder expressions used in code-gen, it does not change the corresponding value
     * in the row.
     */
@@ -20,10 +24,6 @@ package object expression {
     override def dataType: DataType = NullType
     override def children: Seq[Expression] = Nil
   }
-
-  /** Used as input into expressions whose output does not depend on any input value.
-    */
-  val EmptyRow: InternalRow = null
 
   /** Helper functions for working with `Seq[Attribute]`.
     */

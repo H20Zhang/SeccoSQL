@@ -1,7 +1,11 @@
 package org.apache.spark.secco.execution.sources
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.{InternalBlock, ArrayBlock, ArrayData}
+import org.apache.spark.secco.execution.plan.communication.{
+  ArrayData,
+  InternalPartition
+}
 import org.apache.spark.secco.util.misc.SparkSingle
 
 class DataLoader(
@@ -29,15 +33,17 @@ class DataLoader(
       dataAddress: String,
       separator: String = ",",
       attributes: Seq[String]
-  ) = {
-    val csvRDD = csv(dataAddress, separator)
-    csvRDD.mapPartitions { it =>
-      val rowBlockContent = RowBlockContent(it.toArray)
-      Iterator(
-        RowBlock(attributes, rowBlockContent).asInstanceOf[InternalBlock]
-      )
-    }
-  }
+  ): RDD[InternalPartition] = ???
+
+//  {
+//    val csvRDD = csv(dataAddress, separator)
+//    csvRDD.mapPartitions { it =>
+//      val rowBlockContent = ArrayData(it.toArray)
+//      Iterator(
+//        RowBlock(attributes, rowBlockContent).asInstanceOf[InternalPartition]
+//      )
+//    }
+//  }
 }
 
 //map(f => (f(0), f(1)))

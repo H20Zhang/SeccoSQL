@@ -2,11 +2,6 @@ package org.apache.spark.secco.execution.plan.computation
 
 import org.apache.spark.secco.optimization.plan.JoinType._
 import org.apache.spark.secco.execution.{SeccoPlan, _}
-import org.apache.spark.secco.execution.plan.computation.iter.{
-  SeccoIterator,
-  IteratorFactory
-}
-import org.apache.spark.secco.execution.plan.support.FuncGenSupport
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
