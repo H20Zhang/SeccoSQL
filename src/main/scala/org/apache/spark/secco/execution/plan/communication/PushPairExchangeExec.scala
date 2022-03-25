@@ -7,7 +7,7 @@
 //  PairPartitioner,
 //  ShareResults
 //}
-//import org.apache.spark.secco.execution.plan.support.PairExchangeSupport
+//import org.apache.spark.secco.execution.plan.communication.PairExchangeSupport
 //import org.apache.spark.rdd.RDD
 //
 //import scala.collection.mutable

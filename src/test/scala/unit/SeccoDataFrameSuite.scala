@@ -2,11 +2,11 @@ package unit
 
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.types.{DataTypes, StructField, StructType}
-import org.apache.spark.secco.{Dataframe, SeccoSession}
+import org.apache.spark.secco.{DataFrame, SeccoSession}
 import org.apache.spark.secco.util.misc.SparkSingle
 import util.SeccoFunSuite
 
-class DataframeSuite extends SeccoFunSuite {
+class DataFrameSuite extends SeccoFunSuite {
 
   test("create_dataset") {
     val sc = SparkSingle.getSparkContext()
@@ -19,9 +19,9 @@ class DataframeSuite extends SeccoFunSuite {
       )
     )
 
-    val ds1 = Dataframe.fromSeq(seq, schema)
-    val ds2 = Dataframe.fromRDD(rdd, schema)
-    val ds3 = Dataframe.empty(schema)
+    val ds1 = DataFrame.fromSeq(seq, schema)
+    val ds2 = DataFrame.fromRDD(rdd, schema)
+    val ds3 = DataFrame.empty(schema)
 
     println(ds1.queryExecution.logical)
     println(ds2.queryExecution.logical)

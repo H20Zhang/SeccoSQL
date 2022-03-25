@@ -2,7 +2,7 @@ package unit
 
 import org.apache.spark.secco.GraphFrame.{EdgeMetaData, NodeMetaData}
 import org.apache.spark.secco.types.{DataTypes, StructField, StructType}
-import org.apache.spark.secco.{Dataframe, GraphFrame, SeccoSession, types}
+import org.apache.spark.secco.{DataFrame, GraphFrame, SeccoSession, types}
 import org.apache.spark.secco.util.misc.SparkSingle
 import util.SeccoFunSuite
 
@@ -27,8 +27,8 @@ class GraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = Dataframe.empty(nodeSchema).alias("V")
-    val E = Dataframe.empty(edgeSchema).alias("E")
+    val V = DataFrame.empty(nodeSchema).alias("V")
+    val E = DataFrame.empty(edgeSchema).alias("E")
 
     val graph = GraphFrame(
       V,
@@ -57,8 +57,8 @@ class GraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = Dataframe.empty(nodeSchema).alias("V")
-    val E = Dataframe.empty(edgeSchema).alias("E")
+    val V = DataFrame.empty(nodeSchema).alias("V")
+    val E = DataFrame.empty(edgeSchema).alias("E")
 
     val graph = GraphFrame(
       V,
