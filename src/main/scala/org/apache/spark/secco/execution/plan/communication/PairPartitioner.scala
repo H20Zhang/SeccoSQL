@@ -1,7 +1,6 @@
-package org.apache.spark.secco.execution.plan.communication.utils
+package org.apache.spark.secco.execution.plan.communication
 
 import org.apache.spark.Partitioner
-import org.apache.spark.secco.execution.OldInternalRow
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.utils.AttributeMap
@@ -11,10 +10,20 @@ import scala.collection.mutable.ArrayBuffer
 
 /** The partitioner that partitions the relation according to the space defined by share,
   *  the i-th share decide how much "share" the domain of relation on i-th local attribute will be partitioned.
+  *
+  *  @param attributes Attributes to be partitioned.
+  *  @param shareValues The ShareValues.
   */
+
 //TODO: optimize the implementation.
-class PairPartitioner(attributes: Array[Attribute], shares: AttributeMap[Int])
-    extends Partitioner {
+class PairPartitioner(
+    attributes: Array[Attribute],
+    shareValues: ShareValues
+) extends Partitioner {
+
+  val shares = attributes
+    .map(attr => (attr, shareValues.rawShares(attr)))
+    .toMap
 
   assert(
     attributes.map(shares).map(_.toLong).product < Int.MaxValue,
@@ -48,18 +57,18 @@ class PairPartitioner(attributes: Array[Attribute], shares: AttributeMap[Int])
     }
 
   /** Get the serverID based on the coordinate. */
-  def getServerId(coordinate: Seq[Int]): Int = {
+  def getServerId(index: Seq[Int]): Int = {
     assert(
-      coordinate.forall(_ >= 0),
-      s"all pos of coordiante:${coordinate} should >= 0"
+      index.forall(_ >= 0),
+      s"all pos of index:${index} should >= 0"
     )
-    coordinate.zipWithIndex.map { case (value, i) =>
+    index.zipWithIndex.map { case (value, i) =>
       value * productFactor(i)
     }.sum
   }
 
   /** Get the coordinate based on the serverID. */
-  def getCoordinate(serverId: Int): Array[Int] = {
+  def getIndex(serverId: Int): Array[Int] = {
     var i = artiy - 1
     val coordinate = new Array[Int](artiy)
     var remain = serverId

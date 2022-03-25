@@ -1,6 +1,6 @@
 ## SeccoSQL
 
-SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is a distributed analytic system for SQL, Graph Analytic, and Subgraph Query.
+SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is an experimental distributed SQL engine on **Spark** for processing complex SQL queries, which adopts latest query optimization/execution techniques (e.g., Communication/Computation aware query optimization, GHD-based Join Optimization, Multi-way join) from academic community.
 
 **Table of Content**
 

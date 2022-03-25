@@ -1,6 +1,6 @@
 //package playground
 //
-//import org.apache.spark.secco.execution.plan.communication.utils.EnumShareComputer
+//import org.apache.spark.secco.execution.plan.communication.EnumShareComputer
 //import util.SeccoFunSuite
 //
 //class SharePlay extends SeccoFunSuite {

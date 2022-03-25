@@ -1,7 +1,7 @@
 package org.apache.spark.secco.trees
 
 import org.apache.commons.lang3.ClassUtils
-import org.apache.spark.secco.execution.SharedParameter
+import org.apache.spark.secco.execution.SharedContext
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.util.Utils
 
@@ -260,7 +260,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
           } else {
             Some(arg)
           }
-        case s: SharedParameter[_] => s
+        case s: SharedContext[_] => s
         case m: Map[_, _] =>
           m.mapValues {
             case arg: TreeNode[_] if containsChild(arg) =>
@@ -363,7 +363,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
         case seq: Seq[Any] if seq.toSet.subsetOf(children.toSet) =>
           Nil
         case sharedParameterSeq: Array[_]
-            if sharedParameterSeq.forall(_.isInstanceOf[SharedParameter[_]]) =>
+            if sharedParameterSeq.forall(_.isInstanceOf[SharedContext[_]]) =>
           Nil
         case iter: Iterable[_] if iter.isEmpty => Nil
         case lSeq: Seq[_] if lSeq.forall(_.isInstanceOf[LogicalPlan]) =>
@@ -379,7 +379,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
         case array: Array[_] if array.isEmpty => Nil
         case array: Array[_] =>
           Utils.truncatedString(array, "[", ", ", "]") :: Nil
-        case sharedParameter: SharedParameter[_] =>
+        case sharedParameter: SharedContext[_] =>
           val res = sharedParameter.res
           res match {
             case iter: Iterable[_] if iter.isEmpty => Nil

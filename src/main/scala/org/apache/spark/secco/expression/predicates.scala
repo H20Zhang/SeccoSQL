@@ -9,7 +9,7 @@ import org.apache.spark.secco.codegen.{
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.codegen.PredicateFunc
-import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.types.{
   AbstractDataType,
@@ -20,6 +20,9 @@ import org.apache.spark.secco.types.{
   DoubleType,
   FloatType
 }
+
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 object InterpretedPredicateFunc {
   def create(
@@ -54,6 +57,37 @@ trait Predicate extends Expression {
 }
 
 trait PredicateHelper {
+
+  protected def findEquivilanceAttrs(
+      condition: Expression
+  ): Seq[AttributeSet] = {
+    val equiAttrPair = splitConjunctivePredicates(condition).flatMap { expr =>
+      expr match {
+        case EqualTo(a: Attribute, b: Attribute) => Some((a, b))
+        case _                                   => None
+      }
+    }
+
+    val res = ArrayBuffer[AttributeSet]()
+
+    equiAttrPair.foreach { case (a, b) =>
+      // find equivalence set that contains a or b
+      val attrSetOpt =
+        res.find(attrSet => attrSet.contains(a) || attrSet.contains(b))
+
+      // add new element into the equivalence set
+      attrSetOpt match {
+        case Some(equiAttrSet) =>
+          res.remove(res.indexOf(equiAttrSet))
+          res += (equiAttrSet ++ a :: b :: Nil)
+        case None =>
+          res += AttributeSet(a :: b :: Nil)
+      }
+    }
+
+    res
+  }
+
   protected def splitConjunctivePredicates(
       condition: Expression
   ): Seq[Expression] = {

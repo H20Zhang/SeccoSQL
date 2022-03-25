@@ -5,12 +5,12 @@ import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.execution.plan.computation._
-import org.apache.spark.secco.execution.plan.communication.{InternalPartition}
+import org.apache.spark.secco.execution.storage.InternalPartition
 //import org.apache.spark.secco.execution.plan.io.{DiskScanExec, InMemoryScanExec}
 import org.apache.spark.secco.execution.{
   SeccoPlan,
   LeafExecNode,
-  SharedParameter,
+  SharedContext,
   Strategy
 }
 import org.apache.spark.rdd.RDD

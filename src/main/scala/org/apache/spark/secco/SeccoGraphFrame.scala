@@ -41,25 +41,29 @@ import scala.util.Try
   *  - messagePassing(msg, mergeFunc, updateFunc): perform graph analysis on the graph and return a dataframe that
   *    represents the results.
   */
-class GraphFrame(
+class SeccoGraphFrame(
     @transient seccoSession: SeccoSession,
     @transient queryExecution: QueryExecution
-) extends DataFrame(seccoSession, queryExecution) {
+) extends SeccoDataFrame(seccoSession, queryExecution) {
 
   /* == graph operations == */
 
   /** Return nodes of the graph. */
-  def node(): DataFrame = ???
+  def node(): SeccoDataFrame = ???
 
   /** Return edges of the graph. */
-  def edge(): DataFrame = ???
+  def edge(): SeccoDataFrame = ???
 
   /** Return a new graph that consists of filtered nodes and filtered edges.
+    *
     * @param vFilter predicates to filter the nodes
     * @param eFilter predicates to filter the edges
-    * @return a new [[GraphFrame]]
+    * @return a new [[SeccoGraphFrame]]
     */
-  def subgraph(vFilter: Option[String], eFilter: Option[String]): GraphFrame =
+  def subgraph(
+      vFilter: Option[String],
+      eFilter: Option[String]
+  ): SeccoGraphFrame =
     ???
 
   /** Perform subgraph matching on the graph using query p.
@@ -71,7 +75,7 @@ class GraphFrame(
     * (a:NodeLabel:..., {key1:value1, ...})->[b:EdgeLabel:..., {key2:value2, ...}]->()->[]->...
     *
     * @param p the pattern of the subgraph to match
-    * @return a [[DataFrame]] that contains the matching results.
+    * @return a [[SeccoDataFrame]] that contains the matching results.
     */
   def pattern(p: String) = {
     val patternExpression = Try {
@@ -80,7 +84,7 @@ class GraphFrame(
         .asInstanceOf[UnresolvedPattern]
     }.getOrElse(throw new Exception(s"${p} is invalid cypher pattern"))
 
-    DataFrame(
+    SeccoDataFrame(
       seccoSession,
       UnresolvedSubgraphQuery(
         queryExecution.logical.asInstanceOf[GraphRelation],
@@ -95,7 +99,7 @@ class GraphFrame(
     * @param mergeFunction function to merge the messages together [available attributes: newState]
     * @param updateFunction function to update the state of the nodes [available attributes: state, newState]
     * @param initialMessage initial state of the nodes [available attributes: vLabel, vProperties]
-    * @return a [[DataFrame]] that contains states of the nodes.
+    * @return a [[SeccoDataFrame]] that contains states of the nodes.
     */
   def messagePassing(
       message: String,
@@ -103,7 +107,7 @@ class GraphFrame(
       updateFunction: String,
       initialMessage: Option[String] = None,
       round: Int = 1
-  ): DataFrame = {
+  ): SeccoDataFrame = {
 
     val parser = seccoSession.sessionState.sqlParser
 
@@ -129,12 +133,12 @@ class GraphFrame(
     )
 
     if (round == 1) {
-      DataFrame(
+      SeccoDataFrame(
         seccoSession,
         msgPassing
       )
     } else {
-      DataFrame(
+      SeccoDataFrame(
         seccoSession,
         Recursion(msgPassing, round)
       )
@@ -142,7 +146,7 @@ class GraphFrame(
   }
 }
 
-object GraphFrame {
+object SeccoGraphFrame {
 
   case class NodeMetaData(
       id: String = "id",
@@ -157,35 +161,36 @@ object GraphFrame {
       edgeProperties: Seq[String] = Seq()
   )
 
-  /** Create an instance of [[GraphFrame]].
-    * @param seccoSession the [[SeccoSession]] to create the dataset.
-    * @param queryExecution the query execution of the [[GraphFrame]]
-    * @return a new [[GraphFrame]]
+  /** Create an instance of [[SeccoGraphFrame]].
+    *
+    * @param seccoSession   the [[SeccoSession]] to create the dataset.
+    * @param queryExecution the query execution of the [[SeccoGraphFrame]]
+    * @return a new [[SeccoGraphFrame]]
     */
   def apply(
       seccoSession: SeccoSession,
       queryExecution: QueryExecution
-  ): GraphFrame = new GraphFrame(seccoSession, queryExecution)
+  ): SeccoGraphFrame = new SeccoGraphFrame(seccoSession, queryExecution)
 
-  /** Create an instance of [[DataFrame]]
+  /** Create an instance of [[SeccoDataFrame]]
     *
     * @param seSession the [[SeccoSession]] to create the dataset
     * @param logicalPlan    the logical plan of the dataset
-    * @return a new [[DataFrame]]
+    * @return a new [[SeccoDataFrame]]
     */
   def apply(
       seSession: SeccoSession,
       logicalPlan: LogicalPlan
-  ): GraphFrame = {
+  ): SeccoGraphFrame = {
     assert(
       logicalPlan.isInstanceOf[GraphRelation],
       s"logicalPlan:${logicalPlan} is not GraphRelation, and cannot be used to instantiate GraphFrame"
     )
     val qe = new QueryExecution(seSession, logicalPlan)
-    new GraphFrame(seSession, qe)
+    new SeccoGraphFrame(seSession, qe)
   }
 
-  /** Create an instance of [[DataFrame]] using a node table and an edge table.
+  /** Create an instance of [[SeccoDataFrame]] using a node table and an edge table.
     *
     * @param edgeDS the edge table of the graph
     * @param nodeDS the node table of the graph
@@ -194,11 +199,11 @@ object GraphFrame {
     * @return
     */
   def apply(
-      nodeDS: DataFrame,
+      nodeDS: SeccoDataFrame,
       nodeMetaData: NodeMetaData,
-      edgeDS: DataFrame,
+      edgeDS: SeccoDataFrame,
       edgeMetaData: EdgeMetaData
-  ): GraphFrame = {
+  ): SeccoGraphFrame = {
 
     val edge = EdgeRelation(
       edgeDS.queryExecution.logical,
@@ -220,7 +225,7 @@ object GraphFrame {
       "The seccoSession of nodeDS and edgeDS should be the same."
     )
 
-    GraphFrame(
+    SeccoGraphFrame(
       edgeDS.seccoSession,
       GraphRelation(
         node,
@@ -229,16 +234,16 @@ object GraphFrame {
     )
   }
 
-  /** Create an instance of [[DataFrame]] using only edge table.
+  /** Create an instance of [[SeccoDataFrame]] using only edge table.
     *
     * @param edgeDS the edge table of the graph
     * @param edgeMetaData the meta data for edge table
     * @return
     */
   def apply(
-      edgeDS: DataFrame,
+      edgeDS: SeccoDataFrame,
       edgeMetaData: EdgeMetaData
-  ): GraphFrame = {
+  ): SeccoGraphFrame = {
 
     // create the nodeDS from edge
     val nodeDS = edgeDS
@@ -246,26 +251,26 @@ object GraphFrame {
       .unionAll(edgeDS.select(s"${edgeMetaData.dst}"))
     val nodeMetaData = NodeMetaData()
 
-    GraphFrame(nodeDS, nodeMetaData, edgeDS, edgeMetaData)
+    SeccoGraphFrame(nodeDS, nodeMetaData, edgeDS, edgeMetaData)
   }
 
-  /** Create an instance of [[DataFrame]] using only node table.
+  /** Create an instance of [[SeccoDataFrame]] using only node table.
     *
     * @param nodeDS the node table of the graph
     * @param nodeMetaData the meta data for node table
     * @return
     */
   def apply(
-      nodeDS: DataFrame,
+      nodeDS: SeccoDataFrame,
       nodeMetaData: NodeMetaData
-  ): GraphFrame = {
+  ): SeccoGraphFrame = {
 
     val ECounter =
       CounterManager.globalCounterManager.getOrCreateCounter("TemporaryEdge")
     ECounter.increment()
 
     // create empty edge table.
-    val edgeDS = DataFrame.empty(
+    val edgeDS = SeccoDataFrame.empty(
       StructType(
         Seq(
           StructField("src", DataTypes.LongType),
@@ -276,6 +281,6 @@ object GraphFrame {
 
     val edgeMetaData = EdgeMetaData()
 
-    GraphFrame(nodeDS, nodeMetaData, edgeDS, edgeMetaData)
+    SeccoGraphFrame(nodeDS, nodeMetaData, edgeDS, edgeMetaData)
   }
 }

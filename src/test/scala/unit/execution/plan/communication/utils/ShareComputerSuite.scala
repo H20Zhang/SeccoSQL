@@ -1,6 +1,6 @@
 //package unit.execution.plan.communication.utils
 //
-//import org.apache.spark.secco.execution.plan.communication.utils.EnumShareComputer
+//import org.apache.spark.secco.execution.plan.communication.EnumShareComputer
 //import util.{SeccoFunSuite, UnitTestTag}
 //
 //class ShareComputerSuite extends SeccoFunSuite {

@@ -12,8 +12,12 @@ package object execution {
   type OldInternalRow = Array[Double]
   type Strategy = SeccoStrategy
 
-  //TODO: this is a special case class whose equals are reference based, this is a bit strange, makes it a normal class.
-  case class SharedParameter[T](res: T) {
+  /** This class provides context for some instances of [[org.apache.spark.secco.trees.TreeNode]].
+    *
+    * Note: for preserve contextual information, this class overrides equals behaviors to reference based rather than
+    * value based.
+    */
+  case class SharedContext[T](res: T) {
 
     override def equals(obj: Any): Boolean = {
       obj match {

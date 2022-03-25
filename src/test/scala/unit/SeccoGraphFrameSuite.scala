@@ -1,12 +1,17 @@
 package unit
 
-import org.apache.spark.secco.GraphFrame.{EdgeMetaData, NodeMetaData}
+import org.apache.spark.secco.SeccoGraphFrame.{EdgeMetaData, NodeMetaData}
 import org.apache.spark.secco.types.{DataTypes, StructField, StructType}
-import org.apache.spark.secco.{DataFrame, GraphFrame, SeccoSession, types}
+import org.apache.spark.secco.{
+  SeccoDataFrame,
+  SeccoGraphFrame,
+  SeccoSession,
+  types
+}
 import org.apache.spark.secco.util.misc.SparkSingle
 import util.SeccoFunSuite
 
-class GraphFrameSuite extends SeccoFunSuite {
+class SeccoGraphFrameSuite extends SeccoFunSuite {
 
   test("create_graph") {
 
@@ -27,10 +32,10 @@ class GraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = DataFrame.empty(nodeSchema).alias("V")
-    val E = DataFrame.empty(edgeSchema).alias("E")
+    val V = SeccoDataFrame.empty(nodeSchema).alias("V")
+    val E = SeccoDataFrame.empty(edgeSchema).alias("E")
 
-    val graph = GraphFrame(
+    val graph = SeccoGraphFrame(
       V,
       NodeMetaData("id", Some("vLabel")),
       E,
@@ -57,10 +62,10 @@ class GraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = DataFrame.empty(nodeSchema).alias("V")
-    val E = DataFrame.empty(edgeSchema).alias("E")
+    val V = SeccoDataFrame.empty(nodeSchema).alias("V")
+    val E = SeccoDataFrame.empty(edgeSchema).alias("E")
 
-    val graph = GraphFrame(
+    val graph = SeccoGraphFrame(
       V,
       NodeMetaData("id", Some("vLabel")),
       E,

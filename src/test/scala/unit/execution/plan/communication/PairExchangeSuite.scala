@@ -1,6 +1,6 @@
 //package unit.execution.plan.communication
 //
-//import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
+//import org.apache.spark.secco.execution.plan.communication.PairPartitioner
 //import org.apache.spark.secco.execution.plan.communication.{
 //  PartitionExchangeExec,
 //  PullPairExchangeExec,

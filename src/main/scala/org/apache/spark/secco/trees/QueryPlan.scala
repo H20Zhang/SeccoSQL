@@ -13,15 +13,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
   self: PlanType =>
 
   /** The output attributes */
-  @deprecated
-  def outputOld: Seq[String] = {
-    throw new Exception(s"outputOld is deprecated, please use output instead.")
-  }
-
-  /** The output attributes */
-  def output: Seq[Attribute] = {
-    throw new NotImplementedError()
-  }
+  def output: Seq[Attribute]
 
   /** Returns the set of attributes that are output by this node.
     */

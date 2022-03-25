@@ -56,7 +56,11 @@ case class NodeRelation(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode
     with Node
-    with GraphSupport {}
+    with GraphSupport {
+
+  override def output: Seq[Attribute] =
+    Seq(idAttr) ++ nodeLabelAttr.toSeq ++ nodePropertyAttrs
+}
 
 /** The logical plan that represents the edge set of a graph.
   * @param child the data of the edge set
@@ -75,7 +79,12 @@ case class EdgeRelation(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode
     with Edge
-    with GraphSupport {}
+    with GraphSupport {
+
+  override def output: Seq[Attribute] =
+    Seq(srcAttr, dstAttr) ++ edgeLabelAttr.toSeq ++ edgePropertyAttrs
+
+}
 
 /** The logical plan that represents a graph, which consists of node relation and edge relation.
   * @param nodeRelation the logical plan that stores node relation
@@ -101,6 +110,10 @@ case class GraphRelation(
   override def left: LogicalPlan = nodeRelation
 
   override def right: LogicalPlan = edgeRelation
+
+  //TODO: the output of GraphRelation needs further discussion.
+  override def output: Seq[Attribute] =
+    edgeRelation.output ++ nodeRelation.output
 }
 
 /** The logical plan that represents a data copy of the edges to be matched
@@ -143,6 +156,9 @@ case class SubgraphRelation(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
   override def child: LogicalPlan = graph
+
+  //TODO: the output of subgraph relation needs further discussion.
+  override def output: Seq[Attribute] = graph.output
 }
 
 /** The logical plan that represents message passing in the graph.
@@ -160,7 +176,10 @@ case class MessagePassing(
     mergeFunction: NamedExpression,
     updateFunction: NamedExpression,
     mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {}
+) extends UnaryNode {
+  override def output: Seq[Attribute] =
+    child.idAttr :: updateFunction.toAttribute :: Nil
+}
 
 /** The logical plan that incurs the child plan repeatedly up to `round` times
   * @param child the child logical plan
@@ -171,7 +190,9 @@ case class Recursion(
     child: LogicalPlan,
     round: Int,
     mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {}
+) extends UnaryNode {
+  override def output: Seq[Attribute] = child.output
+}
 
 //case class IndexedNodeRelation(
 //    tableIdentifier: TableIdentifier,

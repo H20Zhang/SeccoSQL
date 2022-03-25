@@ -1,19 +1,19 @@
-package org.apache.spark.secco.execution.plan.communication.utils
+package org.apache.spark.secco.execution.plan.communication
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable.ArrayBuffer
 
 /** The case class that encapsulate the results of [[EnumShareComputer]] */
 case class ShareResults(
-    share: Map[Attribute, Int],
+    rawShares: Map[Attribute, Int],
     communicationCostInBytes: Long,
-    loadInBytes: Double,
+    serverLoadInBytes: Double,
     communicationCostInTuples: Long,
-    loadInTuples: Double
+    serverLoadInTuples: Double
 )
 
 /** The optimizer for computing the optimal share in terms of load.
@@ -26,18 +26,39 @@ class EnumShareComputer(
     schemas: Seq[Seq[Attribute]],
     constraint: Map[Attribute, Int],
     tasks: Int,
-    cardinalities: Map[Seq[Attribute], Long]
+    cardinalities: Map[Seq[Attribute], Long],
+    equivalenceAttrs: Array[AttributeSet]
 ) extends LogAble {
 
   private var numTask = tasks
-  private val attributes = schemas.flatMap(identity).distinct
+  private val attributes = schemas.flatMap(identity)
+  val equiSet2Representative =
+    equivalenceAttrs.map(equiSet => (equiSet, equiSet.head)).toMap
+  val representativeAttrs = AttributeSet(attributes.map { attr =>
+    equiSet2Representative
+      .find { case (key, value) =>
+        key.contains(attr)
+      }
+      .get
+      ._2
+  }).toArray
+  val attrs2Representative = attributes.map { attr =>
+    val representative = equiSet2Representative
+      .find { case (key, value) =>
+        key.contains(attr)
+      }
+      .get
+      ._2
+    (attr, representative)
+  }.toMap
   private val averageBytesPerTuple =
     (schemas.map(_.size).sum.toDouble / schemas.size) * 8
 
   /** Generate all possible share configuration with `attributes`, `constraint` and `numTask`. */
   private def genAllShare(): Array[Array[Int]] = {
     //    get all shares
-    val shareEnumerator = new ShareEnumerator(attributes, constraint, numTask)
+    val shareEnumerator =
+      new ShareEnumerator(representativeAttrs, constraint, numTask)
     val allShare = shareEnumerator.genAllShares()
     allShare.toArray
   }
@@ -46,8 +67,8 @@ class EnumShareComputer(
   def optimalShareWithBudget(): ShareResults = {
 
     var shareResults = optimalShare()
-    var share = shareResults.share
-    var loadInBytes = shareResults.loadInBytes
+    var share = shareResults.rawShares
+    var loadInBytes = shareResults.serverLoadInBytes
 
     val maximalLoad =
       SeccoSession.currentSession.sessionState.conf.pairMemoryBudget
@@ -56,15 +77,20 @@ class EnumShareComputer(
     while (loadInBytes > maximalLoad && numTask < 100 * tasks) {
       numTask = (numTask * 2)
       shareResults = optimalShare()
-      share = shareResults.share
-      loadInBytes = shareResults.loadInBytes
+      share = shareResults.rawShares
+      loadInBytes = shareResults.serverLoadInBytes
     }
 
     logInfo(
       s"shareResults:${shareResults}, loadInBytes:${loadInBytes}, maximalLoad:${maximalLoad}, cardinalities:${cardinalities}"
     )
 
-    shareResults
+    // copy share values of representative attributes to other attributes
+    val newRawShares = attributes
+      .map(attr => (attr, shareResults.rawShares(attrs2Representative(attr))))
+      .toMap
+
+    shareResults.copy(rawShares = newRawShares)
   }
 
   /** Compute the optimal share without memory budget */

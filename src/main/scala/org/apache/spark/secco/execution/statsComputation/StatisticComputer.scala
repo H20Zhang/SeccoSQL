@@ -11,7 +11,7 @@ import org.apache.spark.secco.optimization.statsEstimation.{
 }
 import org.apache.spark.secco.util.`extension`.SeqExtension
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.execution.plan.communication.InternalPartition
+import org.apache.spark.secco.execution.storage.InternalPartition
 
 import scala.collection.mutable
 

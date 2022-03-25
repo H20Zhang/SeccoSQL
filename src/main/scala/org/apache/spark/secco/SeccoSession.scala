@@ -11,6 +11,7 @@ import org.apache.spark.secco.analysis.NoSuchTableException
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.types.{DataType, StructType}
 import org.apache.spark.sql.catalyst.util.RandomIndicesGenerator
+import org.apache.spark.{sql => sparksql}
 
 /** The entry point to programming Secco with the Dataset API.
   */
@@ -19,41 +20,51 @@ class SeccoSession(
     @transient val sessionState: SessionState
 ) { self =>
 
-  /** Create an [[Dataframe]] from [[RDD]] of [[OldInternalRow]]
+  /** Create an instance of [[SeccoDataFrame]] from [[sparksql.DataFrame]]
+    * @param df SparkSQL's Dataframe
+    * @return an instance of [[SeccoDataFrame]]
+    */
+  def createDatasetFromSparkSQL(
+      df: sparksql.DataFrame
+  ): SeccoDataFrame = {
+    SeccoDataFrame.fromSparkSQL(df, this)
+  }
+
+  /** Create an [[SeccoDataFrame]] from [[RDD]] of [[OldInternalRow]]
     *
     * @param rdd a rdd that stores a set of [[InternalRow]]
-    * @param schema schema of this [[Dataframe]]
-    * @return a new [[Dataframe]]
+    * @param schema schema of this [[SeccoDataFrame]]
+    * @return a new [[SeccoDataFrame]]
     */
   def createDatasetFromRDD(
       rdd: RDD[InternalRow],
       schema: StructType
-  ): Dataframe = {
-    Dataframe.fromRDD(rdd, schema, this)
+  ): SeccoDataFrame = {
+    SeccoDataFrame.fromRDD(rdd, schema, this)
   }
 
-  /** Create an [[Dataframe]] from a [[Seq]] of [[InternalRow]]
+  /** Create an [[SeccoDataFrame]] from a [[Seq]] of [[InternalRow]]
     *
     * @param seq           the [[Seq]] that stores the data
-    * @param attributeName attribute names of this [[Dataframe]]
-    * @return a new [[Dataframe]]
+    * @param attributeName attribute names of this [[SeccoDataFrame]]
+    * @return a new [[SeccoDataFrame]]
     */
   def createDatasetFromSeq(
       seq: Seq[InternalRow],
       schema: StructType
-  ): Dataframe = {
-    Dataframe.fromSeq(seq, schema, this)
+  ): SeccoDataFrame = {
+    SeccoDataFrame.fromSeq(seq, schema, this)
   }
 
-  /** Create an empty [[Dataframe]]
+  /** Create an empty [[SeccoDataFrame]]
     *
-    * @param schema schema of this [[Dataframe]]
-    * @return a new empty [[Dataframe]]
+    * @param schema schema of this [[SeccoDataFrame]]
+    * @return a new empty [[SeccoDataFrame]]
     */
   def createEmptyDataset(
       schema: StructType
-  ): Dataframe = {
-    Dataframe.empty(schema, this)
+  ): SeccoDataFrame = {
+    SeccoDataFrame.empty(schema, this)
   }
 
   /** Returns the specified table/view as a `DataFrame`.
@@ -64,9 +75,9 @@ class SeccoSession(
     *                  and then match the table/view from the current database.
     *                  Note that, the global temporary view database is also valid here.
     */
-  def table(tableName: String): Dataframe = {
+  def table(tableName: String): SeccoDataFrame = {
     try {
-      Dataframe(
+      SeccoDataFrame(
         self,
         sessionState.tempViewManager.getView(tableName).get
       )
@@ -75,8 +86,8 @@ class SeccoSession(
 
   /** Executes a SQL query and return the result as a `Dataset`.
     */
-  def sql(sqlText: String): Dataframe = {
-    Dataframe(self, sessionState.sqlParser.parsePlan(sqlText))
+  def sql(sqlText: String): SeccoDataFrame = {
+    SeccoDataFrame(self, sessionState.sqlParser.parsePlan(sqlText))
   }
 
   /** Stop [[SeccoSession]]

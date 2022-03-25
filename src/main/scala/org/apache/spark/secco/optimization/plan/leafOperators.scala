@@ -15,7 +15,7 @@ import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.optimization.statsEstimation.Statistics
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.execution.plan.communication.InternalPartition
+import org.apache.spark.secco.execution.storage.InternalPartition
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.types.{DataType, StructType}
 
@@ -167,8 +167,8 @@ case class LocalRows(
   * @param attributeName the attribute names of the row
   * @param mode the execution mode
   */
-case class RDDBlocks(
-    blocks: RDD[InternalPartition],
+case class PartitionedRDD(
+    partitions: RDD[InternalPartition],
     schema: StructType,
     mode: ExecMode = ExecMode.Atomic
 ) extends LeafNode {

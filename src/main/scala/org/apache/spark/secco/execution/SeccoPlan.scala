@@ -3,15 +3,14 @@ package org.apache.spark.secco.execution
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.execution.plan.computation.utils.Alg
-import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
-import org.apache.spark.secco.execution.statsComputation.{StatisticKeeper}
+import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.execution.plan.communication.{
-  ArrayPartition,
+import org.apache.spark.secco.execution.plan.communication.PairPartitioner
+import org.apache.spark.secco.execution.storage.{
   InternalPartition,
-  RawArrayPartition
+  PairedPartition
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.storage.StorageLevel
@@ -51,22 +50,21 @@ abstract class SeccoPlan
   protected def sparkContext = sc
 
   override def verboseString: String =
-    simpleString + s"-> (${outputOld.mkString(",")})"
+    simpleString + s"-> (${output.mkString(",")})"
 
   /** Collect the results as [[Seq[InternalRow]]] */
   def collectSeq(): Seq[InternalRow] = {
-    val internalBlockRDD = execute()
+    val partitionRDD = execute()
 
     val time1 = System.currentTimeMillis()
-    val rows = internalBlockRDD
-      .flatMap { block =>
-        if (block.isInstanceOf[ArrayPartition]) {
-          val rowBlock = block.asInstanceOf[ArrayPartition]
-          rowBlock.blockContent.content
-        } else {
+    val rows = partitionRDD
+      .flatMap { partition =>
+        if (partition.isInstanceOf[PairedPartition]) {
           throw new Exception(
-            s"${this} should subclass toSeq as its block is not of type RowBlock."
+            s"PairedPartition cannot be serialized into Seq[InternalRow]."
           )
+        } else {
+          partition.data.head.iterator
         }
       }
       .collect()
@@ -135,9 +133,9 @@ abstract class SeccoPlan
     cachedExecuteResult match {
       case Some(rdd) =>
         rdd.flatMap {
-          case r: ArrayPartition => r.blockContent.content
-          case t: InternalPartition =>
+          case t: PairedPartition =>
             throw new Exception(s"${t.getClass} not supported.")
+          case partition: InternalPartition => partition.data.head.iterator
         }
       case None =>
         //prepare
@@ -177,9 +175,9 @@ abstract class SeccoPlan
     */
   protected def doRDD(): RDD[InternalRow] = {
     doExecute().flatMap {
-      case r: ArrayPartition => r.blockContent.content.iterator
-      case b: InternalPartition =>
+      case b: PairedPartition =>
         throw new Exception(s"${b.getClass} not supported.")
+      case partition: InternalPartition => partition.data.head.iterator
     }
   }
 

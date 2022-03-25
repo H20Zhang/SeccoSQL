@@ -8,7 +8,7 @@
 //  EnumShareComputer,
 //  PairPartitioner
 //}
-//import org.apache.spark.secco.execution.plan.support.PairExchangeSupport
+//import org.apache.spark.secco.execution.plan.communication.PairExchangeSupport
 //import org.apache.spark.secco.execution.{
 //  SeccoPlan,
 //  InternalBlock,

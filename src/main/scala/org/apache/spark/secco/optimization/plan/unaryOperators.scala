@@ -10,7 +10,7 @@ import org.apache.spark.secco.expression.{
 }
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.execution.SharedParameter
+import org.apache.spark.secco.execution.SharedContext
 import org.apache.spark.secco.expression.utils.AttributeSet
 import scala.collection.mutable
 
@@ -215,7 +215,7 @@ object Aggregate {
 
 //TODO: this class should be refactored
 case class SharedRestriction(
-    restriction: SharedParameter[mutable.HashMap[Attribute, Int]]
+    restriction: SharedContext[mutable.HashMap[Attribute, Int]]
 ) {
   def res: mutable.HashMap[Attribute, Int] = restriction.res
 }

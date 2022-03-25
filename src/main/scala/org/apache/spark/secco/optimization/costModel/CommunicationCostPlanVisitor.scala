@@ -1,7 +1,7 @@
 package org.apache.spark.secco.optimization.costModel
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.plan.communication.utils.EnumShareComputer
+import org.apache.spark.secco.execution.plan.communication.EnumShareComputer
 import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,

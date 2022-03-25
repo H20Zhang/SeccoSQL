@@ -5,7 +5,7 @@ import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.support.AnalyzeOutputSupport
-import org.apache.spark.secco.execution.SharedParameter
+import org.apache.spark.secco.execution.SharedContext
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
@@ -326,7 +326,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     val restriction =
       SharedRestriction(
-        SharedParameter(
+        SharedContext(
           mutable.HashMap[Attribute, Int](
             a.child.output.map(f => (f, 1)): _*
           )
@@ -413,7 +413,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   private def handleOperators(u: LogicalPlan) = {
     val children = u.children
     val restriction = mutable.HashMap[Attribute, Int]()
-    val sharedRestriction = SharedRestriction(SharedParameter(restriction))
+    val sharedRestriction = SharedRestriction(SharedContext(restriction))
     val childrenPartitions =
       children.map(child => Partition(child, sharedRestriction))
 
