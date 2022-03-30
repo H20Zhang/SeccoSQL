@@ -15,7 +15,7 @@ trait IndexLike extends InternalBlockProperty {}
 /** The trait for supporting Map like capability for [[InternalBlock]]. */
 trait MapLike extends IndexLike {
   def contains(key: InternalRow):Boolean
-  def get(key: InternalRow): InternalRow
+  def get(key: InternalRow): Array[InternalRow]
 }
 
 /** The trait for supporting Trie like capability for [[InternalBlock]] */
