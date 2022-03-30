@@ -87,6 +87,18 @@ trait PredicateHelper {
     }
   }
 
+  protected def outputWithNonNullability(
+                                       output: Seq[Attribute],
+                                       nonNullAttrExprIds: Seq[ExprId]): Seq[Attribute] = {
+    output.map { a =>
+      if (a.nullable && nonNullAttrExprIds.contains(a.exprId)) {
+        a.withNullability(false)
+      } else {
+        a
+      }
+    }
+  }
+
 //  /**
 //   * Returns true if `expr` can be evaluated using only the output of `plan`.  This method
 //   * can be used to determine when it is acceptable to move expression evaluation within a query

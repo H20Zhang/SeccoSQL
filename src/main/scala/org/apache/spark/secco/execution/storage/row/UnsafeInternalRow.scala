@@ -20,9 +20,9 @@ class UnsafeInternalRow extends InternalRow {
     *
     * @param numFields the number of fields in this row
     */
-  private val _UNSAFE: Unsafe = getUnsafe
-  private val BYTE_ARRAY_OFFSET = _UNSAFE.arrayBaseOffset(classOf[Array[Byte]])
-  private val UNSAFE_COPY_THRESHOLD = 1024L * 1024
+  private val _UNSAFE: Unsafe = UnsafeInternalRow._UNSAFE
+//  private val BYTE_ARRAY_OFFSET = _UNSAFE.arrayBaseOffset(classOf[Array[Byte]])
+//  private val UNSAFE_COPY_THRESHOLD = 1024L * 1024
 
 
   private[storage] var baseObject: AnyRef = _
@@ -52,7 +52,7 @@ class UnsafeInternalRow extends InternalRow {
   def this(numFields: Int, autoInit: Boolean) = {
     this(numFields)
     if (autoInit) {
-      this.sizeInBytes = roundNumberOfBytesToNearestWord(
+      this.sizeInBytes = UnsafeInternalRow.roundNumberOfBytesToNearestWord(
         bitSetWidthInBytes + (numFields * 8) * 3
       )
       this.currentUsedSize = bitSetWidthInBytes + numberOfFields * 8
@@ -67,7 +67,7 @@ class UnsafeInternalRow extends InternalRow {
 
   def this(numFields: Int, size: Int) = {
     this(numFields)
-    this.sizeInBytes = roundNumberOfBytesToNearestWord(size)
+    this.sizeInBytes = UnsafeInternalRow.roundNumberOfBytesToNearestWord(size)
     this.currentUsedSize = bitSetWidthInBytes + numberOfFields * 8
 
     assert(
@@ -100,6 +100,21 @@ class UnsafeInternalRow extends InternalRow {
   }
 
   /**
+    * Update this UnsafeRow to point to the underlying byte array.
+    *
+    * @param buf byte array to point to
+    * @param sizeInBytes the number of bytes valid in the byte array
+    */
+  def pointTo(buf: Array[Byte], sizeInBytes: Int): Unit = {
+    pointTo(buf, UnsafeInternalRow.BYTE_ARRAY_OFFSET, sizeInBytes);
+  }
+
+  def setTotalSize(sizeInBytes: Int): Unit = {
+    assert(sizeInBytes % 8 == 0, "sizeInBytes (" + sizeInBytes + ") should be a multiple of 8")
+    this.sizeInBytes = sizeInBytes
+  }
+
+  /**
     * The following 4 getters are added by lgh at 29/11/2021, to support GenerateUnsafeInternalRowJoiner.
     */
 
@@ -117,19 +132,13 @@ class UnsafeInternalRow extends InternalRow {
     * @param sizeInBytes the number of bytes valid in the byte array
     */
   def initWithByteArray(buf: Array[Byte], sizeInBytes: Int): Unit = {
-    pointTo(buf, BYTE_ARRAY_OFFSET, sizeInBytes)
+    pointTo(buf, UnsafeInternalRow.BYTE_ARRAY_OFFSET, sizeInBytes)
   }
 
 
   //////////////////////////////////////////////////////////////////////////////
   // Private fields and methods
   //////////////////////////////////////////////////////////////////////////////
-
-  private def getUnsafe: Unsafe = {
-    val f = classOf[Unsafe].getDeclaredField("theUnsafe")
-    f.setAccessible(true)
-    return f.get(null).asInstanceOf[Unsafe]
-  }
 
   private[storage] def getFieldOffset(ordinal: Int): Long = baseOffset + bitSetWidthInBytes + ordinal * 8L
 
@@ -139,21 +148,6 @@ class UnsafeInternalRow extends InternalRow {
   }
 
   def currentCursor: Int = currentUsedSize
-
-  /**
-    * lgh: This method is from org.apache.spark.unsafe.array.ByteArrayMethods,
-    * and is originally a static method with long as returned data type, in Java
-    * @param numBytes
-    * @return
-    */
-  private def roundNumberOfBytesToNearestWord(numBytes: Int): Int = {
-    val remainder = numBytes & 0x07;  // This is equivalent to `numBytes % 8`
-    if (remainder == 0) {
-      return numBytes;
-    } else {
-      return numBytes + (8 - remainder);
-    }
-  }
 
   /**
     * Sets the bit at the specified index to {@code true}.
@@ -237,7 +231,7 @@ class UnsafeInternalRow extends InternalRow {
       var newLength: Int = 0
       if (length < ARRAY_MAX / 2) newLength = length * 2
       else newLength = ARRAY_MAX
-      val roundedSize = roundNumberOfBytesToNearestWord(newLength)
+      val roundedSize = UnsafeInternalRow.roundNumberOfBytesToNearestWord(newLength)
 
       val newBaseObject = null
       val newAddress = Utils.allocateMemory(roundedSize.toLong)
@@ -274,7 +268,7 @@ class UnsafeInternalRow extends InternalRow {
 
     if (curDstOffset < curSrcOffset)
       while ( lengthRemained > 0 ) {
-        val size = Math.min(lengthRemained, UNSAFE_COPY_THRESHOLD)
+        val size = Math.min(lengthRemained, UnsafeInternalRow.UNSAFE_COPY_THRESHOLD)
         _UNSAFE.copyMemory(src, curSrcOffset, dst, curDstOffset, size)
         lengthRemained -= size
         curSrcOffset += size
@@ -284,7 +278,7 @@ class UnsafeInternalRow extends InternalRow {
       curSrcOffset += lengthRemained
       curDstOffset += lengthRemained
       while ( lengthRemained > 0 ) {
-        val size = Math.min(lengthRemained, UNSAFE_COPY_THRESHOLD)
+        val size = Math.min(lengthRemained, UnsafeInternalRow.UNSAFE_COPY_THRESHOLD)
         curSrcOffset -= size
         curDstOffset -= size
         _UNSAFE.copyMemory(src, curSrcOffset, dst, curDstOffset, size)
@@ -369,7 +363,7 @@ class UnsafeInternalRow extends InternalRow {
   private[storage] def writeString(i: Int, byteArray: Array[Byte], offset: Long, size: Long): Unit = {
     val offsetAndSize = offset << 32 | size
     _UNSAFE.putLong(baseObject, getFieldOffset(i), offsetAndSize)
-    Utils.copyMemory(byteArray, BYTE_ARRAY_OFFSET, baseObject, baseOffset + offset, size)
+    Utils.copyMemory(byteArray, UnsafeInternalRow.BYTE_ARRAY_OFFSET, baseObject, baseOffset + offset, size)
   }
 
   override def setString(i: Int, vStr: String): Unit = {
@@ -471,7 +465,7 @@ class UnsafeInternalRow extends InternalRow {
     val offset: Long = (offsetAndSize >> 32).toInt
     val size: Int = offsetAndSize.toInt
     val buf: Array[Byte] = new Array[Byte](size)
-    Utils.copyMemory(baseObject, baseOffset + offset, buf, BYTE_ARRAY_OFFSET, size)
+    Utils.copyMemory(baseObject, baseOffset + offset, buf, UnsafeInternalRow.BYTE_ARRAY_OFFSET, size)
     return new String(buf)
   }
 
@@ -572,7 +566,11 @@ class UnsafeInternalRow extends InternalRow {
   }
 
   override def finalize(): Unit = {
-    _UNSAFE.freeMemory(baseOffset)
+    println("UnsafeInternalRow: finalizing ...")
+    if(baseObject == null) {
+      println("freeMemory...")
+      _UNSAFE.freeMemory(baseOffset)
+    }
     super.finalize()
   }
 
@@ -583,10 +581,25 @@ object UnsafeInternalRow {
   val fixedLengthZoneTypes: Set[DataType] =
     HashSet[DataType](BooleanType, DoubleType, FloatType, IntegerType, LongType)
 
+  private def getUnsafe: Unsafe = {
+    val f = classOf[Unsafe].getDeclaredField("theUnsafe")
+    f.setAccessible(true)
+    return f.get(null).asInstanceOf[Unsafe]
+  }
+
+  val _UNSAFE: Unsafe = getUnsafe
+  val UNSAFE: Unsafe = _UNSAFE
+  val BYTE_ARRAY_OFFSET: Int = _UNSAFE.arrayBaseOffset(classOf[Array[Byte]])
+  val UNSAFE_COPY_THRESHOLD: Long = 1024L * 1024
+
   //lgh TODO: currently we only support 6 data types, and all of them except for StrintType are fix-lengthed.
   def isFixedLength(dt: DataType): Boolean = fixedLengthZoneTypes.contains(dt)
 
   def fromInternalRow(schema: StructType, row: InternalRow): UnsafeInternalRow ={
+    if (row.isInstanceOf[UnsafeInternalRow])
+      {
+        return row.asInstanceOf[UnsafeInternalRow]
+      }
     val numFields = schema.length
     val dataTypes = schema.map(_.dataType)
     var unsafeRow: UnsafeInternalRow = null
@@ -595,23 +608,45 @@ object UnsafeInternalRow {
     else
       unsafeRow = new UnsafeInternalRow(numFields, 8 * numFields + Utils.calculateBitMapWidthInBytes(numFields))
     for(i <- dataTypes.indices) {
-      dataTypes(i) match {
-        case BooleanType => unsafeRow.setBoolean(i, row.getBoolean(i))
-        case IntegerType => unsafeRow.setInt(i, row.getInt(i))
-        case LongType => unsafeRow.setLong(i, row.getLong(i))
-        case FloatType => unsafeRow.setFloat(i, row.getFloat(i))
-        case DoubleType => unsafeRow.setDouble(i, row.getDouble(i))
-        case StringType => unsafeRow.setString(i, row.getString(i))
-        case dt => throw new NotImplementedError(s"Unsupported Type: $dt")
+      if(row.isNullAt(i))
+        {
+          unsafeRow.setNullAt(i)
+        }
+      else
+        {
+          dataTypes(i) match {
+            case BooleanType => unsafeRow.setBoolean(i, row.getBoolean(i))
+            case IntegerType => unsafeRow.setInt(i, row.getInt(i))
+            case LongType => unsafeRow.setLong(i, row.getLong(i))
+            case FloatType => unsafeRow.setFloat(i, row.getFloat(i))
+            case DoubleType => unsafeRow.setDouble(i, row.getDouble(i))
+            case StringType => unsafeRow.setString(i, row.getString(i))
+            case dt => throw new NotImplementedError(s"Unsupported Type: $dt")
+          }
       }
     }
     unsafeRow
   }
 
-//  // lgh: this method is static in spark's Java implementation
-//  def calculateBitMapWidthInBytes(numFields: Int): Int =  ((numFields + 63) / 64) * 8
-//
-//  def calculateBitMapWidthInWords(numFields: Int): Int =  (numFields + 63) / 64
+  // lgh: this method is static in spark's Java implementation
+  def calculateBitMapWidthInBytes(numFields: Int): Int =  ((numFields + 63) / 64) * 8
+
+  def calculateBitMapWidthInWords(numFields: Int): Int =  (numFields + 63) / 64
+
+  /**
+    * lgh: This method is from org.apache.spark.unsafe.array.ByteArrayMethods,
+    * and is originally a static method with long as returned data type, in Java
+    * @param numBytes
+    * @return
+    */
+  def roundNumberOfBytesToNearestWord(numBytes: Int): Int = {
+    val remainder = numBytes & 0x07;  // This is equivalent to `numBytes % 8`
+    if (remainder == 0) {
+      return numBytes;
+    } else {
+      return numBytes + (8 - remainder);
+    }
+  }
 }
 
 

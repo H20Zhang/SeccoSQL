@@ -20,6 +20,11 @@ object QueryExecutionErrors {
     //    new SparkArithmeticException(errorClass = "CAST_CAUSES_OVERFLOW",
     //      messageParameters = Array(t.toString, targetType, SQLConf.ANSI_ENABLED.key))
   }
+
+  def endOfIteratorError(): Throwable = {
+    new NoSuchElementException("End of the iterator")
+  }
+
   def fieldIndexOnRowWithoutSchemaError(): Throwable = {
     new UnsupportedOperationException("fieldIndex on a Row without schema is undefined.")
   }

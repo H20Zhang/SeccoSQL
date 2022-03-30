@@ -69,6 +69,20 @@ class CodegenContext {
 
   import CodeGenerator._
 
+  /** Added by lgh
+    */
+  private var leapFrogJoinChildIndex: Int = _
+
+  def getLeapFrogJoinChildIndex: Int = leapFrogJoinChildIndex
+
+  def setLeapFrogJoinChildIndex(idx: Int): Unit = {leapFrogJoinChildIndex = idx}
+
+  private var curInputIndex: Int = 0
+
+  def getCurInputIndex: Int = curInputIndex
+
+  def incrementCurInputIndex(): Unit = {curInputIndex += 1}
+
   /** Holding a list of objects that could be used passed into generated class.
     */
   val references: mutable.ArrayBuffer[Any] = new mutable.ArrayBuffer[Any]()
@@ -521,6 +535,19 @@ class CodegenContext {
     (inlinedFunctions ++ initNestedClasses ++ declareNestedClasses)
       .mkString("\n")
   }
+
+//  /** Added by lgh
+//    */
+//  def declareAddedOuterClasses(): String = {
+//    addedOuterClasses.filterKeys(_ != outerClassName).map {
+//      case (className, functions) =>
+//        s"""
+//           |private class $className {
+//           |  ${functions.values.mkString("\n")}
+//           |}
+//           """.stripMargin
+//    }.mkString("\n")
+//  }
 
   /** Emits extra inner classes added with addExtraCode
     */

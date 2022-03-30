@@ -240,6 +240,10 @@ trait UnaryExecNode extends SeccoPlan {
   override final def children: Seq[SeccoPlan] = child :: Nil
 }
 
+// Added by lgh
+trait MultipleChildrenExecNode extends SeccoPlan {
+}
+
 object UnaryExecNode {
   def unapply(a: Any): Option[(SeccoPlan, SeccoPlan)] =
     a match {

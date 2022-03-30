@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.commons.lang.NotImplementedException
 import org.apache.spark.secco.execution.storage.block.{IndexLike, InternalBlock, MapLike, SetLike, TrieLike}
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
 
@@ -34,7 +34,8 @@ case class TableIterator(
 
   override def hasNext: Boolean = blockIter.hasNext
 
-  override def next(): InternalRow = blockIter.next()
+  override def next(): InternalRow =
+    UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder), blockIter.next())
 
   override def children: Seq[SeccoIterator] = Seq()
 }
@@ -47,6 +48,8 @@ case class IndexableTableIterator(
     isSorted: Boolean
 ) extends BaseTableIterator
     with IndexableSeccoIterator {
+
+  private val blockIter = block.iterator
 
   override def setKey(key: InternalRow): Boolean = {
     block match {
@@ -85,9 +88,9 @@ case class IndexableTableIterator(
 
   override def results(): InternalBlock = block
 
-  override def hasNext: Boolean = block.iterator.hasNext
+  override def hasNext: Boolean = blockIter.hasNext
 
-  override def next(): InternalRow = block.iterator.next()
+  override def next(): InternalRow = blockIter.next()
 
   override def children: Seq[SeccoIterator] = Seq()
 }

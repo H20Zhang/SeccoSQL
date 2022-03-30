@@ -31,11 +31,11 @@ case class HashJoinIterator(
   private var row: InternalRow = _
   private var hasNextCacheValid = true
   private var hasNextCache: Boolean = false
-//  private val joiner = GenerateUnsafeInternalRowJoiner.generate(
-//    (StructType.fromAttributes(left.localAttributeOrder()),
-//      StructType.fromAttributes(right.localAttributeOrder)
-//  ))
-  private val joiner = new JoinedRow
+  private val joiner = GenerateUnsafeInternalRowJoiner.generate(
+    (StructType.fromAttributes(left.localAttributeOrder()),
+      StructType.fromAttributes(right.localAttributeOrder)
+  ))
+//  private val joiner = new JoinedRow
 
   private val conditionFunc = GeneratePredicate.generate(joinCondition, localAttributeOrder())
 
@@ -123,7 +123,7 @@ case class HashJoinIterator(
     else
     {
       hasNextCacheValid = false
-      row
+      UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder()), row)
     }
   }
 }

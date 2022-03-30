@@ -1,19 +1,22 @@
-package unit.execution.plan.computation.newIter
+package unit.execution
 
-import org.apache.spark.secco.execution.plan.computation.newIter._
+import org.apache.spark.secco.execution._
+import org.apache.spark.secco.execution.plan.computation.newIter.TableIterator
 import org.apache.spark.secco.execution.storage.block._
 import org.apache.spark.secco.execution.storage.row._
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.types._
-import org.scalatest.{BeforeAndAfter, FunSuite}
+import org.scalatest._
 
-class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
+
+class BasicExecSuite extends FunSuite with BeforeAndAfter {
 
   var schema: Seq[Attribute] = _
   var childrenSchemas: Seq[Seq[Attribute]] = _
   var blocks: Array[InternalBlock] = _
-  var tableIters: Array[TableIterator] = _
-  //  var tableIter: TableIterator = _
+  var tableIters: Seq[TableIterator] = _
+  var inputExecs: Seq[BlockInputExec] = _
+  var resultIterList: List[Iterator[InternalRow]] = List.empty
 
   before {
     val names = Seq("name", "id", "price", "gender", "weight")
@@ -108,28 +111,78 @@ class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
 
     blocks = Array(child0, child1, child2, child3, child4, child5, child6)
     tableIters = blocks.zipWithIndex.flatMap {
-//      case (block, 0) => None
-//      case (block, 3) => None
+//            case (block, 0) => None
+      //      case (block, 3) => None
       case (block, idx) => Seq(TableIterator(block, childrenSchemas(idx).toArray, isSorted = false))
+//      case (block, idx) if(idx < 4) => Seq(TableIterator(block, childrenSchemas(idx).toArray, isSorted = false))
+      case _ => None
+    }
+    inputExecs = blocks.zipWithIndex.flatMap {
+//            case (block, 0) => None
+      //      case (block, 3) => None
+      case (block, idx) => Seq(BlockInputExec(childrenSchemas(idx), block))
+//      case (block, idx) if(idx < 4) => Seq(BlockInputExec(childrenSchemas(idx), block))
+      case _ => None
     }
 
-    //    val prefixLength = 4 // prefixLength [0, 5)
-    //    prefixAndCurAttributes = schema.slice(0, prefixLength + 1)
-    //    prefixRow = InternalRow(Array[Any]("book", 2, 8.9, true, 6.5f).slice(0, prefixLength + 1))
+    println("the begin part finished! ")
   }
 
-  test("basic_functions"){
+  test("BlockInputExec"){
+    val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+    val pushBasedCodegenExec = PushBasedCodegenExec(inputExec)(0)
+    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+  }
 
-    val leapFrogJoinIter  = LeapFrogJoinIterator(tableIters, schema.toArray)
+  test("LeapFrogJoinExec"){
+    val leapFrogJoinExec = LeapFrogJoinExec(inputExecs, schema.toArray)
+    val pushBasedCodegenExec = PushBasedCodegenExec(leapFrogJoinExec)(0)
+    println("in test, before executeWithCodeGen()")
+    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+  }
+
+  test("FilterExec"){
+    for(intVal <- Seq(1,2)) {
+      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
+      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+      val filterExec = FilterExec(condition: Expression, inputExec)
+      val pushBasedCodegenExec = PushBasedCodegenExec(filterExec)(0)
+      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+    }
+  }
+
+  test("ProjectExec"){
+    val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(2)
+    val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+    val projectExec = ProjectExec(projectSeq, inputExec)
+    val pushBasedCodegenExec = PushBasedCodegenExec(projectExec)(0)
+    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+  }
+
+  test("HashJoinExec"){
+    val leftInput = BlockInputExec(childrenSchemas(2), blocks(2))
+    val rightInput = BlockInputExec(childrenSchemas(1), blocks(1))
+    val leftKeys = Seq(childrenSchemas(2)(1))
+    val rightKeys = Seq(childrenSchemas(1)(1))
+    println("in test, before HashJoinExecExec")
+    val hashJoinExec = HashJoinExec(leftInput, rightInput, leftKeys, rightKeys, None)
+    println("in test, before PushBasedCodegenExec")
+    val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
+    println("in test, before executeWithCodeGen()")
+    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+  }
+
+  after{
     var count = 0
-    while (leapFrogJoinIter.hasNext){
-      println(s"$count - leapFrogIter.next(): " + leapFrogJoinIter.next())
+    for(resultIter <- resultIterList) {
+      println(s"$count:")
+      if (!resultIter.hasNext) {
+        println("resultIter is empty!!!")
+      }
+      while (resultIter.hasNext) {
+        println("iter.next(): " + resultIter.next())
+      }
       count += 1
     }
-    println("leapFrogIter results(): " + leapFrogJoinIter.results())
-    //    for (rowIdx <- 0 until  childBlock.size()){
-    //      assert(tableIter.next().equals(childBlock(rowIdx)))
-    //    }
   }
-
 }

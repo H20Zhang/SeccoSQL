@@ -153,7 +153,8 @@ case class Alias(child: Expression, name: String)(
 }
 
 abstract class Attribute extends LeafExpression with NamedExpression {
-  override def references: AttributeSet = AttributeSet(Set(this))
+//  override def references: AttributeSet = AttributeSet(Set(this))
+  override def references: AttributeSet = AttributeSet(this) // edited by lgh, according to Spark
 
   def withNullability(newNullability: Boolean): Attribute
   def withQualifier(newQualifier: Option[String]): Attribute

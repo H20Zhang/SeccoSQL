@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.Utils
 import org.apache.spark.secco.execution.storage.block._
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.codegen.{BaseProjectionFunc, GenerateSafeProjection}
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.types._
@@ -49,8 +49,9 @@ case class ProjectIterator(
     if(!hasNext) throw new NoSuchElementException("next on empty iterator")
     else
     {
-      val row: InternalRow = childIter.next()
-      projectionFunction(row)
+      val rawRow: InternalRow = childIter.next()
+      val resultRow = projectionFunction(rawRow)
+      UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder()), resultRow)
     }
   }
 

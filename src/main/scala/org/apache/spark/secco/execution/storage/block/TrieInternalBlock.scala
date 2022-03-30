@@ -221,7 +221,7 @@ class TrieInternalBlock(
 
     assert(j == bindingLevel, "j != bindingLevel")
 
-    val arrayBuffer = new ArrayBuffer[Any]
+    val arrayBuffer = new ArrayBuffer[Any]()
     for(idx <- start until end) {
       val curGetter = getters(j)
       val curValue = curGetter(idx)
@@ -466,42 +466,42 @@ object TrieInternalBlock {
     // from oldValueAddress to newAddress. I changed the behavior of block.alterFixedLengthZone and the bug was fixed.
     def growFixedLengthZoneIfNeeded(): Unit = {
       if((block.numElems + 1) * block.elemSize > block.fixedLengthZoneSize){
-        println("attempting to grow fixedLengthZone")
+//        println("attempting to grow fixedLengthZone")
         val (newAddress, newSize) = Utils.grow(block.valuesAddress, block.numElems * block.elemSize, block.elemSize)
         //        block.alterVariableLengthZone(newAddress, newSize)
         block.alterFixedLengthZone(newAddress, newSize, copyMemory = false)
-        println("fixedLengthZone grown")
+//        println("fixedLengthZone grown")
         return
       }
-      println("fixedLengthZone no need to grow")
+//      println("fixedLengthZone no need to grow")
     }
 
     //lgh: sort all strings, compress fixed-length zone size and variable-length zone size
     def finalProcess(): Unit = {
 
-      println("Final process ---")
+//      println("Final process ---")
       //initialize idxArray and endIdxArray
       block.idxArray = new Array[Int](block.level)
-      println("before endIdxArray definition")
+//      println("before endIdxArray definition")
       block.endIdxArray = new Array[Int](block.level)
-      println("before idxArray assignment")
+//      println("before idxArray assignment")
       block.idxArray(0) = block.rootBegin
       //      val blockRootEnd = block.rootEnd
-      println("before endIdxArray assignment")
+//      println("before endIdxArray assignment")
       block.endIdxArray(0) = block.rootEnd
       //      block.endIdxArray(0) = blockRootEnd
       //      for(j <- 0 to 2) { val for_loop = j }
-      println("after endIdxArray assignment")
+//      println("after endIdxArray assignment")
       val fci_0 = block.getFirstChildIndex(0)
       println(f"fci_0: ${fci_0}")
       for (j <- 0 until block.level - 1){
-        println(f"inside loop j: ${j}")
+//        println(f"inside loop j: ${j}")
         val firstChildIndex = block.getFirstChildIndex(block.idxArray(j))
         block.idxArray(j + 1) = firstChildIndex
         val firstChildIndex_2 = block.getFirstChildIndex(block.idxArray(j) + 1)
         block.endIdxArray(j + 1) = firstChildIndex_2
       }
-      println("sort all strings")
+//      println("sort all strings")
       //sort all strings
       val stringNodeArray = stringNodeBuffer.toArray
       val stringNodeComparator = new StringNodeComparator
@@ -509,7 +509,7 @@ object TrieInternalBlock {
       for (item <- stringNodeArray) {
         block.setString(item.idx, item.strValue)
       }
-      println("after setString loop")
+//      println("after setString loop")
       val fixedLengthZoneSize = block.numElems * block.elemSize
       val fixedLengthZoneAddress = Utils.allocateMemory(fixedLengthZoneSize)
       val oldFixedLengthZoneAddress = block.valuesAddress
@@ -577,7 +577,7 @@ object TrieInternalBlock {
 //    println(s"for(j <- 1 until arity ${arity})")
 //    println()
     for(j <- 1 until arity) {
-      println(s"inside loop: j ${j}")
+//      println(s"inside loop: j ${j}")
       for(idx <- parentIds.indices) parentIds(idx) = parentIdsForNextLoop(idx)
       val curIsString = block.isString(j)
       val curParentDataType = block.schema()(j - 1).dataType
@@ -594,9 +594,9 @@ object TrieInternalBlock {
       //      block.setFirstChildIndex(parentIdCounter, idCounter)
       block.setFirstChildIndex(parentIds(0), idCounter)
       val fci = block.getFirstChildIndex(parentIds(0))
-      println(f"fci: ${fci}")
+//      println(f"fci: ${fci}")
       val fci_0 = block.getFirstChildIndex(0)
-      println(f"fci_0: ${fci_0}")
+//      println(f"fci_0: ${fci_0}")
 
       def setCurValue(curValue: AnyRef, rowIdx: Int): Unit = {
         growFixedLengthZoneIfNeeded()
@@ -625,9 +625,9 @@ object TrieInternalBlock {
           //          block.setFirstChildIndex(parentIdCounter, idCounter)   //TODO: Check the correctness -- lgh
           block.setFirstChildIndex(parentIds(i), idCounter)   //TODO: Check the correctness -- lgh
           val fci = block.getFirstChildIndex(parentIds(i))
-          println(f"fci: ${fci}")
+//          println(f"fci: ${fci}")
           val fci_0 = block.getFirstChildIndex(0)
-          println(f"fci_0: ${fci_0}")
+//          println(f"fci_0: ${fci_0}")
 //          println(s"setCurValue(curValue, i ${i})")
           setCurValue(curValue, i)
           //          valueParent = curParentValue
@@ -645,9 +645,9 @@ object TrieInternalBlock {
     block.setFirstChildIndex(parentIdsForNextLoop(0), idCounter)
 //    println("val fci = block.getFirstChildIndex(parentIdsForNextLoop(0))")
     val fci = block.getFirstChildIndex(parentIdsForNextLoop(0))
-    println(f"fci: ${fci}")
+//    println(f"fci: ${fci}")
     val fci_0 = block.getFirstChildIndex(0)
-    println(f"fci_0: ${fci_0}")
+//    println(f"fci_0: ${fci_0}")
     //    val addr = Utils.allocateMemory(32)
     //    Utils._UNSAFE.putLong(addr, 12)
     //    val valueLong = Utils._UNSAFE.getLong(addr)
