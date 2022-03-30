@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
 import org.apache.spark.secco.execution.storage.block.{ArrayTrieInternalBlock, InternalBlock, InternalBlockBuilder, TrieInternalBlock, TrieInternalBlockBuilder}
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.codegen.{BaseUnaryIteratorProducer, GenerateLeapFrogJoinIterator, GenerateUnaryIterator}
 import org.apache.spark.secco.types.StructType
@@ -58,7 +58,7 @@ case class LeapFrogJoinIterator(
 
   override def hasNext: Boolean = iterator.hasNext
 
-  override def next(): InternalRow = iterator.next()
+  override def next(): InternalRow = UnsafeInternalRow.fromInternalRow(rowSchema, iterator.next())
 }
 
 /** The iterator that performs leapfrog join with index-like operations

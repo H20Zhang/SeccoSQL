@@ -193,8 +193,13 @@ case class AggregateIterator(
     aggBuffer
   }
 
+  private val aggrAttributes = aggregateFunctions.map(item => AttributeReference(item.prettyName, item.dataType)())
+//  override def localAttributeOrder(): Array[Attribute] =
+//    groupingAttributes ++ aggregateFunctions.flatMap(_.aggBufferAttributes)
   override def localAttributeOrder(): Array[Attribute] =
-    groupingAttributes ++ aggregateFunctions.flatMap(_.aggBufferAttributes)
+    groupingAttributes ++ aggrAttributes
+  private val schema = StructType.fromAttributes(localAttributeOrder())
+
 
   override def isSorted(): Boolean = childIter.isSorted()
 
@@ -221,8 +226,9 @@ case class AggregateIterator(
       val curOutputRow = generateOutput(curEntry.getKey, curEntry.getValue)
       rowArrayBuffer.append(curOutputRow)
     }
-    val aggrAttributes = aggregateFunctions.map(item => AttributeReference(item.prettyName, item.dataType)())
-    InternalBlock(rowArrayBuffer.toArray, StructType.fromAttributes(groupingAttributes ++ aggrAttributes))
+//    val aggrAttributes = aggregateFunctions.map(item => AttributeReference(item.prettyName, item.dataType)())
+//    InternalBlock(rowArrayBuffer.toArray, StructType.fromAttributes(groupingAttributes ++ aggrAttributes))
+    InternalBlock(rowArrayBuffer.toArray, schema)
   }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
@@ -231,7 +237,8 @@ case class AggregateIterator(
 
   override def next(): InternalRow = {
     val entry = aggBufferIterator.next()
-    generateOutput(entry.getKey, entry.getValue)
+    val resultRow = generateOutput(entry.getKey, entry.getValue)
+    UnsafeInternalRow.fromInternalRow(schema, resultRow)
   }
 
   // Initializing functions used to process a row.
