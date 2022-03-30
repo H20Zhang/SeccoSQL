@@ -9,6 +9,7 @@ import org.apache.spark.secco.expression.{
   PredicateHelper
 }
 import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
+import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -137,7 +138,42 @@ case class ShareValuesContext(shares: ShareValues)
 class ShareConstraint(
     var rawConstraint: AttributeMap[Int],
     var equivalenceAttrs: Array[AttributeSet]
-) {
+) extends LogAble {
+
+  /** Merge the rawConstraint and equivalenceAttrs from another [[ShareConstraint]] */
+  def addNewConstraints(shareConstraint: ShareConstraint): Unit = {
+
+    // Compute the new equivalence attributes.
+    val otherEquivalenceAttrs = shareConstraint.equivalenceAttrs
+    val newEquivalanceAttrSet = mutable.Set(equivalenceAttrs: _*)
+    otherEquivalenceAttrs.foreach { otherEquiSet =>
+      newEquivalanceAttrSet.find(equiSet =>
+        equiSet.intersect(otherEquiSet).nonEmpty
+      ) match {
+        case Some(equiSet) =>
+          newEquivalanceAttrSet -= equiSet
+          newEquivalanceAttrSet += (equiSet ++ otherEquiSet)
+
+        case None => newEquivalanceAttrSet += otherEquiSet
+      }
+    }
+    val newEquivalenceAttrs = newEquivalanceAttrSet.toArray
+
+    // Compute the new raw constraints. Note: we assume all raw constraints value is 1.
+    val newRawConstraint = AttributeMap(
+      newEquivalenceAttrs
+        .filter { equiSet =>
+          rawConstraint.find { case (key, value) =>
+            equiSet.contains(key)
+          }.nonEmpty
+        }
+        .flatMap(f => f.toSeq.map(g => (g, 1)))
+    )
+
+    // Update rawConstraint and equivalenceAttrs.
+    rawConstraint = newRawConstraint
+    equivalenceAttrs = newEquivalenceAttrs
+  }
 
   def isInitialized(): Boolean =
     rawConstraint.isEmpty && equivalenceAttrs.isEmpty
@@ -149,11 +185,23 @@ object ShareConstraint extends PredicateHelper {
   def apply(
       rawConstraint: AttributeMap[Int],
       equalCondition: Expression
-  ): ShareConstraint =
-    new ShareConstraint(
-      rawConstraint,
-      findEquivilanceAttrs(equalCondition).toArray
+  ): ShareConstraint = {
+
+    val equivilanceAttrs = findEquivilanceAttrs(equalCondition).toArray
+
+    // Propagate constraint among equivalence attributes.
+    val newRawConstraint = AttributeMap(
+      equivilanceAttrs
+        .filter { equiSet =>
+          rawConstraint.find { case (key, value) =>
+            equiSet.contains(key)
+          }.nonEmpty
+        }
+        .flatMap(f => f.toSeq.map(g => (g, 1)))
     )
+
+    new ShareConstraint(newRawConstraint, equivilanceAttrs)
+  }
 }
 
 /** The context of share constraint. */

@@ -1,37 +1,40 @@
 package org.apache.spark.secco.execution.planning
 
-import org.apache.spark.secco.execution.plan.computation.LocalProcessingExec
+import org.apache.spark.secco.execution.plan.computation.{
+  LocalProcessingExec,
+  LocalStageExec
+}
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.trees.TreeNode
 import org.apache.spark.internal.Logging
+import org.apache.spark.secco.optimization.plan.PairThenCompute
 
-/**
-  * Given a [[LogicalPlan]], returns a list of `PhysicalPlan`s that can
+/** Given a [[LogicalPlan]], returns a list of `PhysicalPlan`s that can
   * be used for execution. If this strategy does not apply to the given logical operation then an
   * empty list should be returned.
   */
 abstract class GenericStrategy[PhysicalPlan <: TreeNode[PhysicalPlan]]
     extends Logging {
 
-  /**
-    * Returns a placeholder for a physical plan that executes `plan`. This placeholder will be
+  /** Returns a placeholder for a physical plan that executes `plan`. This placeholder will be
     * filled in automatically by the QueryPlanner using the other execution strategies that are
     * available.
     */
   protected def planLater(plan: LogicalPlan): PhysicalPlan
 
-  /**
-    * Returns a placeholder for a local physical plan that executes `plan`. This placeholder will be
+  /** Returns a placeholder for a local physical plan that executes `plan`. This placeholder will be
     * filled in automatically by the QueryPlanner using the other execution strategies that are
     * available.
     */
-  protected def localPlanLater(plan: LogicalPlan): LocalProcessingExec
+  protected def localPlanLater(
+      plan: LogicalPlan,
+      localStage: LocalStageExec
+  ): LocalProcessingExec
 
   def apply(plan: LogicalPlan): Seq[PhysicalPlan]
 }
 
-/**
-  * Abstract class for transforming [[LogicalPlan]]s into physical plans.
+/** Abstract class for transforming [[LogicalPlan]]s into physical plans.
   * Child classes are responsible for specifying a list of [[GenericStrategy]] objects that
   * each of which can return a list of possible physical plan options.
   * If a given strategy is unable to plan all of the remaining operators in the tree,
@@ -87,8 +90,7 @@ abstract class QueryPlanner[PhysicalPlan <: TreeNode[PhysicalPlan]] {
     pruned
   }
 
-  /**
-    * Collects placeholders marked using [[GenericStrategy#planLater planLater]]
+  /** Collects placeholders marked using [[GenericStrategy#planLater planLater]]
     * by [[strategies]].
     */
   protected def collectPlaceholders(

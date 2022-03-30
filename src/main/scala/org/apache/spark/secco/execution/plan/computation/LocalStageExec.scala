@@ -20,7 +20,7 @@ import scala.collection.mutable
   */
 case class LocalStageExec(
     child: SeccoPlan,
-    localExec: LocalProcessingExec
+    var localExec: LocalProcessingExec
 ) extends SeccoPlan {
 
   override def output: Seq[Attribute] = localExec.output

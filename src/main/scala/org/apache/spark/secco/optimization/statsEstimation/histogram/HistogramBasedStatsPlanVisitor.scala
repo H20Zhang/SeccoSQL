@@ -44,6 +44,6 @@ object HistogramBasedStatsPlanVisitor
 
   override def visitPartition(p: Partition): Statistics = visit(p.child)
 
-  override def visitLocalStage(p: LocalStage): Statistics =
+  override def visitLocalStage(p: PairThenCompute): Statistics =
     visit(p.unboxedPlan())
 }

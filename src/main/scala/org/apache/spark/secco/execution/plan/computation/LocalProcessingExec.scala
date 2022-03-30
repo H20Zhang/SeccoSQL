@@ -43,8 +43,11 @@ abstract class LocalProcessingExec extends SeccoPlan {
   /** The local computation stage in which this local computation is executed. */
   def localStage: LocalStageExec
 
-  /** Whether the output is sorted. */
-  def isSorted: Boolean
+  /** Whether the output is sorted.
+    *
+    * By default, isSorted is false.
+    */
+  def isSorted: Boolean = false
 
   /** The output iterator */
   def iterator(): SeccoIterator
@@ -243,7 +246,9 @@ case class LocalAggregateExec(
   override def children: Seq[SeccoPlan] = Seq(child)
 
   override def relationalSymbol: String =
-    s"Agg[${groupingExpressions.map(_.sql).mkString(",")}, ${aggregateExpressions.map(_.sql).mkString(",")}]"
+    s"Agg[${groupingExpressions
+      .map(_.sql)
+      .mkString(",")}, ${aggregateExpressions.map(_.sql(false)).mkString(",")}]"
 }
 
 /** An operator that performs union. */

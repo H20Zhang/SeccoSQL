@@ -11,7 +11,9 @@ import org.apache.spark.secco.expression.{
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
 import org.apache.spark.secco.execution.SharedContext
+import org.apache.spark.secco.execution.plan.communication.ShareConstraintContext
 import org.apache.spark.secco.expression.utils.AttributeSet
+
 import scala.collection.mutable
 
 /* ---------------------------------------------------------------------------------------------------------------------
@@ -213,12 +215,12 @@ object Aggregate {
     .getOrCreateCounter("plan", "aggregate")
 }
 
-//TODO: this class should be refactored
-case class SharedRestriction(
-    restriction: SharedContext[mutable.HashMap[Attribute, Int]]
-) {
-  def res: mutable.HashMap[Attribute, Int] = restriction.res
-}
+////TODO: this class should be refactored
+//case class SharedRestriction(
+//    restriction: SharedContext[mutable.HashMap[Attribute, Int]]
+//) {
+//  def res: mutable.HashMap[Attribute, Int] = restriction.res
+//}
 
 /** A [[LogicalPlan]] that partitions output of [[child]]
   *
@@ -230,12 +232,13 @@ case class SharedRestriction(
 // where current sharedRestriction cannot work properly.
 case class Partition(
     child: LogicalPlan,
-    sharedRestriction: SharedRestriction,
+    shareConstraintContext: ShareConstraintContext,
     mode: ExecMode = ExecMode.Communication
 ) extends UnaryNode {
 
   /** shared restrictions for hash functions for partitioning */
-  def restriction: Map[Attribute, Int] = sharedRestriction.restriction.res.toMap
+  def restriction: Map[Attribute, Int] =
+    shareConstraintContext.shareConstraint.rawConstraint
 
   override def primaryKey: Seq[Attribute] = child.primaryKey
 
@@ -274,7 +277,7 @@ case class SubqueryAlias(
 
   override def primaryKey: Seq[Attribute] = child.primaryKey
 
-  override def output: Seq[Attribute] =
+  override val output: Seq[Attribute] =
     child.output.map(_.withQualifier(Some(alias)))
 
 }

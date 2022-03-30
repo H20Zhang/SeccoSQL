@@ -79,7 +79,7 @@ trait PredicateHelper {
       attrSetOpt match {
         case Some(equiAttrSet) =>
           res.remove(res.indexOf(equiAttrSet))
-          res += (equiAttrSet ++ a :: b :: Nil)
+          res += (equiAttrSet ++ AttributeSet(a :: b :: Nil))
         case None =>
           res += AttributeSet(a :: b :: Nil)
       }

@@ -61,18 +61,87 @@ case class MultiwayJoin(
 ) extends MultiNode
     with Join {
 
-  val joinType: JoinType = Inner
+  /** Join Type. */
+  val joinType: JoinType = NaturalJoin(Inner)
 
-  override def output: Seq[Attribute] = children.flatMap(_.output)
-//  {
-//    val attributeBuffer = ArrayBuffer[(Attribute, String)]()
-//    children.flatMap(_.output).foreach { attr =>
-//      if (!attributeBuffer.map(_._2).contains(attr.name)) {
-//        attributeBuffer += ((attr, attr.name))
-//      }
-//    }
-//    attributeBuffer.map(_._1)
-//  }
+  /** Return Hypergraph that represents the multiway join. */
+  lazy val hypergraph: JoinHyperGraph = JoinHyperGraph(this)
+
+  /** The representative attributes for each set of attributes related by EqualTo in `condition`. */
+  lazy val repAttrs: Seq[Attribute] =
+    hypergraph.attr2RepAttr.values.toSeq.distinct
+
+  /** The map from representative attribute to attributes it represents. */
+  lazy val repAttr2Attr: AttributeMap[Array[Attribute]] = {
+
+    val repAttr2AttrBuilder =
+      mutable.HashMap[Attribute, ArrayBuffer[Attribute]]()
+
+    hypergraph.attr2RepAttr.foreach { case (attr, repAttr) =>
+      val attrArray = repAttr2AttrBuilder.getOrElse(repAttr, ArrayBuffer())
+      attrArray += attr
+      repAttr2AttrBuilder(repAttr) = attrArray
+    }
+
+    AttributeMap(repAttr2AttrBuilder.map(f => (f._1, f._2.toArray)).toSeq)
+  }
+
+  /** A simple heuristic for computing the attribute order. */
+  private val simpleAttributeOrder = {
+    assert(
+      hypergraph.edges.nonEmpty,
+      "HyperGraph of the Multiway join must be non-empty."
+    )
+    // Follow the edges of hypergraph to determine attributeOrder for representative attributes.
+    val edges = hypergraph.edges
+    var curEdge = edges.head
+    val remainingEdges = mutable.HashSet(edges.drop(1): _*)
+    val repAttributeOrderBuilder = ArrayBuffer(curEdge.attrs.toSeq: _*)
+
+    while (remainingEdges.nonEmpty) {
+
+      // Find edges in remaining edges that are adjacent to curEdge.
+      val newCurEdge = remainingEdges.find(edge =>
+        edge.attrs.intersect(curEdge.attrs).nonEmpty
+      ) match {
+        case Some(newCurEdge) => newCurEdge
+        case None             => remainingEdges.head
+      }
+
+      // Remove newly traversed edge.
+      remainingEdges.remove(newCurEdge)
+
+      // Add new attributes to attribute order
+      repAttributeOrderBuilder ++= newCurEdge.attrs.toSeq.diff(
+        repAttributeOrderBuilder
+      )
+    }
+
+    // Propagate the order of representative attributes to all attributes.
+    repAttributeOrderBuilder.flatMap(repAttr => repAttr2Attr(repAttr)).toArray
+
+  }
+
+  def setAttributeOrder(attrOrder: Seq[Attribute]): Unit = {
+    _attributeOrder = Some(attrOrder)
+  }
+
+  private var _attributeOrder: Option[Seq[Attribute]] = None
+
+  /** The optimized attribute order. */
+  def attributeOrder: Seq[Attribute] = {
+    _attributeOrder.getOrElse(simpleAttributeOrder)
+  }
+
+  /** The relative optimized attributes order for the given attributes. */
+  def FindRelativeAttributeOrder(attrs: Seq[Attribute]): Seq[Attribute] =
+    attributeOrder.filter { attr =>
+      attrs.contains(attr)
+    }
+
+  override def output: Seq[Attribute] = {
+    attributeOrder
+  }
 
   def duplicatedResolved: Boolean =
     children.combinations(2).forall { children =>
@@ -82,13 +151,7 @@ case class MultiwayJoin(
     }
 
   /** Test if this multiway join is a cyclic multiway join */
-  def isCyclic(): Boolean = hypergraph().isCyclic()
-
-  /** Hypergraph that represents the multiway join
-    * @return returns a triplet that contains (hypergraph which represents a multiway natural join, a map from attribute in children
-    *         to attributes of the hypergraph, map from seq[attribute] to child logical plan)
-    */
-  def hypergraph(): JoinHyperGraph = JoinHyperGraph(this)
+  def isCyclic(): Boolean = hypergraph.isCyclic()
 
   override def relationalSymbol: String = s"⋈"
 }
@@ -99,48 +162,51 @@ case class MultiwayJoin(
   * @param children children logical plans
   * @param localPlan plan of local computations
   */
-case class LocalStage(
+case class PairThenCompute(
     children: Seq[LogicalPlan],
     localPlan: LogicalPlan
 ) extends MultiNode {
 
   override def mode: ExecMode = localPlan.mode
 
-  /** Merge this localStage with LocalStage in its children */
-  def mergeConsecutiveLocalStage(): LocalStage = {
-    if (!children.exists(_.isInstanceOf[LocalStage])) {
+  /** Merge this PairThenCompute operator with other PairThenComputer operators in its children. */
+  def mergeConsecutiveLocalStage(): PairThenCompute = {
+    if (!children.exists(_.isInstanceOf[PairThenCompute])) {
       this
     } else {
-      val LChildren = children.filter(_.isInstanceOf[LocalStage])
+      val LChildren = children.filter(_.isInstanceOf[PairThenCompute])
       LChildren.foldLeft(this)((localStage, childLocalStage) =>
-        localStage.merge(childLocalStage.asInstanceOf[LocalStage])
+        localStage.merge(childLocalStage.asInstanceOf[PairThenCompute])
       )
     }
   }
 
-  /** Unbox the localPlan by replacing all placeHolder by actual operator */
+  /** Unbox the localPlan by replacing all placeHolder by actual operator. */
   def unboxedPlan(): LogicalPlan = {
     localPlan transform { case placeholder: PlaceHolder =>
-      LocalStage.placeHolders2Child(placeholder, children)
+      PairThenCompute.placeHolders2Child(placeholder, children)
     }
   }
 
-  /** Recouple the communication and computation operators */
+  //TODO: This function has bug.
+  // It cannot correctly set the recoupled plan's operator execution mode
+  // to ExecMode.Coupled.
+  /** Unbox the localPlan then, recouple the communication and computation operators into operators. */
   def recoupledPlan(): LogicalPlan = {
     unboxedPlan() transform {
       case p: Partition => {
-        if (p.child.isInstanceOf[LocalStage]) {
-          p.child.asInstanceOf[LocalStage].unboxedPlan()
+        if (p.child.isInstanceOf[PairThenCompute]) {
+          p.child.asInstanceOf[PairThenCompute].unboxedPlan()
         } else {
           p.child
         }
       }
-      case l: LocalStage => l.unboxedPlan()
+      case l: PairThenCompute => l.unboxedPlan()
     }
   }
 
   /** Merge two consecutive LocalStage into one */
-  private def merge(localStage2Merge: LocalStage): LocalStage = {
+  private def merge(localStage2Merge: PairThenCompute): PairThenCompute = {
     assert(
       children.contains(localStage2Merge),
       "lopToMerge should be a children of this LOp"
@@ -155,11 +221,11 @@ case class LocalStage(
     //replace localStage2Merge by unboxed local plan
     val newUnboxedLocalPlan =
       unboxedLocalPlan.transform {
-        case l: LocalStage if l.fastEquals(localStage2Merge) =>
+        case l: PairThenCompute if l.fastEquals(localStage2Merge) =>
           unboxedLocalPlan2Merge
       }
 
-    LocalStage.box(
+    PairThenCompute.box(
       children.diff(Seq(localStage2Merge)) ++ localStage2Merge.children,
       newUnboxedLocalPlan
     )
@@ -179,13 +245,13 @@ case class LocalStage(
   override def output: Seq[Attribute] = localPlan.output
 }
 
-object LocalStage {
+object PairThenCompute {
 
   /** box local computations into LocalStage by replacing all children shown in unboxedLocalPlan into placeHolders */
   def box(
       children: Seq[LogicalPlan],
       unboxedLocalPlan: LogicalPlan
-  ): LocalStage = {
+  ): PairThenCompute = {
     assert(
       unboxedLocalPlan.mode == ExecMode.Computation || unboxedLocalPlan.mode == ExecMode.DelayComputation,
       s"localPlan's mode must be ${ExecMode.Computation} or ${ExecMode.DelayComputation}"
@@ -194,11 +260,11 @@ object LocalStage {
       child2PlaceHolder(childPlan, children)
     }
 
-    LocalStage(children, localPlan)
+    PairThenCompute(children, localPlan)
   }
 
   /** unbox localStage into local computations */
-  def unbox(localStage: LocalStage): LogicalPlan = {
+  def unbox(localStage: PairThenCompute): LogicalPlan = {
     localStage.unboxedPlan()
   }
 

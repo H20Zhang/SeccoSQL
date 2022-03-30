@@ -6,7 +6,7 @@ import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
   Join,
-  LocalStage,
+  PairThenCompute,
   MultiwayJoin,
   Partition,
   Project,
@@ -49,6 +49,6 @@ object StatsPlanVisitor extends LogicalPlanVisitor[Statistics] with LogAble {
   override def visitPartition(p: Partition): Statistics =
     defaultStatsEstimator.visit(p)
 
-  override def visitLocalStage(p: LocalStage): Statistics =
+  override def visitLocalStage(p: PairThenCompute): Statistics =
     defaultStatsEstimator.visit(p)
 }

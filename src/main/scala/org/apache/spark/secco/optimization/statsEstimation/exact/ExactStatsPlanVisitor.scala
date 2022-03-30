@@ -6,7 +6,7 @@ import org.apache.spark.secco.optimization.plan.{
   Filter,
   Join,
   LeafNode,
-  LocalStage,
+  PairThenCompute,
   MultiwayJoin,
   Partition,
   Project,
@@ -74,7 +74,7 @@ object ExactStatsPlanVisitor
 
   override def visitPartition(p: Partition): Statistics = visit(p.child)
 
-  override def visitLocalStage(p: LocalStage): Statistics = {
+  override def visitLocalStage(p: PairThenCompute): Statistics = {
     visit(p.recoupledPlan())
   }
 

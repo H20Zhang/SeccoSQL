@@ -15,15 +15,16 @@ class SeccoPlanner(
 
   //TODO: refactor Planner Rules
   override def strategies: Seq[Strategy] = Nil
-//    IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
+//  IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
 
   override protected def collectPlaceholders(
       plan: SeccoPlan
   ): Seq[(SeccoPlan, LogicalPlan)] = {
-    plan.collect { case placeholder @ PlanLater(logicalPlan) =>
-      (placeholder, logicalPlan)
-//      case placeholder @ LocalPlanLater(logicalPlan) =>
-//        (placeholder, logicalPlan)
+    plan.collect {
+      case placeholder @ PlanLater(logicalPlan) =>
+        (placeholder, logicalPlan)
+      case placeholder @ LocalPlanLater(logicalPlan, _) =>
+        (placeholder, logicalPlan)
     }
   }
 

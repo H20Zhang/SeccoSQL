@@ -162,7 +162,11 @@ case class UnresolvedFunction(
 case class UnresolvedRelation(
     tableName: String,
     mode: ExecMode = ExecMode.Coupled
-) extends LeafNode {}
+) extends LeafNode {
+
+  override def output: Seq[Attribute] = Seq()
+
+}
 
 case class UnresolvedEdge(
     id: Attribute,
@@ -220,5 +224,8 @@ case class UnresolvedSubgraphQuery(
     pattern: UnresolvedPattern,
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
+
+  override def output: Seq[Attribute] = Seq()
+
   override def child: LogicalPlan = graph
 }

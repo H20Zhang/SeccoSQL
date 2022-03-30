@@ -81,14 +81,23 @@ object LookupFunctions extends Rule[LogicalPlan] {
 object ResolveRelations extends Rule[LogicalPlan] {
 
   def catalog = SeccoSession.currentSession.sessionState.catalog
+  def tempViewManager = SeccoSession.currentSession.sessionState.tempViewManager
 
   def resolveRelation(plan: UnresolvedRelation): LogicalPlan =
     plan match {
       case u: UnresolvedRelation =>
+        // Check if table is in the catalog.
         val relation = catalog.getTable(u.tableName)
-        relation
-          .map(f => Relation(TableIdentifier(f.tableName)))
-          .getOrElse(throw new NoSuchTableException("", s"${u.tableName}"))
+
+        relation match {
+          case Some(rel) => Relation(rel.identifier)
+          case None      =>
+            // Check if table is in the viewManager.
+            tempViewManager
+              .getView(u.tableName)
+              .getOrElse(throw new NoSuchTableException("", s"${u.tableName}"))
+        }
+
       case _ => plan
     }
 

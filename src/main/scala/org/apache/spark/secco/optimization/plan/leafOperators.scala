@@ -134,10 +134,14 @@ case class Relation(
 case class RDDRows(
     rdd: RDD[InternalRow],
     schema: StructType,
+    primaryKeyNames: Seq[String] = Seq(),
     mode: ExecMode = ExecMode.Atomic
 ) extends LeafNode {
 
-  override def output: Seq[Attribute] = {
+  def primaryKeys: Seq[Attribute] =
+    output.filter(attr => primaryKeyNames.contains(attr.name))
+
+  override lazy val output: Seq[Attribute] = {
     schema.toAttributes
   }
 }
@@ -151,10 +155,14 @@ case class RDDRows(
 case class LocalRows(
     seq: Seq[InternalRow],
     schema: StructType,
+    primaryKeyNames: Seq[String] = Seq(),
     mode: ExecMode = ExecMode.Atomic
 ) extends LeafNode {
 
-  override def output: Seq[Attribute] = {
+  def primaryKeys: Seq[Attribute] =
+    output.filter(attr => primaryKeyNames.contains(attr.name))
+
+  override lazy val output: Seq[Attribute] = {
     schema.toAttributes
   }
 }
@@ -167,18 +175,21 @@ case class LocalRows(
   * @param attributeName the attribute names of the row
   * @param mode the execution mode
   */
-case class PartitionedRDD(
+case class PartitionedRDDRows(
     partitions: RDD[InternalPartition],
     schema: StructType,
+    primaryKeyNames: Seq[String] = Seq(),
     mode: ExecMode = ExecMode.Atomic
 ) extends LeafNode {
 
-  override def output: Seq[Attribute] = {
+  def primaryKeys: Seq[Attribute] =
+    output.filter(attr => primaryKeyNames.contains(attr.name))
+
+  override lazy val output: Seq[Attribute] = {
     schema.toAttributes
   }
 
-  override def computeStats(): Statistics = ???
-
+//  override def computeStats(): Statistics = ???
 //  {
 //    val rawData = blocks
 //    val attributes = output
@@ -209,9 +220,8 @@ case class GHDNode(
   * @param pos i
   * @param output output attributes
   */
-case class PlaceHolder(pos: Int, override val output: Seq[Attribute])
-    extends LeafNode {
-  override def mode: ExecMode = ExecMode.Atomic
+case class PlaceHolder(pos: Int, output: Seq[Attribute]) extends LeafNode {
+  override def mode: ExecMode = ExecMode.Computation
 
   override def relationalSymbol: String = s"[${pos.toString}]"
 }

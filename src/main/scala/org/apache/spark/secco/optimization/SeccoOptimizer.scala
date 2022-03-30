@@ -28,7 +28,7 @@ class SeccoOptimizer(
 
     assert(
       batchNames.forall(containsBatch),
-      s"batches with name:${batchNames} is not contained in optimizer"
+      s"batches with names:${batchNames.toSeq} is not contained in optimizer"
     )
 
     validBatches = validBatches.map { f =>

@@ -3,17 +3,17 @@ package org.apache.spark.secco.optimization.costModel
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.execution.plan.communication.EnumShareComputer
 import org.apache.spark.secco.optimization.plan.{
-  LocalStage,
+  PairThenCompute,
   Partition,
   Relation
 }
 import org.apache.spark.secco.optimization.statsEstimation.StatsPlanVisitor
 import org.apache.spark.secco.optimization.statsEstimation.histogram.HistogramBasedStatsPlanVisitor
 
-object LocalStageCostModel extends CostModel[LocalStage] {
+object LocalStageCostModel extends CostModel[PairThenCompute] {
 
   /** Estimate the communication cost of the plan */
-  override def communicationCost(plan: LocalStage): Double = ???
+  override def communicationCost(plan: PairThenCompute): Double = ???
 //  {
 //
 //    if (plan.children.forall(_.isInstanceOf[Partition])) {
@@ -45,5 +45,5 @@ object LocalStageCostModel extends CostModel[LocalStage] {
 //  }
 
   /** Estimate the computation cost of the plan */
-  override def computationCost(plan: LocalStage): Double = ???
+  override def computationCost(plan: PairThenCompute): Double = ???
 }

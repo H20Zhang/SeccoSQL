@@ -61,7 +61,7 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
     p.child.stats
   }
 
-  override def visitLocalStage(p: LocalStage): Statistics = {
+  override def visitLocalStage(p: PairThenCompute): Statistics = {
 
     val concreteRootPlan = p.unboxedPlan()
 

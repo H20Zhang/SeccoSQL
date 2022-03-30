@@ -7,7 +7,7 @@ import org.apache.spark.secco.catalog.{
   CatalogColumn,
   CatalogTable
 }
-import org.apache.spark.secco.expression.utils.AttributeSet
+import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import org.apache.spark.secco.expression.{
   And,
   Attribute,
@@ -52,6 +52,7 @@ import scala.collection.mutable.ArrayBuffer
 object ReplaceBinaryJoinWithMultiwayJoin
     extends Rule[LogicalPlan]
     with PredicateHelper {
+
   override def apply(plan: LogicalPlan): LogicalPlan = {
 
     //set behavior of the pattern extractor
@@ -257,9 +258,9 @@ object OptimizeMultiwayJoin extends Rule[LogicalPlan] with PredicateHelper {
 
         val plan = Project(joinHyperGraph.toPlan(), joinProjectionList, mode)
 
-        println("--------------------")
-        println(plan)
-        println("--------------------")
+//        println("[debug]: --------------------")
+//        println(plan)
+//        println("[debug]: --------------------")
 
         plan
     }

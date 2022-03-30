@@ -1,8 +1,8 @@
 package org.apache.spark.secco.execution.plan.io
 
 import org.apache.spark.secco.execution.SeccoPlan
-import org.apache.spark.secco.execution.sources.DataLoader
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.communication.Coordinate
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
   UnsafeBlockPartition
@@ -37,7 +37,7 @@ case class ExternalRDDScanExec(
         UnsafeBlockPartition(
           output,
           Seq(builder.build()),
-          Some(Array(index)),
+          None,
           partitioner
         )
       )

@@ -7,7 +7,7 @@ import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
   Join,
-  LocalStage,
+  PairThenCompute,
   MultiwayJoin,
   Partition,
   Project,
@@ -50,7 +50,7 @@ object CommunicationCostPlanVisitor extends LogicalPlanVisitor[Double] {
 
   override def visitPartition(p: Partition): Double = fallback(p)
 
-  override def visitLocalStage(p: LocalStage): Double = {
+  override def visitLocalStage(p: PairThenCompute): Double = {
     LocalStageCostModel.communicationCost(p)
   }
 }

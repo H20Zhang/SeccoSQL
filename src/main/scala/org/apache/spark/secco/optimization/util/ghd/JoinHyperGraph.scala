@@ -190,12 +190,12 @@ case class JoinHyperGraphEdge(attrs: Set[Attribute], relation: LogicalPlan)
   * </pre>
   * @param nodes nodes of the graph
   * @param edges edges of the graph
-  * @param attr2RepresentativeAttr the mapping from attributes in [[LogicalPlan]] to representative attributes
+  * @param attr2RepAttr the mapping from attributes in [[LogicalPlan]] to representative attributes
   */
 case class JoinHyperGraph(
     override val nodes: Array[JoinHyperGraphNode],
     override val edges: Array[JoinHyperGraphEdge],
-    attr2RepresentativeAttr: AttributeMap[Attribute]
+    attr2RepAttr: AttributeMap[Attribute]
 ) extends Graph(nodes, edges) {
 
   /** The map from attrs of edge to edge.
@@ -227,14 +227,14 @@ case class JoinHyperGraph(
 
     l.intersect(r)
       .map { joinAttr =>
-        val attrInLPlan = attr2RepresentativeAttr
+        val attrInLPlan = attr2RepAttr
           .find { case (attr, representativeAttr) =>
             lPlan.outputSet.contains(attr) && representativeAttr == joinAttr
           }
           .get
           ._1
 
-        val attrInRPlan = attr2RepresentativeAttr
+        val attrInRPlan = attr2RepAttr
           .find { case (attr, representativeAttr) =>
             rPlan.outputSet.contains(attr) && representativeAttr == joinAttr
           }
@@ -386,7 +386,7 @@ case class JoinHyperGraph(
   def toPlan(): LogicalPlan = ghdPlan(_ => true)
 
   override def toString: String = {
-    super.toString + s"\nRepresentative Attributes:${attr2RepresentativeAttr.toSeq
+    super.toString + s"\nRepresentative Attributes:${attr2RepAttr.toSeq
       .map(_.swap)
       .groupBy(_._1)
       .map(f => (f._1, f._2.map(_._2)))}"

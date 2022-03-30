@@ -38,48 +38,61 @@ import scala.util.Try
 
 class OptimizationRuleSuite extends SeccoFunSuite {
   override def setupDB(): Unit = {
-    val catalog = seccoSession.sessionState.catalog
-    catalog.createTable(
-      CatalogTable("R1", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R2", CatalogColumn("b") :: CatalogColumn("c") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R3", CatalogColumn("c") :: CatalogColumn("d") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R4", CatalogColumn("d") :: CatalogColumn("e") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R5", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R6", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R7", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R8", CatalogColumn("e") :: CatalogColumn("a") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable("R9", CatalogColumn("a") :: CatalogColumn("c") :: Nil)
-    )
-    catalog.createTable(
-      CatalogTable(
-        "R10",
-        CatalogColumn("b") :: CatalogColumn("f") :: Nil,
-        CatalogColumn("b") :: Nil
-      )
-    )
-    catalog.createTable(
-      CatalogTable(
-        "R11",
-        CatalogColumn("f") :: CatalogColumn("g") :: Nil,
-        CatalogColumn("f") :: Nil
-      )
-    )
+
+    createDummyRelation("R1", "a", "b")()
+    createDummyRelation("R2", "b", "c")()
+    createDummyRelation("R3", "c", "d")()
+    createDummyRelation("R4", "d", "e")()
+    createDummyRelation("R5", "a", "b")()
+    createDummyRelation("R6", "a", "b")()
+    createDummyRelation("R7", "a", "b")()
+    createDummyRelation("R8", "e", "a")()
+    createDummyRelation("R9", "a", "c")()
+    createDummyRelation("R10", "b", "f")("b")
+    createDummyRelation("R11", "f", "g")("f")
+
+//    val catalog = seccoSession.sessionState.catalog
+//    catalog.createTable(
+//      CatalogTable("R1", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R2", CatalogColumn("b") :: CatalogColumn("c") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R3", CatalogColumn("c") :: CatalogColumn("d") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R4", CatalogColumn("d") :: CatalogColumn("e") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R5", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R6", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R7", CatalogColumn("a") :: CatalogColumn("b") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R8", CatalogColumn("e") :: CatalogColumn("a") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable("R9", CatalogColumn("a") :: CatalogColumn("c") :: Nil)
+//    )
+//    catalog.createTable(
+//      CatalogTable(
+//        "R10",
+//        CatalogColumn("b") :: CatalogColumn("f") :: Nil,
+//        CatalogColumn("b") :: Nil
+//      )
+//    )
+//    catalog.createTable(
+//      CatalogTable(
+//        "R11",
+//        CatalogColumn("f") :: CatalogColumn("g") :: Nil,
+//        CatalogColumn("f") :: Nil
+//      )
+//    )
 
   }
 
@@ -98,7 +111,6 @@ class OptimizationRuleSuite extends SeccoFunSuite {
       plan = PushSelectionThroughJoin(plan)
       plan = PushDownProjection(plan)
     }.isSuccess)
-
   }
 
   test("operator_combine") {

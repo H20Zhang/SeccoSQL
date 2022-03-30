@@ -1,14 +1,24 @@
-## SeccoSQL
+# SeccoSQL v.0.1
 
-SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is an experimental distributed SQL engine on **Spark** for processing complex SQL queries, which adopts latest query optimization/execution techniques (e.g., Communication/Computation aware query optimization, GHD-based Join Optimization, Multi-way join) from academic community.
+SeccoSQL (**Se**parate **c**ommunication from **co**mputation) is an experimental distributed SQL engine on **Spark** for processing complex SQL/Graph queries. It adopts the new communication/computation separated optimization framework proposed in "Parallel Query Processing: To Separate Communication from Computation", and many other state-of-the-art query optimization/execution techniques (e.g., GHD-based join optimization, multi-way shuffle, multi-way join, etc).
 
-**Table of Content**
 
-[TOC]
 
-------
+## Table of Contents
+
+- Overview
+- QuickStart
+- Tutorial
+- Dependency
+- Reference
+- Reproducibility
+- Contact
+
+
 
 ## Overview
+
+(TODO)
 
 SeccoSQL is a new distributed analytical database for data beyond Table, such as Graph and Matrix. A brief overview is as follows.
 
@@ -18,51 +28,11 @@ To solve above problem while maintaining the flexibilty of different data model.
 
 To achive such goal, we relies on a set of new techniques that is proposed by the community and our own. The detail is listed below.
 
-(Detail omitted)
 
-### Prerequisite
 
-You need to install Spark 2.4.5, Hadoop 2.7.2 on your cluster.
+## QuickStart
 
-### Project Structure
-
-```
-/datasets - folder for storing toy datasets and folder template for storing datasets of synthetic workload experiment
-/project - project related configuration files.
-/script - scripts for running and testing Secco.
-/src
-	src/main - source files
-		src/main/resource - configuration files for Secco
-		src/main/scala - scala source files 
-			org/apache/spark/secco: main package
-				org/apache/spark/secco/analysis - analyzer
-				org/apache/spark/secco/benchmark - benchmark & testing
-				org/apache/spark/secco/catalog - catalog of database
-				org/apache/spark/secco/codegen - code generator
-				org/apache/spark/secco/config - configurations
-				org/apache/spark/secco/execution - physical plans & planner
-				org/apache/spark/secco/expression - expressions
-				org/apache/spark/secco/optimization - logical plans & optimizer
-				org/apache/spark/secco/parsing - parser
-				org/apache/spark/secco/trees - tree struture used in optimizer framework
-				org/apache/spark/secco/types - types
-				org/apache/spark/secco/utils - utility
-	src/test - unit tests files
-		src/test/resource - configuration files for Secco in unit tests
-		src/test/scala - scala unit tests files
-			src/test/scala/integration - integration test
-			src/test/scala/playground - playground for testing new functions
-			src/test/scala/unit - unit test
-			src/test/scala/util - utility for testing
-```
-
-### Usage
-
-#### Import
-
-You can import the source code of Secco project using Jetbrain IntelliJ IDEA. 
-
-#### Use
+(TODO)
 
 The main object in Secco to manipulate is `Dataset`, which just like the `Dataset` in `SparkSQL`. In `Dataset`, it defines relational algebra operators (e.g., select, project, join) that transforms the dataset.
 
@@ -91,63 +61,44 @@ An example is shown below.
 
 For more usage, please check class  `org.apache.spark.secco.SeccoSession` and `org.apache.spark.secco.Dataset`, there contains comments for guiding you using the system.  We recommand you using the `Dataset` api instead of `SQL` api, as it currently have some bugs, and we disable it for now.
 
-### Testing
+## Tutorial
 
-To reproduce the experiment mentioned in the paper, we prepare the compiled jar packages and scripts. You can follow the guide below to reproduce the results.
+(TODO)
 
-#### Datasets
+## Dependency 
 
-##### Download Real Datasets
+(TODO)
 
-To download the real datasets found in paper
 
-1. For WB, AS, LJ, OK, go to https://snap.stanford.edu/data/index.html
-2. For UK, go to http://law.di.unimi.it/datasets.php
-3. For TW, go to https://anlab-kaist.github.io/traces/WWW2010
-4. For IMDB, go to https://www.imdb.com 
 
-##### Generate Synthetic Datasets
+## Reference
 
-To generate synthetic datasets needed in Workload Experiment Testing
+(TODO)
 
-1. install SBT.
-2. execute SBT
-3. in SBT shell, execute `testOnly *SyntheticDatasetsSuite`
-4. the generated synthetic datasets will be in `./datasets`
+We give a reference list of new query optimization and query execution techniques implemented in SeccoSQL.
 
-##### Preprocessing
+### Query Optimization
 
-You need to do some preprocessing on the raw datasets.
+Communication/Computation Separated Optimization Framework
 
-1. For UK, you need to convert it from WebGraph format into edgelist format first. Please follow the instruction in https://github.com/helgeho/HadoopWebGraph.
-2. For edge list of WB, AS, LJ, OK, UK, TW,  you need to name the original file by `rawData` and prepare an undirected version graph named `undirected`, which will be used in subgraph query experiment.
-3. For IMDB, it needs to be preprocessed with imdbpy3 package, which can be downloaded in https://bitbucket.org/alberanid/imdbpy/get/5.0.zip
-4. After you have prepared all datasets, put all dataset in HDFS. 
-5. For all relations of IMDB, you need to put it under a folder named `imdb`
-6. For all relations (i.e., `directed` and `undirected` ) of a graph dataset (e.g., WB), you need to put it under a folder (e.g., `wb`). Please name the folders of the graph datasets WB, AS, LJ, OK, UK, TW as wb, as, soc-lj, ok, uk tw respectively. 
+GHD(Generalized HyperTree Decomposition)-Based Join Optimization
 
-#### Scripts for Testing
+Aggregation Push-Down over GHD
 
-There are several scripts included in "/script" folder fro helping you running Secco in the distributed environment.
+### Query Execution
 
-```tex
-runSpark-yarn.sh: script for submitting spark program to yarn
-upload.sh: script for uploading relevant jar packages and datasets to the remote cluters
-test.sh: script that contains test in the paper
-```
+Worst-case Optimal Join
 
-To correctly run the scripts, you need to modify the scripts based on your own computer's and clusters' settings.
+Cached LeapFrog Join
 
-1. modify upload.sh by replacing `itsc:/users/itsc/s880006/secco/testing/Secco` with your own clusters folder address
-2. modify test.sh by assiging DataLocation with the location you stored datasets in HDFS.
-3. modify runSpark-logo.sh by replacing $SPARK_HOME with your own spark installation address. 
+HyperCube Shuffle
 
-#### Run Test
 
-To run the experiments in the paper:
 
-1. execute test.sh with selective commands uncommented.
-   1. For Subgraph Query, you need to uncomment `SimpleSubgraphQueryJob` and `SimpleSubgraphQueryJob` in test.sh
-   2. For SQL Query, you need to uncomment `ComplexOLAPQueryJob`
-   3. For Graph Analytic Query, you need to uncomment `SimpleGraphAnalyticJob` and `ComplexGraphAnalyticJob`
-   4. For Workload Experiment Query, you need to uncomment `WorkloadExpJob`
+## Reproducibility
+
+The SeccoSQL in this repo may differs in terms of performance reported in the paper "Parallel Query Processing: To Separate Communication from Computation". For reproducing the results reported in the paper, please use the original code, which is avaiable at [secco-sigmod](../SIGMOD). The guide to reproduce the results is at [Reproducibility](../tutorial/Reproducibility )
+
+## Contact
+
+[Hao Zhang](hzhang@se.cuhk.edu.hk)

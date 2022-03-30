@@ -18,7 +18,7 @@ import org.apache.spark.secco.optimization.plan.{
   JoinType,
   Limit,
   LocalRows,
-  PartitionedRDD,
+  PartitionedRDDRows,
   Project,
   RDDRows,
   SubqueryAlias,
@@ -54,14 +54,6 @@ class SeccoDataFrame(
   /** Return schema of the datasets. */
   def schema: Seq[Attribute] = queryExecution.analyzedPlan.output
 
-  /** Show first k rows of datasets.
-    * @param numRow the first k rows
-    */
-  def show(numRow: Int): Unit = {
-    val seq = queryExecution.executionPlan.collectSeq().take(numRow)
-    pprint.pprintln(seq)
-  }
-
   /** Show plans used to compute the dataset. */
   def explain(): Unit = {
     println(queryExecution.toString)
@@ -86,8 +78,9 @@ class SeccoDataFrame(
     val qualifier = queryExecution.logical.output.map(_.qualifier).head
 
     val logicPlan = qualifier match {
-      case Some(prefix) => SubqueryAlias(PartitionedRDD(rdd, schema), prefix)
-      case None         => PartitionedRDD(rdd, schema)
+      case Some(prefix) =>
+        SubqueryAlias(PartitionedRDDRows(rdd, schema), prefix)
+      case None => PartitionedRDDRows(rdd, schema)
     }
 
     SeccoDataFrame(
@@ -105,6 +98,14 @@ class SeccoDataFrame(
 
   /** Return the numbers of row of the dataset. */
   def count(): Long = queryExecution.executionPlan.count()
+
+  /** Show first k rows of datasets.
+    * @param numRow the first k rows
+    */
+  def show(numRow: Int): Unit = {
+    val seq = collect().take(numRow)
+    pprint.pprintln(seq)
+  }
 
   /* == relational algebra operations == */
 
@@ -391,26 +392,27 @@ object SeccoDataFrame {
 
   /** Create an instance of [[SeccoDataFrame]]
     *
-    * @param seSession the [[SeccoSession]] to create the dataset
+    * @param seccoSession the [[SeccoSession]] to create the dataset
     * @param logicalPlan    the logical plan of the dataset
     * @return a new [[SeccoDataFrame]]
     */
   def apply(
-      seSession: SeccoSession,
+      seccoSession: SeccoSession,
       logicalPlan: LogicalPlan
   ): SeccoDataFrame = {
-    val qe = new QueryExecution(seSession, logicalPlan)
-    new SeccoDataFrame(seSession, qe)
+    val qe = new QueryExecution(seccoSession, logicalPlan)
+    new SeccoDataFrame(seccoSession, qe)
   }
 
   /** Create an instance of [[SeccoDataFrame]] from [[sparksql.DataFrame]]
     * @param df SparkSQL's dataframe
-    * @param dlSession session of Secco
+    * @param seccoSession session of Secco
     * @return an instance of [[SeccoDataFrame]]
     */
   def fromSparkSQL(
       df: sparksql.DataFrame,
-      dlSession: SeccoSession = SeccoSession.currentSession
+      seccoSession: SeccoSession = SeccoSession.currentSession,
+      primaryKeyNames: Seq[String] = Seq()
   ): SeccoDataFrame = {
     val sparkSQLSchema = df.schema
 
@@ -439,7 +441,7 @@ object SeccoDataFrame {
       InternalRow(row.toSeq)
     }
 
-    fromRDD(rdd, schema, dlSession)
+    fromRDD(rdd, schema, seccoSession, primaryKeyNames)
   }
 
   /** Create an instance of [[SeccoDataFrame]] from [[RDD]]
@@ -447,15 +449,16 @@ object SeccoDataFrame {
     * @param rdd a rdd that stores a set of [[InternalRow]]
     * @param schema schema of this [[SeccoDataFrame]]
     * @param attributeName attribute names of this [[SeccoDataFrame]]
-    * @param dlSession    the [[SeccoSession]] to create the [[SeccoDataFrame]]
+    * @param seccoSession    the [[SeccoSession]] to create the [[SeccoDataFrame]]
     * @return an instance of [[SeccoDataFrame]]
     */
   def fromRDD(
       rdd: RDD[InternalRow],
       schema: StructType,
-      dlSession: SeccoSession = SeccoSession.currentSession
+      seccoSession: SeccoSession = SeccoSession.currentSession,
+      primaryKeyNames: Seq[String] = Seq()
   ): SeccoDataFrame = {
-    SeccoDataFrame(dlSession, RDDRows(rdd, schema))
+    SeccoDataFrame(seccoSession, RDDRows(rdd, schema, primaryKeyNames))
   }
 
   /** Create an instance of [[SeccoDataFrame]] from [[Seq]]
@@ -463,28 +466,30 @@ object SeccoDataFrame {
     * @param seq           the [[Seq]] that stores the data
     * @param schema schema of this [[SeccoDataFrame]]
     * @param attributeName attribute names of this [[SeccoDataFrame]]
-    * @param dlSession            the [[SeccoSession]] to create the dataset
+    * @param seccoSession            the [[SeccoSession]] to create the dataset
     * @return an instance of [[SeccoDataFrame]]
     */
   def fromSeq(
       seq: Seq[InternalRow],
       schema: StructType,
-      dlSession: SeccoSession = SeccoSession.currentSession
+      seccoSession: SeccoSession = SeccoSession.currentSession,
+      primaryKeyNames: Seq[String] = Seq()
   ): SeccoDataFrame = {
-    SeccoDataFrame(dlSession, LocalRows(seq, schema))
+    SeccoDataFrame(seccoSession, LocalRows(seq, schema, primaryKeyNames))
   }
 
   /** Create an instance of empty [[SeccoDataFrame]]
     *
     * @param schema schema of this [[SeccoDataFrame]]
     * @param attributeName attribute names of this [[SeccoDataFrame]]
-    * @param dlSession           the [[SeccoSession]] to create the dataset
+    * @param seccoSession           the [[SeccoSession]] to create the dataset
     * @return an instance of empty [[SeccoDataFrame]]
     */
   def empty(
       schema: StructType,
-      dlSession: SeccoSession = SeccoSession.currentSession
+      seccoSession: SeccoSession = SeccoSession.currentSession,
+      primaryKeyNames: Seq[String] = Seq()
   ): SeccoDataFrame = {
-    fromSeq(Seq(), schema, dlSession)
+    fromSeq(Seq(), schema, seccoSession, primaryKeyNames)
   }
 }
