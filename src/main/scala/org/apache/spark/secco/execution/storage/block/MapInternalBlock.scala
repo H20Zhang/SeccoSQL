@@ -5,6 +5,7 @@ import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, Interna
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.codegen.GenerateUnsafeProjection
 import org.apache.spark.secco.types.StructType
+import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.immutable.HashMap
 import scala.collection.mutable.ArrayBuffer
@@ -112,8 +113,9 @@ class HashMapInternalBlock(private val hashMap: HashMap[InternalRow, Array[Inter
     throw new Exception("No dictionaryOrder in HashMapInternalBlock")
 }
 
-object HashMapInternalBlock {
+object HashMapInternalBlock extends LogAble {
   def apply(table: Array[InternalRow], schema: Array[Attribute], keySchema: Array[Attribute]): HashMapInternalBlock = {
+    logInfo(s"keySchema: ${keySchema.mkString("Array(", ", ", ")")}")
     if(table.isEmpty){
       new HashMapInternalBlock(HashMap[InternalRow, Array[InternalRow]](), schema, keySchema)
     }
@@ -128,6 +130,7 @@ object HashMapInternalBlock {
     }
     val itemSeq = mutableHashMap.toSeq.map{case(key, arrayBuffer) => (key, arrayBuffer.toArray)}
     val immutableHashMap = HashMap[InternalRow, Array[InternalRow]](itemSeq:_*)
+    logInfo(s"immutableHashMap: $immutableHashMap")
     new HashMapInternalBlock(immutableHashMap, schema, keySchema)
   }
 

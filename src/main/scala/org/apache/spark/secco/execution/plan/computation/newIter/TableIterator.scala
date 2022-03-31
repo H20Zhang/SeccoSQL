@@ -63,7 +63,7 @@ case class IndexableTableIterator(
   override def getOneRow(key: InternalRow): Option[InternalRow] = {
     if(setKey(key))
       block match {
-        case mapBlock: MapLike => Some(mapBlock.get(key))
+        case mapBlock: MapLike => if(mapBlock.get(key).nonEmpty) Some(mapBlock.get(key)(0)) else None
         case trieBlock: TrieLike => Some(trieBlock.getRows(key).head)
 //        case setBlock: SetLike => _ //lgh: TODO:
         case _ => throw new NotImplementedException()  //lgh TODO: may consider other types of exception
@@ -75,7 +75,16 @@ case class IndexableTableIterator(
   override def unsafeGetOneRow(key: InternalRow): InternalRow = {
     if(setKey(key))
       block match {
-        case mapBlock: MapLike => mapBlock.get(key)
+        case mapBlock: MapLike => {
+          val rowArray = mapBlock.get(key)
+          if (rowArray.nonEmpty){
+            rowArray(0)
+          }
+          else
+          {
+            null
+          }
+        }
         case trieBlock: TrieLike => trieBlock.getRows(key).head
 //        case setBlock: SetLike => _ //lgh: TODO:
         case _ => throw new NotImplementedException()  //lgh TODO: may consider other types of exception

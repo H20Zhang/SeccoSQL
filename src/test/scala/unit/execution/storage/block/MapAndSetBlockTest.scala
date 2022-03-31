@@ -68,14 +68,14 @@ class MapAndSetBlockTest extends FunSuite with BeforeAndAfter {
     unsafeInternalRow.setDouble(5, 3.3)
     unsafeInternalRow.setString(6, "variableLength")
 
-    // build UnsafeInternalBlock and GenericInternalBlock based on the two
-    val mapBlockBuilder = new HashMapInternalBlockBuilder(schema)
-    mapBlockBuilder.add(genericInternalRow)
-    mapBlockBuilder.add(genericInternalRow2)
-    mapBlockBuilder.add(genericInternalRow3)
-    mapBlockBuilder.add(genericInternalRow4)
-    mapBlockBuilder.add(unsafeInternalRow)
-    testMapBlock = mapBlockBuilder.build()
+//    // build UnsafeInternalBlock and GenericInternalBlock based on the two
+//    val mapBlockBuilder = new HashMapInternalBlockBuilder(schema)
+//    mapBlockBuilder.add(genericInternalRow)
+//    mapBlockBuilder.add(genericInternalRow2)
+//    mapBlockBuilder.add(genericInternalRow3)
+//    mapBlockBuilder.add(genericInternalRow4)
+//    mapBlockBuilder.add(unsafeInternalRow)
+//    testMapBlock = mapBlockBuilder.build()
 
     val setBlockBuilder = new HashSetInternalBlockBuilder(schema)
     setBlockBuilder.add(genericInternalRow)

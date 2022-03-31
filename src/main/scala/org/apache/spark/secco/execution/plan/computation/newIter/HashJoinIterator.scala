@@ -1,9 +1,10 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.block.InternalBlock
 import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
-import org.apache.spark.secco.expression.codegen.{GeneratePredicate, GenerateSafeProjection, GenerateUnsafeInternalRowJoiner}
+import org.apache.spark.secco.expression.codegen.{GeneratePredicate, GenerateSafeProjection, GenerateUnsafeInternalRowJoiner, GenerateUnsafeProjection}
 import org.apache.spark.secco.expression.{Attribute, Expression, JoinedRow}
 import org.apache.spark.secco.types.StructType
+import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -20,41 +21,41 @@ sealed abstract class BaseHashJoinIterator extends SeccoIterator {
   */
 case class HashJoinIterator(
     left: SeccoIterator,
-//    right: BaseBuildIndexIterator,
-    right: IndexableHashMapTableIterator,
+    right: BuildHashMap,
     leftKeys: Seq[Expression],
-//    rightKeys: Seq[Expression],
     joinCondition: Expression
-) extends SeccoIterator {
+) extends SeccoIterator with LogAble {
 
   private var curLeftRow: InternalRow = _
+  private var curRightIter: Iterator[InternalRow] = _
   private var row: InternalRow = _
   private var hasNextCacheValid = true
   private var hasNextCache: Boolean = false
-  private val joiner = GenerateUnsafeInternalRowJoiner.generate(
+  private lazy val joiner = GenerateUnsafeInternalRowJoiner.generate(
     (StructType.fromAttributes(left.localAttributeOrder()),
-      StructType.fromAttributes(right.localAttributeOrder)
+      StructType.fromAttributes(right.localAttributeOrder())
   ))
-//  private val joiner = new JoinedRow
+  private lazy val pseudoJoinRow = new JoinedRow()
 
-  private val conditionFunc = GeneratePredicate.generate(joinCondition, localAttributeOrder())
+  private lazy val conditionFunc = GeneratePredicate.generate(joinCondition, localAttributeOrder())
 
-  private val getLeftKey = GenerateSafeProjection.generate(leftKeys, left.localAttributeOrder())
+//  private lazy val getLeftKey = GenerateSafeProjection.generate(leftKeys, left.localAttributeOrder())
+  private lazy val getLeftKey = GenerateUnsafeProjection.generate(leftKeys, left.localAttributeOrder())
 
-//  private val rightIter = right.toIndexIterator()
-  private val rightIter = right
+  private lazy val hashMapBlock = right.results()
 
   private def tryGetNextWithCurLeftRow(): Boolean = {
-    while (!hasNextCache && rightIter.hasNext) {
-      val tempRow = joiner.join(curLeftRow.asInstanceOf[UnsafeInternalRow],
-        rightIter.next().asInstanceOf[UnsafeInternalRow]).copy()
-      println(s"in tryGetNextWithCurLeftRow(): tempRow=$tempRow")
+    while (!hasNextCache && curRightIter.hasNext) {
+      val curRightRow = curRightIter.next()
+      val tempRow = pseudoJoinRow(curLeftRow, curRightRow)
+      logTrace(s"in tryGetNextWithCurLeftRow(): tempRow=$tempRow")
       if (conditionFunc.eval(tempRow)) {
         hasNextCache = true
-        row = tempRow
-        println(s"in tryGetNextWithCurLeftRow(): conditionFunc.eval(tempRow)=true, joinCondition=$joinCondition")
+        row = joiner.join(curLeftRow.asInstanceOf[UnsafeInternalRow],
+          curRightRow.asInstanceOf[UnsafeInternalRow]).copy()
+        logTrace(s"in tryGetNextWithCurLeftRow(): conditionFunc.eval(tempRow)=true, joinCondition=$joinCondition")
       } else
-        println(s"in tryGetNextWithCurLeftRow(): conditionFunc.eval(tempRow)=false, joinCondition=$joinCondition")
+        logTrace(s"in tryGetNextWithCurLeftRow(): conditionFunc.eval(tempRow)=false, joinCondition=$joinCondition")
 
     }
     hasNextCache
@@ -64,25 +65,25 @@ case class HashJoinIterator(
     while(!hasNextCache && left.hasNext) {
       curLeftRow = left.next()
       val key = getLeftKey(curLeftRow)
-      if (rightIter.setKey(key)) {
-        println(s"in tryGetNextWithNewLeftRow(): rightIter.setKey(key)=true, key=$key ")
+      if (hashMapBlock.contains(key)) {
+        logTrace(s"in tryGetNextWithNewLeftRow(): right.contains(key)=true, key=$key ")
+        curRightIter = hashMapBlock.get(key).toIterator
         tryGetNextWithCurLeftRow()
       }
       else
-        println(s"in tryGetNextWithNewLeftRow(): rightIter.setKey(key)=false, key=$key ")
+        logTrace(s"in tryGetNextWithNewLeftRow(): right.contains(key)=false, key=$key ")
     }
     hasNextCache
   }
 
-  private val initiallyHasNext: Boolean = tryGetNextWithNewLeftRow()
+  private lazy val initiallyHasNext: Boolean = tryGetNextWithNewLeftRow()
 
   if(!initiallyHasNext)
-    println(s"in HashJoinIterator: initiallyHasNext=$initiallyHasNext")
+    logTrace(s"in HashJoinIterator: initiallyHasNext=$initiallyHasNext")
 
   override def localAttributeOrder(): Array[Attribute] =
     left.localAttributeOrder() ++ right.localAttributeOrder
 
-  //lgh TODO: check whether the following is correct
   override def isSorted(): Boolean = left.isSorted() && right.isSorted
 
   override def isBreakPoint(): Boolean = false
@@ -90,16 +91,13 @@ case class HashJoinIterator(
   override def results(): InternalBlock = {
     val rowArrayBuffer = ArrayBuffer[InternalRow]()
     val leftRowArray = left.results().toArray()
-//    val rightIndexIter = right.toIndexIterator()
-    val rightIndexIter = right
-//    val rightIndexIter = right.toIndexIterator().clone().asInstanceOf[SeccoIterator with IndexableSeccoIterator]di
     for(curLeftResultsRow <- leftRowArray) {
       val key = getLeftKey(curLeftResultsRow)
-      if (rightIndexIter.setKey(key)) {
-        while (rightIndexIter.hasNext) {
-          val tempRow = joiner.join(curLeftResultsRow.asInstanceOf[UnsafeInternalRow],
-            rightIndexIter.next().asInstanceOf[UnsafeInternalRow]).copy()
-          if (conditionFunc.eval(tempRow)) rowArrayBuffer.append(tempRow)
+      if (hashMapBlock.contains(key)) {
+        val curRightIter = hashMapBlock.get(key).toIterator
+        while (curRightIter.hasNext) {
+          val tempRow = pseudoJoinRow(curLeftResultsRow, curRightIter.next())
+          if (conditionFunc.eval(tempRow)) rowArrayBuffer.append(tempRow.copy())
         }
       }
     }
@@ -123,7 +121,7 @@ case class HashJoinIterator(
     else
     {
       hasNextCacheValid = false
-      UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder()), row)
+      row
     }
   }
 }
