@@ -7,6 +7,7 @@ import org.apache.spark.secco.expression.aggregate._
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.expression.codegen.{BaseProjectionFunc, GenerateMutableProjection, GenerateSafeProjection, MutableProjection, Projection}
 import org.apache.spark.secco.types.{AnyDataType, StructType}
+import org.apache.spark.secco.util.misc.LogAble
 import org.spark_project.dmg.pmml.True
 
 import java.util
@@ -28,10 +29,8 @@ case class AggregateIterator(
                               childIter: SeccoIterator,
                               groupingExpressions: Array[NamedExpression],
                               rawAggregateFunctions: Array[AggregateFunction]
-//                              aggregateAttributes:Array[Attribute]
 //                              resultExpressions: Array[NamedExpression]
-                              //    aggregateExpressions: Array[NamedExpression]
-) extends SeccoIterator {
+) extends SeccoIterator with LogAble {
 
   val initialInputBufferOffset = 0
 
@@ -55,7 +54,7 @@ case class AggregateIterator(
       // no-op expressions which are ignored during projection code-generation.
       case i: ImperativeAggregate => Seq.fill(i.aggBufferAttributes.length)(NoOp)
     }
-    println(s"in val expressionAggInitialProjection")
+    logTrace(s"in val expressionAggInitialProjection")
     GenerateMutableProjection.generate(initExpressions, Nil)
   }
 
