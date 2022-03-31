@@ -48,7 +48,7 @@ case class LeapFrogJoinIterator(
     val builder = new TrieInternalBlockBuilder(rowSchema)
     val iterInner = producer.getIterator(tries)
     while(iterInner.hasNext){
-      builder.add(iterInner.next().copy())
+      builder.add(resultProject(iterInner.next()).copy())
     }
     builder.build()
   }
