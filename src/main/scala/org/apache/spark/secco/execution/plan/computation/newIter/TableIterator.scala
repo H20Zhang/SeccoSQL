@@ -1,7 +1,7 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.commons.lang.NotImplementedException
 import org.apache.spark.secco.execution.storage.block.{IndexLike, InternalBlock, MapLike, SetLike, TrieLike}
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
 
@@ -34,7 +34,8 @@ case class TableIterator(
 
   override def hasNext: Boolean = blockIter.hasNext
 
-  override def next(): InternalRow = blockIter.next()
+  override def next(): InternalRow =
+    UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder), blockIter.next())
 
   override def children: Seq[SeccoIterator] = Seq()
 }
@@ -48,6 +49,8 @@ case class IndexableTableIterator(
 ) extends BaseTableIterator
     with IndexableSeccoIterator {
 
+  private val blockIter = block.iterator
+
   override def setKey(key: InternalRow): Boolean = {
     block match {
       case mapBlock: MapLike => mapBlock.contains(key)
@@ -60,7 +63,7 @@ case class IndexableTableIterator(
   override def getOneRow(key: InternalRow): Option[InternalRow] = {
     if(setKey(key))
       block match {
-        case mapBlock: MapLike => Some(mapBlock.get(key))
+        case mapBlock: MapLike => if(mapBlock.get(key).nonEmpty) Some(mapBlock.get(key)(0)) else None
         case trieBlock: TrieLike => Some(trieBlock.getRows(key).head)
 //        case setBlock: SetLike => _ //lgh: TODO:
         case _ => throw new NotImplementedException()  //lgh TODO: may consider other types of exception
@@ -72,7 +75,16 @@ case class IndexableTableIterator(
   override def unsafeGetOneRow(key: InternalRow): InternalRow = {
     if(setKey(key))
       block match {
-        case mapBlock: MapLike => mapBlock.get(key)
+        case mapBlock: MapLike => {
+          val rowArray = mapBlock.get(key)
+          if (rowArray.nonEmpty){
+            rowArray(0)
+          }
+          else
+          {
+            null
+          }
+        }
         case trieBlock: TrieLike => trieBlock.getRows(key).head
 //        case setBlock: SetLike => _ //lgh: TODO:
         case _ => throw new NotImplementedException()  //lgh TODO: may consider other types of exception
@@ -85,9 +97,9 @@ case class IndexableTableIterator(
 
   override def results(): InternalBlock = block
 
-  override def hasNext: Boolean = block.iterator.hasNext
+  override def hasNext: Boolean = blockIter.hasNext
 
-  override def next(): InternalRow = block.iterator.next()
+  override def next(): InternalRow = blockIter.next()
 
   override def children: Seq[SeccoIterator] = Seq()
 }

@@ -42,6 +42,7 @@ out
 .metadata
 .idea
 *.iml
+*.DS_Store
 
 # ignore log files
 *.log

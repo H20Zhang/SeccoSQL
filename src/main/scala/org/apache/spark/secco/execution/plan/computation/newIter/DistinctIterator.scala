@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock, UnsafeInternalBlock}
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.execution.storage.Utils.InternalRowComparator
 import org.apache.spark.secco.types.StructType
@@ -86,7 +86,7 @@ case class DistinctIterator(childIter: SeccoIterator)
     else
     {
       hasNextCacheValid = false
-      rowCache
+      UnsafeInternalRow.fromInternalRow(schema, rowCache)
     }
   }
 }

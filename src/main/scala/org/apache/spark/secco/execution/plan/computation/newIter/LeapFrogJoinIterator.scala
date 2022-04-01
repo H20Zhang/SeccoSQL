@@ -1,18 +1,24 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
 import org.apache.spark.secco.execution.storage.block.{
+  ArrayTrieInternalBlock,
   InternalBlock,
   InternalBlockBuilder,
   TrieInternalBlock,
   TrieInternalBlockBuilder
 }
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{
+  InternalRow,
+  UnsafeInternalRow
+}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.expression.codegen.{
   BaseUnaryIteratorProducer,
   GenerateLeapFrogJoinIterator,
-  GenerateUnaryIterator
+  GenerateUnaryIterator,
+  GenerateUnsafeProjection
 }
+import org.apache.spark.secco.optimization.util.AttributeOrder
 import org.apache.spark.secco.types.StructType
 
 /** The base class for performing leapfrog join via iterator */
@@ -23,37 +29,36 @@ sealed abstract class BaseLeapFrogJoinIterator extends SeccoIterator {
 }
 
 /** The iterator that performs leapfrog join
-  * @param children the children which is IndexableTableIterator with TrieInternalRow as block
-  * @param localAttributeOrder the attribute order to perform leapfrog join
+  * @param children the children which are instances of BuildTrie
+  * @param attrOrder the attribute order to perform leapfrog join
   *
-  * Note: the output of leapfrog join is always sorted w.r.t localAttributeOrder.
+  * Note: the output of leapfrog join is always sorted w.r.t attrOrder.
   */
 case class LeapFrogJoinIterator(
+    //      children: Seq[IndexableTableIterator],
     children: Seq[SeccoIterator],
-    localAttributeOrder: Array[Attribute]
-//      children: Seq[IndexableTableIterator],
+    attrOrder: AttributeOrder
 ) extends BaseLeapFrogJoinIterator {
 
-  private val childrenTries = getChildrenTries
-
-  private def getChildrenTries: Array[TrieInternalBlock] = {
-    children.map { child =>
-      TrieInternalBlock(
-        child.results().toArray(),
-        StructType.fromAttributes(child.localAttributeOrder())
-      )
+  override lazy val tries: Array[TrieInternalBlock] =
+    children.map {
+      _.asInstanceOf[BuildTrie].results().asInstanceOf[TrieInternalBlock]
     }.toArray
-  }
 
-  private val rowSchema = StructType.fromAttributes(localAttributeOrder)
+  private val rowSchema = StructType.fromAttributes(attrOrder.order)
   private val childrenSchemas = children.map(_.localAttributeOrder().toSeq)
 
-  private val producer = GenerateLeapFrogJoinIterator.generate(
-    (localAttributeOrder, childrenSchemas)
-  )
-  private val iterator = producer.getIterator(childrenTries)
+  private lazy val producer =
+    GenerateLeapFrogJoinIterator.generate((attrOrder, childrenSchemas))
+  private lazy val iterator = producer.getIterator(tries)
 
-  override def tries: Array[TrieInternalBlock] = childrenTries
+  private lazy val resultProject =
+    GenerateUnsafeProjection.generate(
+      attrOrder.order.map { attr =>
+        attrOrder.equiAttrs.attr2RepAttr(attr)
+      },
+      attrOrder.repAttrOrder.order
+    )
 
   override def isSorted(): Boolean = true
 
@@ -61,17 +66,18 @@ case class LeapFrogJoinIterator(
 
   override def results(): InternalBlock = {
     val builder = new TrieInternalBlockBuilder(rowSchema)
-    val childrenTriesInner = getChildrenTries
-    val iterInner = producer.getIterator(childrenTriesInner)
+    val iterInner = producer.getIterator(tries)
     while (iterInner.hasNext) {
-      builder.add(iterInner.next().copy())
+      builder.add(resultProject(iterInner.next()).copy())
     }
     builder.build()
   }
 
   override def hasNext: Boolean = iterator.hasNext
 
-  override def next(): InternalRow = iterator.next()
+  override def next(): InternalRow = resultProject(iterator.next()).copy()
+
+  override def localAttributeOrder(): Array[Attribute] = attrOrder.order
 }
 
 /** The iterator that performs leapfrog join with index-like operations

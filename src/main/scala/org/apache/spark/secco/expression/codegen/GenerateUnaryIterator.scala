@@ -21,6 +21,7 @@ import org.apache.spark.secco.codegen.{CodeAndComment, CodeGenerator, CodegenCon
 import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.optimization.util.AttributeOrder
 import org.apache.spark.secco.types.DataType
 
 abstract class BaseUnaryIteratorProducer {
@@ -31,18 +32,20 @@ abstract class BaseUnaryIteratorProducer {
 /**
   * A code generator for building a LeapFrogUnaryIterator.
   */
-object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attribute]]), BaseUnaryIteratorProducer]
+object GenerateUnaryIterator extends CodeGenerator[(AttributeOrder, Int, Seq[Seq[Attribute]]), BaseUnaryIteratorProducer]
 {
 
-  override protected def create(in: (Seq[Attribute], Seq[Seq[Attribute]])): BaseUnaryIteratorProducer = {
-    create(in._1, in._2)
+  override protected def create(in: (AttributeOrder, Int, Seq[Seq[Attribute]])): BaseUnaryIteratorProducer = {
+    create(in._1, in._2, in._3)
   }
 
-  override protected def canonicalize(in: (Seq[Attribute], Seq[Seq[Attribute]])): (Seq[Attribute], Seq[Seq[Attribute]])
-  = in
+  override protected def canonicalize(in: (AttributeOrder, Int, Seq[Seq[Attribute]])):
+  (AttributeOrder, Int, Seq[Seq[Attribute]]) = {
+    in
+  }
 
-  override protected def bind(in: (Seq[Attribute], Seq[Seq[Attribute]]), inputSchema: Seq[Attribute])
-  : (Seq[Attribute], Seq[Seq[Attribute]]) = {
+  override protected def bind(in: (AttributeOrder, Int, Seq[Seq[Attribute]]), inputSchema: Seq[Attribute])
+  : (AttributeOrder, Int, Seq[Seq[Attribute]]) = {
     in
   }
 
@@ -184,18 +187,20 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
   }
 
   def getUnaryIteratorProducerCode(ctx: CodegenContext,
-                                   prefixAndCurAttributes: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]],
+                                   attrOrder: AttributeOrder,
+                                   curLevel: Int, childrenSchemas: Seq[Seq[Attribute]],
                                    unaryIteratorClassName: String): (String, String) = {
     val className = ctx.freshName("SpecificUnaryIteratorProducer")
 
+    val repAttrs = attrOrder.repAttrOrder.order
+
     val relevantRelationIndicesForEachAttr: Seq[Seq[Int]] =
-    prefixAndCurAttributes.indices.map { attrIdx =>
-      val curAttr = prefixAndCurAttributes(attrIdx)
-      childrenSchemas.indices.filter { childIdx =>
-        val idx = childrenSchemas(childIdx).map(_.name).indexOf(curAttr.name)
-        idx > -1 && childrenSchemas(childIdx)(idx).dataType == curAttr.dataType
+      repAttrs.map { curAttr =>
+        childrenSchemas.indices.filter { childIdx =>
+          attrOrder.equiAttrs.repAttr2Attr(curAttr).exists{i =>
+            childrenSchemas(childIdx).contains(i)}
+        }
       }
-    }
 
     def getPrefixIndices(attrIdx: Int, childIdx: Int): Seq[Int] =
       relevantRelationIndicesForEachAttr.slice(0, attrIdx).zipWithIndex.filter {
@@ -208,21 +213,14 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
     // 3. relevant relations for cur level
     // 4. relevant prefix attributes for each relevant relation
 
-    val prefixLength = prefixAndCurAttributes.size - 1
-    val curLevel = prefixLength
+    val prefixLength = curLevel
 
-
-    //    |    final DataType[] dataTypes = {${schema.slice(0, prefixLength).map (attr => {
-    //                                     val boxedType = CodeGenerator.boxedType(attr.dataType)
-    //                                     "DataTypes." + boxedType.substring(boxedType.lastIndexOf(".") + 1) + "Type"
-    //                                     }).mkString(", ")}};
-
-    val dt = prefixAndCurAttributes(curLevel).dataType
+    val dt = repAttrs(curLevel).dataType
     val jt = CodeGenerator.javaType(dt)
     val fullPt = CodeGenerator.primitiveTypeName(dt)
     val pt = fullPt.substring(fullPt.lastIndexOf(".") + 1)
 
-    val prefixSchema = prefixAndCurAttributes.slice(0, prefixLength)
+    val prefixSchema = repAttrs.slice(0, prefixLength)
     val curRelevantRelationIndices = relevantRelationIndicesForEachAttr(curLevel)
     val numRelevantRelations = curRelevantRelationIndices.length
     val prefixIndicesForEachChild = curRelevantRelationIndices.map(getPrefixIndices(curLevel, _))
@@ -264,13 +262,14 @@ object GenerateUnaryIterator extends CodeGenerator[(Seq[Attribute], Seq[Seq[Attr
   }
 
 
-  def create(schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]]): BaseUnaryIteratorProducer = {
+  def create(attrOrder: AttributeOrder, curLevel: Int, childrenSchemas: Seq[Seq[Attribute]]):
+  BaseUnaryIteratorProducer = {
     val ctx = new CodegenContext
 
-    val dt = schema.last.dataType
+    val dt = attrOrder.repAttrOrder.order(curLevel).dataType
     val (unaryIteratorClassName: String, unaryIteratorClassDefinition: String) = getUnaryIteratorCode(ctx, dt)
     val (specificProducerClassName: String, specificProducerDefinition: String) = getUnaryIteratorProducerCode(ctx,
-                                                                  schema, childrenSchemas, unaryIteratorClassName)
+      attrOrder, curLevel, childrenSchemas, unaryIteratorClassName)
 
     val codeBody =
       s"""

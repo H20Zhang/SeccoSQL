@@ -4,24 +4,30 @@ import org.apache.spark.secco.execution.plan.computation.newIter._
 import org.apache.spark.secco.execution.storage.block._
 import org.apache.spark.secco.execution.storage.row._
 import org.apache.spark.secco.expression._
+import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.optimization.util.{AttributeOrder, EquiAttributes}
 import org.apache.spark.secco.types._
+import org.apache.spark.secco.util.misc.LogAble
 import org.scalatest.{BeforeAndAfter, FunSuite}
 
-class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
+import scala.collection.mutable.ArrayBuffer
 
-  var schema: Seq[Attribute] = _
+class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter with LogAble {
+
+  var count = 0
+  var attrOrder: AttributeOrder = _
+//  var schema: Seq[Attribute] = _
   var childrenSchemas: Seq[Seq[Attribute]] = _
   var blocks: Array[InternalBlock] = _
-  var tableIters: Array[TableIterator] = _
-  //  var tableIter: TableIterator = _
+  var buildTrieIters: Array[BuildTrie] = _
 
   before {
     val names = Seq("name", "id", "price", "gender", "weight")
     val types = Seq(StringType, IntegerType, DoubleType, BooleanType, FloatType)
 
-    schema = names.zip(types).map {
-      case (name, dataType) => AttributeReference(name, dataType)().asInstanceOf[Attribute]
-    }
+//    schema = names.zip(types).map {
+//      case (name, dataType) => AttributeReference(name, dataType)().asInstanceOf[Attribute]
+//    }
 
     val childrenSchemaIndices: Seq[Seq[Int]] = Seq(
       Seq(0, 1, 2, 3, 4),
@@ -33,9 +39,37 @@ class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
       Seq(2, 3)
     )
 
+    def getCount = {
+      count += 1
+      count
+    }
+
     childrenSchemas = childrenSchemaIndices.map(_.map {
-      idx => schema(idx)
+      idx => AttributeReference(s"${names(idx)}_${getCount}", types(idx))().asInstanceOf[Attribute]
     })
+
+    val mapItem = childrenSchemaIndices.zipWithIndex.flatMap{
+      case(seq, 0) => seq.map{idx => (childrenSchemas.head(idx), childrenSchemas.head(idx))}
+      case(seq, seqIdx) => seq.zipWithIndex.map {
+        case(seqElem, seqElemIdx) => (childrenSchemas(seqIdx)(seqElemIdx) , childrenSchemas.head(seqElem))
+      }
+    }
+    logInfo(s"mapItem: $mapItem")
+    val attributeMap = AttributeMap(mapItem)
+
+    val equiAttributes = new EquiAttributes(attributeMap)
+    val arrayBuffer = ArrayBuffer[Attribute]()
+    for (attrIdx <- childrenSchemaIndices.head){
+      arrayBuffer.append(childrenSchemas.head(attrIdx))
+      for (i <- 1 until childrenSchemaIndices.length){
+        val index = childrenSchemaIndices(i).indexOf(attrIdx)
+        if (index > -1){
+          arrayBuffer.append(childrenSchemas(i)(index))
+        }
+      }
+    }
+    val orderArray = arrayBuffer.toArray
+    attrOrder = AttributeOrder(equiAttributes, orderArray)
 
     val childrenStructTypes: Seq[StructType] = childrenSchemas.map {
       attrSeq =>
@@ -107,10 +141,13 @@ class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
     ), childrenStructTypes(6))
 
     blocks = Array(child0, child1, child2, child3, child4, child5, child6)
-    tableIters = blocks.zipWithIndex.flatMap {
+    buildTrieIters = blocks.zipWithIndex.flatMap {
 //      case (block, 0) => None
       case (block, 3) => None
-      case (block, idx) => Seq(TableIterator(block, childrenSchemas(idx).toArray, isSorted = false))
+      case (block, idx) => {
+        val tableIter = TableIterator(block, childrenSchemas(idx).toArray, isSorted = false)
+        Seq(BuildTrie(tableIter, tableIter.localAttributeOrder))
+      }
     }
 
     //    val prefixLength = 4 // prefixLength [0, 5)
@@ -120,7 +157,7 @@ class LeapFrogJoinIteratorSuite extends FunSuite with BeforeAndAfter {
 
   test("basic_functions"){
 
-    val leapFrogJoinIter  = LeapFrogJoinIterator(tableIters, schema.toArray)
+    val leapFrogJoinIter  = LeapFrogJoinIterator(buildTrieIters, attrOrder)
     var count = 0
     while (leapFrogJoinIter.hasNext){
       println(s"$count - leapFrogIter.next(): " + leapFrogJoinIter.next())

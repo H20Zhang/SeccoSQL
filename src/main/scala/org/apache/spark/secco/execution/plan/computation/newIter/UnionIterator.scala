@@ -1,8 +1,9 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 import org.apache.spark.secco.execution.storage.block.InternalBlock
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.{Ascending, Attribute, AttributeReference, BaseOrdering, BoundReference, SortOrder}
 import org.apache.spark.secco.expression.codegen.GenerateOrdering
+import org.apache.spark.secco.types.StructType
 
 /** The base class for performing union via iterator. */
 sealed abstract class BaseUnionIterator extends SeccoIterator {}
@@ -76,17 +77,18 @@ case class UnionIterator(left: SeccoIterator, right: SeccoIterator)
   override def next(): InternalRow = {
     if(!hasNext) throw new NoSuchElementException("next on empty iterator")
     if (!isSorted()) {if (left.hasNext) left.next() else right.next()} else{
-//    val outRow =
-    if (nextIsLeft) {
-      leftRowCacheValid = false
-//        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
-      leftRowCache
-    }
-    else{
-      rightRowCacheValid = false
-//        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
-      rightRowCache
-    }
+    val outRow =
+      if (nextIsLeft) {
+        leftRowCacheValid = false
+  //        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
+        leftRowCache
+      }
+      else{
+        rightRowCacheValid = false
+  //        if(left.hasNext) {leftRowCache = left.next(); leftRowCacheValid = true}
+        rightRowCache
+      }
+    UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder()), outRow)
 //    nextIsLeft =
 //    if(!leftRowCacheValid || rightRowCacheValid && comparator.compare(leftRowCache, rightRowCache) > 0) false else true
 //    outRow

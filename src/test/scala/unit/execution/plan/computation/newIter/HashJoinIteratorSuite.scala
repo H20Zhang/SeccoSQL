@@ -20,7 +20,8 @@ class HashJoinIteratorSuite extends FunSuite with BeforeAndAfter{
   var childrenSchemas_right: Seq[Seq[Attribute]] = _
   var blocks_left: Array[InternalBlock] = Array[InternalBlock]()
   var blocks_right: Array[InternalBlock] = Array[InternalBlock]()
-  var rightIndexableIters: Array[IndexableHashMapTableIterator] = Array[IndexableHashMapTableIterator]()
+//  var rightIndexableIters: Array[IndexableHashMapTableIterator] = Array[IndexableHashMapTableIterator]()
+  var rightBuildHashMapIters: Array[BuildHashMap] = Array[BuildHashMap]()
   var conditions: Array[Expression] = Array[Expression]()
   var keysArray: Array[Array[Attribute]] = Array[Array[Attribute]]()
 
@@ -73,10 +74,14 @@ class HashJoinIteratorSuite extends FunSuite with BeforeAndAfter{
     val condition0 = And(condition0_0, condition0_1)
     conditions = conditions :+ condition0
 
-    val indexableIter0: IndexableHashMapTableIterator =
-      getIndexableSeccoIterator(rightChild0, condition0, childrenSchemas_right.head)
-    rightIndexableIters = rightIndexableIters :+ indexableIter0
-
+//    val indexableIter0: IndexableHashMapTableIterator =
+//      getIndexableSeccoIterator(rightChild0, condition0, childrenSchemas_right.head)
+//    rightBuildHashMapIters = rightBuildHashMapIters :+ indexableIter0
+    keysArray = keysArray :+ condition0.children.map(_.children(0).asInstanceOf[Attribute]).toArray
+    val rightTableIter0 = TableIterator(rightChild0, childrenSchemas_right.head.toArray, isSorted = false)
+    val rightBuildHashMapIter0: BuildHashMap =
+      BuildHashMap(rightTableIter0, condition0.children.map(exprs => exprs.children(1).asInstanceOf[Attribute]).toArray)
+    rightBuildHashMapIters = rightBuildHashMapIters :+ rightBuildHashMapIter0
 
 
 
@@ -104,10 +109,14 @@ class HashJoinIteratorSuite extends FunSuite with BeforeAndAfter{
     val condition1 = And(condition1_0, condition1_1)
     conditions = conditions :+ condition1
 
-    val indexableIter1: IndexableHashMapTableIterator =
-      getIndexableSeccoIterator(rightChild1, condition1, childrenSchemas_right(1))
-    rightIndexableIters = rightIndexableIters :+ indexableIter1
-
+//    val indexableIter1: IndexableHashMapTableIterator =
+//      getIndexableSeccoIterator(rightChild1, condition1, childrenSchemas_right(1))
+//    rightIndexableIters = rightIndexableIters :+ indexableIter1
+    keysArray = keysArray :+ condition1.children.map(_.children(0).asInstanceOf[Attribute]).toArray
+    val rightTableIter1 = TableIterator(rightChild1, childrenSchemas_right(1).toArray, isSorted = false)
+    val rightBuildHashMapIter1: BuildHashMap =
+      BuildHashMap(rightTableIter1, condition1.children.map(exprs => exprs.children(1).asInstanceOf[Attribute]).toArray)
+    rightBuildHashMapIters = rightBuildHashMapIters :+ rightBuildHashMapIter1
 
 
 
@@ -136,37 +145,42 @@ class HashJoinIteratorSuite extends FunSuite with BeforeAndAfter{
     val condition2 = Alias(condition2_0, "wrapper")()
     conditions = conditions :+ condition2
 
-    val indexableIter2: IndexableHashMapTableIterator =
-      getIndexableSeccoIterator(rightChild2, condition2, childrenSchemas_right(2))
-    rightIndexableIters = rightIndexableIters :+ indexableIter2
+//    val indexableIter2: IndexableHashMapTableIterator =
+//      getIndexableSeccoIterator(rightChild2, condition2, childrenSchemas_right(2))
+//    rightIndexableIters = rightIndexableIters :+ indexableIter2
+    keysArray = keysArray :+ condition2.children.map(_.children(0).asInstanceOf[Attribute]).toArray
+    val rightTableIter2 = TableIterator(rightChild2, childrenSchemas_right(2).toArray, isSorted = false)
+    val rightBuildHashMapIter2: BuildHashMap =
+      BuildHashMap(rightTableIter2, condition2.children.map(exprs => exprs.children(1).asInstanceOf[Attribute]).toArray)
+    rightBuildHashMapIters = rightBuildHashMapIters :+ rightBuildHashMapIter2
 
   }
 
-  private def getIndexableSeccoIterator(block: InternalBlock, condition: Expression, attributes_right: Seq[Attribute]) = {
-    val leftKeys = condition.children.map(expr => expr.children.head)
-    val rightKeys = condition.children.map(exprs => exprs.children(1))
-    val hashMap: mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]] = getRowHashMap(block, rightKeys, attributes_right)
-    val indexableIter = IndexableHashMapTableIterator(hashMap, attributes_right.toArray)
-    keysArray = keysArray :+ leftKeys.map(_.asInstanceOf[Attribute]).toArray
-    indexableIter
-  }
-
-  private def getRowHashMap(block: InternalBlock,
-                            keys: Seq[Expression],
-                            attributes: Seq[Attribute]): mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]] = {
-    val hashMap = new mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]]
-    val projectFunc0 = GenerateSafeProjection.generate(keys,
-      attributes)
-    for (row <- block.toArray()) {
-      val key = projectFunc0(row)
-      if (hashMap.contains(key))
-        hashMap(key).append(row.copy())
-      else
-        hashMap.put(key.copy(), ArrayBuffer[InternalRow](row.copy()))
-    }
-    println(s"hashMap: $hashMap")
-    hashMap
-  }
+//  private def getIndexableSeccoIterator(block: InternalBlock, condition: Expression, attributes_right: Seq[Attribute]) = {
+//    val leftKeys = condition.children.map(expr => expr.children.head)
+//    val rightKeys = condition.children.map(exprs => exprs.children(1))
+//    val hashMap: mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]] = getRowHashMap(block, rightKeys, attributes_right)
+//    val indexableIter = IndexableHashMapTableIterator(hashMap, attributes_right.toArray)
+//    keysArray = keysArray :+ leftKeys.map(_.asInstanceOf[Attribute]).toArray
+//    indexableIter
+//  }
+//
+//  private def getRowHashMap(block: InternalBlock,
+//                            keys: Seq[Expression],
+//                            attributes: Seq[Attribute]): mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]] = {
+//    val hashMap = new mutable.HashMap[InternalRow, ArrayBuffer[InternalRow]]
+//    val projectFunc0 = GenerateSafeProjection.generate(keys,
+//      attributes)
+//    for (row <- block.toArray()) {
+//      val key = projectFunc0(row)
+//      if (hashMap.contains(key))
+//        hashMap(key).append(row.copy())
+//      else
+//        hashMap.put(key.copy(), ArrayBuffer[InternalRow](row.copy()))
+//    }
+//    println(s"hashMap: $hashMap")
+//    hashMap
+//  }
 
   private def prepareSchemas(names: Seq[String],
                              types: Seq[DataType],
@@ -199,12 +213,12 @@ class HashJoinIteratorSuite extends FunSuite with BeforeAndAfter{
 
   test("basic_functions_not_sorted"){
     val childIndices = Seq(0, 1, 2)
-
     for(childIdx <- childIndices) {
       val leftChildBlock = blocks_left(childIdx)
       val leftChildSchema = childrenSchemas_left(childIdx).toArray
       val leftTableIter = TableIterator(leftChildBlock, leftChildSchema, isSorted = false)
-      hashJoinIterator = HashJoinIterator(leftTableIter, rightIndexableIters(childIdx),
+//      hashJoinIterator = HashJoinIterator(leftTableIter, rightIndexableIters(childIdx),
+      hashJoinIterator = HashJoinIterator(leftTableIter, rightBuildHashMapIters(childIdx),
         keysArray(childIdx), conditions(childIdx))
       showNextAndResults(hashJoinIterator)
       assert(!hashJoinIterator.hasNext)

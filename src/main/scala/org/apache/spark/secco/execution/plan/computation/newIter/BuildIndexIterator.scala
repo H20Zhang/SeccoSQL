@@ -8,6 +8,7 @@ import org.apache.spark.secco.expression.codegen.GenerateSafeProjection
 import org.apache.spark.secco.types.StructType
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 /** The base class for building index. */
 sealed abstract class BaseBuildIndexIterator extends BlockingSeccoIterator {
@@ -26,7 +27,7 @@ case class BuildTrie(
   override def toIndexIterator(): SeccoIterator with IndexableSeccoIterator =
     IndexableTableIterator(results().asInstanceOf[TrieInternalBlock], localAttributeOrder, localAttributeOrder, true)
 
-  override def isSorted(): Boolean = true // lgh: TODO: confirm the correctness of this.
+  override def isSorted(): Boolean = true
 
   override def results(): InternalBlock = {
     val schema = StructType.fromAttributes(localAttributeOrder)
@@ -40,20 +41,21 @@ case class BuildHashMap(childIter: SeccoIterator, keyAttrs: Array[Attribute])
     extends BaseBuildIndexIterator {
 
   override def toIndexIterator(): SeccoIterator with IndexableSeccoIterator =
-    IndexableTableIterator(results().asInstanceOf[HashMapInternalBlock], keyAttrs, localAttributeOrder(), isSorted())
+    IndexableTableIterator(results(), keyAttrs, localAttributeOrder(), isSorted())
 
   override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
 
   override def isSorted(): Boolean = childIter.isSorted()
 
-  override def results(): InternalBlock ={
-//    val schema = Utils.attributeArrayToStructType(localAttributeOrder())
-    val schema = StructType.fromAttributes(localAttributeOrder())
-    //lgh TODO: check the correctness of the following statement
-    val rows = mutable.HashMap[InternalRow, InternalRow](childIter.results().toArray().map{
-      row => (GenerateSafeProjection.generate(keyAttrs)(row), row) }: _*)
-    new HashMapInternalBlock(rows, schema)
-    //lgh TODO: check whether "keyAttrs" should be used here and whether the implementation of the initialization of HashMapInternalBlock is correct.
+  override def results(): HashMapInternalBlock ={
+    val rows = if(childIter.isBreakPoint()){
+      childIter.results().toArray()
+    }else{
+      val buffer = ArrayBuffer[InternalRow]()
+      while(childIter.hasNext) buffer.append(childIter.next())
+      buffer.toArray
+    }
+    HashMapInternalBlock(rows, childIter.localAttributeOrder(), keyAttrs)
   }
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
