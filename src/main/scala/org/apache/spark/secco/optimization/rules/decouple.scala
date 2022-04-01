@@ -483,7 +483,7 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   private def decoupleMultiwayJoin(u: MultiwayJoin) = {
     val children = u.children
     val shareConstraintContext = ShareConstraintContext(
-      ShareConstraint(AttributeMap(Seq()), u.condition.reduce(And))
+      ShareConstraint(AttributeMap(Seq()), u.conditions.reduce(And))
     )
     val childrenPartitions =
       children.map(child => Partition(child, shareConstraintContext))

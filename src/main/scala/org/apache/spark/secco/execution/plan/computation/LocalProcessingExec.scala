@@ -33,6 +33,7 @@ import org.apache.spark.secco.expression.{
   NamedExpression
 }
 import org.apache.spark.secco.optimization.plan.JoinType
+import org.apache.spark.secco.optimization.util.{AttributeOrder, EquiAttributes}
 
 import scala.collection.mutable
 
@@ -320,12 +321,14 @@ case class LocalHashJoinExec(
 
   override def isSorted: Boolean = false
 
-  override def iterator(): SeccoIterator = ???
-//  {
-//    HashJoinIterator(
-//      left.iterator(), right, leftKeys, joinCondition
-//    )
-//  }
+  override def iterator(): SeccoIterator = {
+    HashJoinIterator(
+      left.iterator(),
+      right.iterator().asInstanceOf[BuildHashMap],
+      leftKeys,
+      joinCondition
+    )
+  }
 
   /** The output attributes */
   override def output: Seq[Attribute] = left.output ++ right.output
@@ -336,6 +339,7 @@ case class LocalHashJoinExec(
 /** An operator that performs LeapFrog join. */
 case class LocalLeapFrogJoinExec(
     children: Seq[LocalProcessingExec],
+    conds: Seq[Expression],
     attributeOrder: Seq[Attribute]
 ) extends LocalProcessingExec {
 
@@ -351,8 +355,13 @@ case class LocalLeapFrogJoinExec(
 
   override def isSorted: Boolean = true
 
-  override def iterator(): SeccoIterator =
-    LeapFrogJoinIterator(children.map(_.iterator()), attributeOrder.toArray)
+  override def iterator(): SeccoIterator = {
+
+    val equiAttrs = EquiAttributes.fromConditions(output, conds)
+    val attrOrder = AttributeOrder(equiAttrs, attributeOrder.toArray)
+
+    LeapFrogJoinIterator(children.map(_.iterator()), attrOrder)
+  }
 
   override def output: Seq[Attribute] = attributeOrder
 

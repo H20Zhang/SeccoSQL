@@ -13,9 +13,8 @@ class SeccoPlanner(
 
   def numPartitions: Int = conf.numPartition
 
-  //TODO: refactor Planner Rules
-  override def strategies: Seq[Strategy] = Nil
-//  IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
+  override def strategies: Seq[Strategy] =
+    PlanningSubquery :: PlanningRowScan :: PlanningLocalComputation :: PlanningPairAndLocalCompute :: Nil
 
   override protected def collectPlaceholders(
       plan: SeccoPlan

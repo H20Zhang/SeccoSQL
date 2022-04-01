@@ -14,7 +14,7 @@ trait IndexLike extends InternalBlockProperty {}
 
 /** The trait for supporting Map like capability for [[InternalBlock]]. */
 trait MapLike extends IndexLike {
-  def contains(key: InternalRow):Boolean
+  def contains(key: InternalRow): Boolean
   def get(key: InternalRow): Array[InternalRow]
 }
 
@@ -28,7 +28,7 @@ trait TrieLike extends IndexLike {
 
 /** The trait for supporting Set like capability for [[InternalBlock]]. */
 trait SetLike extends IndexLike {
-  def contains(key: InternalRow):Boolean
+  def contains(key: InternalRow): Boolean
 }
 
 /** The trait for supporting accessing [[InternalBlock]] by row. */
@@ -45,14 +45,8 @@ trait ColumnLike extends InternalBlock {
 /** The base class for InternalBlock */
 abstract class InternalBlock {
 
-  //<<<<<<< HEAD
-  //  def getDictionaryOrder: Option[Seq[String]]
-  //
-  //  /* Accessor */
-  //=======
   /* DictionaryOrder, if sorted */
   def getDictionaryOrder: Option[Seq[String]]
-  //>>>>>>> 870122b6b713b48e9e5ce396aa3fb3cc9ba46cfb
 
   /** The iterator for accessing InternalBlock.
     *  Note: The [[InternalRow]] returned by this class will be reused.
@@ -74,24 +68,23 @@ abstract class InternalBlock {
 
   /* Transformation */
 
-  /**
-    * Sort the rows by an dictionary order.
+  /** Sort the rows by an dictionary order.
     * @param DictionaryOrder the dictionary orders to be used to sort InternalRow.
     * @return a new sorted InternalBlock.
     */
   def sortBy(DictionaryOrder: Seq[String]): InternalBlock
 
-  /**
-    * Merge two (sorted) [[InternalBlock]]
+  /** Merge two (sorted) [[InternalBlock]]
     * @param other the other [[InternalBlock]] to be merged
     * @param maintainSortOrder whether the sorting order in InternalBlock should be maintained in merged [[InternalBlock]]
     * @return an merged (sorted) [[InternalBlock]]
     */
-  def merge(other: InternalBlock,
-            maintainSortOrder: Boolean = true): InternalBlock
+  def merge(
+      other: InternalBlock,
+      maintainSortOrder: Boolean = true
+  ): InternalBlock
 
-  /**
-    * Partition an [[InternalBlock]] into multiple [[InternalBlock]]s based on a partitioner.
+  /** Partition an [[InternalBlock]] into multiple [[InternalBlock]]s based on a partitioner.
     * @param partitioner the partitioner used to partition the [[InternalBlock]]
     * @return an array of partitioned [[InternalBlock]]s
     */
@@ -105,24 +98,25 @@ abstract class InternalBlock {
   /** Convert the InternalBlock to array of [[InternalRow]] */
   def toArray(): Array[InternalRow]
 
-  override def toString: String = toArray().map(_.toString).mkString("[", ";\n","]")
+  override def toString: String =
+    toArray().map(_.toString).mkString("[", ";\n", "]")
 }
 
-object InternalBlock{
+object InternalBlock {
 
-  /**
-    * This method can be used to construct a [[InternalBlock]] with rows and the schema given .
+  /** This method can be used to construct a [[InternalBlock]] with rows and the schema given .
     */
 //  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
 //  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = TrieInternalBlock(rows, schema)
-  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = ColumnarInternalBlock(rows, schema)
+  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock =
+    ColumnarInternalBlock(rows, schema)
 //  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = GenericInternalBlock(rows, schema)
   // edited by lgh
 
-  /**
-    * This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
+  /** This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
     */
-  def fromSeq(rows: Seq[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows.toArray, schema)
+  def fromSeq(rows: Seq[InternalRow], schema: StructType): InternalBlock =
+    UnsafeInternalBlock(rows.toArray, schema)
 
   /** Returns an empty [[InternalRow]]. */
   val empty = apply(Array.empty[InternalRow], new StructType)

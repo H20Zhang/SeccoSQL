@@ -49,13 +49,13 @@ case class Union(children: Seq[LogicalPlan], mode: ExecMode = ExecMode.Coupled)
 /** A [[LogicalPlan]] that performs multiway equi-join between [[children]].
   *
   * @param children children logical plan
-  * @param condition equi-join condition
+  * @param conditions equi-join condition
   * @param property additioal property that describes the join
   * @param mode     execution mode
   */
 case class MultiwayJoin(
     children: Seq[LogicalPlan],
-    condition: Seq[Expression],
+    conditions: Seq[Expression],
     property: Set[JoinProperty] = Set(EquiJoinProperty),
     mode: ExecMode = ExecMode.Coupled
 ) extends MultiNode

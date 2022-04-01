@@ -2,6 +2,7 @@ package org.apache.spark.secco.execution.planning
 
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.catalog.TempViewManager
+import org.apache.spark.secco.execution.plan.atomic.SubqueryExec
 import org.apache.spark.secco.execution.plan.communication.{
   PartitionExchangeExec,
   PullPairExchangeExec,
@@ -41,17 +42,19 @@ import scala.collection.mutable.ArrayBuffer
   */
 abstract class SeccoStrategy extends GenericStrategy[SeccoPlan] {
 
+  /** Plan the logical plan later. */
   override protected def planLater(plan: LogicalPlan): SeccoPlan =
     PlanLater(plan)
 
+  /** Plan the logical plan later in given `localStage`. */
   override protected def localPlanLater(
       plan: LogicalPlan,
       localStage: LocalStageExec
   ): LocalProcessingExec =
     LocalPlanLater(plan, localStage)
-
 }
 
+/** An place holder operator for logical plan to be planned. */
 case class PlanLater(plan: LogicalPlan) extends LeafExecNode {
 
   override def output: Seq[Attribute] = plan.output
@@ -62,12 +65,12 @@ case class PlanLater(plan: LogicalPlan) extends LeafExecNode {
 
 }
 
+/** An place holder operator for local computation logical plan to be planned. */
 case class LocalPlanLater(plan: LogicalPlan, localStage: LocalStageExec)
     extends LocalProcessingExec {
 
   override def output: Seq[Attribute] = plan.output
 
-  /** The output iterator */
   override def iterator(): SeccoIterator = {
     throw new UnsupportedOperationException()
   }
@@ -80,6 +83,16 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
 
   //TODO: refactor planner rules.
 
+  /** Planning the subquery. */
+  object PlanningSubquery extends Strategy {
+    override def apply(plan: LogicalPlan): Seq[SeccoPlan] = plan match {
+      case s: SubqueryAlias =>
+        Seq(SubqueryExec(planLater(s.child), s.alias, s.output))
+      case _ => Seq()
+    }
+  }
+
+  /** Planning the scanning. */
   object PlanningRowScan extends Strategy {
     override def apply(plan: LogicalPlan): Seq[SeccoPlan] =
       plan match {
@@ -91,6 +104,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       }
   }
 
+  /** Planning the local computations. */
   object PlanningLocalComputation extends Strategy with PredicateHelper {
 
     private var _localStageExec: Option[LocalStageExec] = None
@@ -155,7 +169,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         )
       )
 
-      LocalLeapFrogJoinExec(buildTrieExec, m.attributeOrder)
+      LocalLeapFrogJoinExec(buildTrieExec, m.conditions, m.attributeOrder)
     }
 
     override def apply(plan: LogicalPlan): Seq[SeccoPlan] =
@@ -239,6 +253,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
   }
 
   //TODO: DEBUG
+  /** Planning the pair operators, and construct the local stages for local computation operators to be executed. */
   object PlanningPairAndLocalCompute extends Strategy {
 
     /** Generate local plans that performs local computation. */

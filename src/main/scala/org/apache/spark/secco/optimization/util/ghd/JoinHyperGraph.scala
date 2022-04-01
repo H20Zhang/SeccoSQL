@@ -485,6 +485,6 @@ object JoinHyperGraph extends PredicateHelper {
   }
 
   def apply(multiwayJoin: MultiwayJoin): JoinHyperGraph =
-    apply(multiwayJoin.children, multiwayJoin.condition)
+    apply(multiwayJoin.children, multiwayJoin.conditions)
 
 }

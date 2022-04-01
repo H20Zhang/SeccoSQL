@@ -1,33 +1,27 @@
-//package unit.execution.planning
-//
-//import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
-//import org.apache.spark.secco.execution.planning.SeccoPlanner
-//import org.apache.spark.secco.optimization.SeccoOptimizer
-//import util.{SeccoFunSuite, UnitTestTag}
-//
-//class SeccoPlannerSuite extends SeccoFunSuite {
-//
-//  import org.apache.spark.secco.analysis.deprecated.RelationAlgebraWithAnalysis._
-//
-//  test("basic", UnitTestTag) {
-//
-//    val optimizer = dlSession.sessionState.optimizer
-//    val planner = dlSession.sessionState.planner
-//    val catalog = dlSession.sessionState.catalog
-//
-//    val colA = CatalogColumn("A")
-//    val colB = CatalogColumn("B")
-//
-//    catalog.createTable(
-//      CatalogTable("R1", Seq(colA, colB)).attachData("twitter")
-//    )
-//
-//    val scanExpr = dlSession.table("R1").logical
-//    val optimizedExpr = optimizer.execute(scanExpr)
-//    val plan = planner.plan(optimizedExpr)
-//
-//    println(optimizedExpr)
-//    println(plan.next())
-//  }
-//
-//}
+package unit.execution.planning
+
+import org.apache.spark.secco.catalog.{CatalogColumn, CatalogTable}
+import org.apache.spark.secco.execution.planning.SeccoPlanner
+import org.apache.spark.secco.optimization.SeccoOptimizer
+import util.{SeccoFunSuite, UnitTestTag}
+
+class SeccoPlannerSuite extends SeccoFunSuite {
+
+  override def setupDB(): Unit = {
+    createTestRelation(Seq(Seq(1, 2)), "R1", "a", "b")()
+    createTestRelation(Seq(Seq(1, 2)), "R2", "b", "c")()
+    createTestRelation(Seq(Seq(1, 2)), "R3", "c", "d")()
+    createTestRelation(Seq(Seq(1, 2)), "R4", "d", "e")()
+  }
+
+  test("planning scan") {
+
+    val planner = seccoSession.sessionState.planner
+
+    val R1 = seccoSession.table("R1")
+
+    println(R1.queryExecution.executionPlan)
+
+  }
+
+}
