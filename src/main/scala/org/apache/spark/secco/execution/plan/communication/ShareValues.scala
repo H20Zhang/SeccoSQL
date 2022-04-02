@@ -140,6 +140,12 @@ class ShareConstraint(
     var equivalenceAttrs: Array[AttributeSet]
 ) extends LogAble {
 
+  assert(
+    AttributeSet(rawConstraint.keys)
+      .subsetOf(AttributeSet(equivalenceAttrs.flatten)),
+    "Attributes in rawConstraint and equivilantAttrs does not match."
+  )
+
   /** Merge the rawConstraint and equivalenceAttrs from another [[ShareConstraint]] */
   def addNewConstraints(shareConstraint: ShareConstraint): Unit = {
 
@@ -206,4 +212,4 @@ object ShareConstraint extends PredicateHelper {
 
 /** The context of share constraint. */
 case class ShareConstraintContext(shareConstraint: ShareConstraint)
-    extends SharedContext[ShareConstraint](shareConstraint)
+    extends SharedContext[ShareConstraint](shareConstraint) {}

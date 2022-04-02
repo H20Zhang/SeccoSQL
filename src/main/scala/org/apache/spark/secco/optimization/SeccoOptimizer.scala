@@ -176,7 +176,7 @@ class SeccoOptimizer(
     if (conf.enableOnlyDecoupleOptimization) {
       decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     } else {
-      operatorOptimizationRules ++ joinOptimizationRules ++ decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
+      operatorOptimizationRules ++ joinOptimizationRules ++ operatorOptimizationRules ++ decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     }
   }
 

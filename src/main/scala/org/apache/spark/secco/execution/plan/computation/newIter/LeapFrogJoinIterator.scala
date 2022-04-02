@@ -1,7 +1,6 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
 import org.apache.spark.secco.execution.storage.block.{
-  ArrayTrieInternalBlock,
   InternalBlock,
   InternalBlockBuilder,
   TrieInternalBlock,

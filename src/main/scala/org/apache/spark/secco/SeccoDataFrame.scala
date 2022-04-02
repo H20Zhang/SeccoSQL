@@ -214,11 +214,11 @@ class SeccoDataFrame(
     )
   }
 
-  /** Rename the dataset.
+  /** Rename the dataset and materialize its results.
     * @param newName the new name for the dataset
     * @return a new dataset.
     */
-  def alias(newName: String): SeccoDataFrame = {
+  def subqueryAlias(newName: String): SeccoDataFrame = {
     SeccoDataFrame(
       seccoSession,
       SubqueryAlias(

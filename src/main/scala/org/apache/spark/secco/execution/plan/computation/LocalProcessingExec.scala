@@ -104,7 +104,7 @@ case class LocalInputExec(
 
   override def children: Seq[SeccoPlan] = Nil
 
-  override def relationalSymbol: String = s"R${pos.toString}"
+  override def relationalSymbol: String = s"P[${pos.toString}]"
 }
 
 /** An operator that filters row using [[condition]] */
@@ -162,6 +162,11 @@ case class LocalDistinctExec(child: LocalProcessingExec)
   override def output: Seq[Attribute] = child.output
 
   override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String = {
+    s"Distinct"
+  }
+
 }
 
 /** An operator that performs sort.
@@ -217,6 +222,8 @@ case class LocalBuildIndexExec(
   override def output: Seq[Attribute] = child.output
 
   override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String = s"${indexType.toString}"
 }
 
 /** An operator that perform aggregation
@@ -226,6 +233,7 @@ case class LocalBuildIndexExec(
   */
 case class LocalAggregateExec(
     child: LocalProcessingExec,
+    output: Seq[Attribute],
     groupingExpressions: Seq[NamedExpression],
     aggregateExpressions: Seq[AggregateFunction]
 ) extends LocalProcessingExec {
@@ -240,9 +248,9 @@ case class LocalAggregateExec(
     aggregateExpressions.toArray
   )
 
-  override def output: Seq[Attribute] = groupingExpressions.map(
-    _.toAttribute
-  ) ++ aggregateExpressions.flatMap(_.aggBufferAttributes)
+//  override def output: Seq[Attribute] = groupingExpressions.map(
+//    _.toAttribute
+//  ) ++ aggregateExpressions.flatMap(_.aggBufferAttributes)
 
   override def children: Seq[SeccoPlan] = Seq(child)
 

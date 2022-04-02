@@ -59,7 +59,7 @@ class SeccoDataFrameSuite extends SeccoFunSuite {
 
     val ds2 = ds1.select("a < b")
     val ds3 = ds2.project("a")
-    val ds4 = ds3.join(ds2.alias("R2"), "R2.a = R1.a")
+    val ds4 = ds3.join(ds2.subqueryAlias("R2"), "R2.a = R1.a")
     val ds5 = ds4.aggregate(Seq("sum(b)"), Seq("R1.a"))
     val ds6 = ds1.unionAll(ds2)
     val ds7 = ds1.difference(ds2)

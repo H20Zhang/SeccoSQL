@@ -203,7 +203,9 @@ case class Aggregate(
   }
 
   override def output: Seq[Attribute] =
-    aggregateExpressions.map(_.toAttribute)
+    groupingExpressions.map(_.toAttribute) ++ aggregateExpressions.map(
+      _.toAttribute
+    )
 
   override def relationalSymbol: String =
     s"[${groupingExpressions.mkString(",")}]𝝪[${aggregateExpressions.mkString(",")}]"
@@ -243,6 +245,10 @@ case class Partition(
   override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
+
+  override def argString: String = {
+    s"[constraint:(${shareConstraintContext.shareConstraint.rawConstraint.keys.toSeq.mkString(",")})]"
+  }
 
 }
 

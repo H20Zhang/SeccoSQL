@@ -32,8 +32,8 @@ class SeccoGraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = SeccoDataFrame.empty(nodeSchema).alias("V")
-    val E = SeccoDataFrame.empty(edgeSchema).alias("E")
+    val V = SeccoDataFrame.empty(nodeSchema).subqueryAlias("V")
+    val E = SeccoDataFrame.empty(edgeSchema).subqueryAlias("E")
 
     val graph = SeccoGraphFrame(
       V,
@@ -62,8 +62,8 @@ class SeccoGraphFrameSuite extends SeccoFunSuite {
       )
     )
 
-    val V = SeccoDataFrame.empty(nodeSchema).alias("V")
-    val E = SeccoDataFrame.empty(edgeSchema).alias("E")
+    val V = SeccoDataFrame.empty(nodeSchema).subqueryAlias("V")
+    val E = SeccoDataFrame.empty(edgeSchema).subqueryAlias("E")
 
     val graph = SeccoGraphFrame(
       V,

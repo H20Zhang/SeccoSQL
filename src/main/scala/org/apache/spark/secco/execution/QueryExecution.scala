@@ -17,6 +17,10 @@ class QueryExecution(
     val logical: LogicalPlan
 ) {
 
+  lazy val rawPlan: LogicalPlan = {
+    logical
+  }
+
   lazy val analyzedPlan: LogicalPlan = {
     seccoSession.sessionState.analyzer.execute(logical)
   }

@@ -20,7 +20,12 @@ import org.apache.spark.secco.execution.plan.io.{
   PartitionedRDDScanExec
 }
 import org.apache.spark.secco.execution.storage.InternalPartition
-import org.apache.spark.secco.expression.{Attribute, EqualTo, PredicateHelper}
+import org.apache.spark.secco.expression.{
+  Alias,
+  Attribute,
+  EqualTo,
+  PredicateHelper
+}
 import org.apache.spark.secco.expression.aggregate.AggregateFunction
 import org.apache.spark.secco.expression.utils.AttributeMap
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
@@ -209,11 +214,21 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
               groupingExpressions,
               mode
             ) if checkValidExecutionMode(mode) =>
+          assert(
+            aggregateExpressions.forall(_.isInstanceOf[Alias]),
+            "The top expr operator in aggregateExpressions must be `AS`."
+          )
+
+          val aggregateFunctions = aggregateExpressions
+            .map(_.asInstanceOf[Alias])
+            .map(_.child.asInstanceOf[AggregateFunction])
+
           Seq(
             LocalAggregateExec(
               localPlanLater(child, localStageExec),
+              a.output,
               groupingExpressions,
-              aggregateExpressions.map(_.asInstanceOf[AggregateFunction])
+              aggregateFunctions
             )
           )
         case c @ CartesianProduct(left, right, mode)
@@ -262,10 +277,11 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         localStageExec: LocalStageExec
     ): LocalProcessingExec = {
 
+      // Init the planner for planning local computation.
       val planner = new SeccoPlanner()
 
       // Set the Local Computation Stages for the Local Computation to be planned.
-      PlanningLocalComputation.setLocalStageExec(localStageExec)
+      planner.PlanningLocalComputation.setLocalStageExec(localStageExec)
 
       val localExec =
         planner
@@ -274,7 +290,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
           .asInstanceOf[LocalProcessingExec]
 
       // Reset the Local Computation Stage to avoid affecting later planning.
-      PlanningLocalComputation.resetLocalStageExec()
+      planner.PlanningLocalComputation.resetLocalStageExec()
 
       localExec
     }
@@ -310,6 +326,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       case _: LocalRows          => true
       case _: RDDRows            => true
       case _: PartitionedRDDRows => true
+      case _: SubqueryAlias      => true
       case _                     => false
     }
 
