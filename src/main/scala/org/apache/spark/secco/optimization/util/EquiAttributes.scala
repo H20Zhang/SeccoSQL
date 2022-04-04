@@ -3,12 +3,17 @@ package org.apache.spark.secco.optimization.util
 import org.apache.spark.secco.expression.{
   Attribute,
   AttributeReference,
+  AttributeSeq,
   EqualTo,
   Expression,
   PredicateHelper
 }
+import org.apache.spark.secco.expression.utils.{
+  AttributeMap,
+  AttributeSet,
+  attributeMatched
+}
 
-import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
@@ -33,16 +38,99 @@ class EquiAttributes(val attr2RepAttr: AttributeMap[Attribute]) {
     AttributeMap(repAttr2AttrBuilder.map(f => (f._1, f._2.toArray)).toSeq)
   }
 
+  /** Merge two [[EquiAttributes]] into a new one.
+    *
+    * Note: same attributes from two EquiAttributes will be merged into one.
+    */
+  def merge(other: EquiAttributes): EquiAttributes = {
+
+    val otherAttr2RepAttr = other.attr2RepAttr
+
+    // Find common attributes between the two.
+    val commonAttrs = toAttributeSet().intersect(other.toAttributeSet())
+
+    // Find unique attributes in each EquiAttributes.
+    val leftCommonRepAttrs = AttributeSet(
+      commonAttrs.map(attr => attr2RepAttr(attr)).toSeq
+    )
+    val rightCommonRepAttrs = AttributeSet(
+      commonAttrs.map(attr => otherAttr2RepAttr(attr)).toSeq
+    )
+
+    val leftUniqueAttrs = repAttr2Attr
+      .filter { repAttr =>
+        !leftCommonRepAttrs.contains(repAttr._1)
+      }
+      .flatMap(_._2)
+
+    val rightUniqueAttrs = other.repAttr2Attr
+      .filter { repAttr =>
+        !rightCommonRepAttrs.contains(repAttr._1)
+      }
+      .flatMap(_._2)
+
+    // Construct new attr2RepAttr
+    val leftAttr2RepAttr = leftUniqueAttrs.map { attr =>
+      (attr, attr2RepAttr(attr))
+    }.toSeq
+
+    val rightAttr2RepAttr = rightUniqueAttrs.map { attr =>
+      (attr, otherAttr2RepAttr(attr))
+    }.toSeq
+
+    val commonAttr2RepAttr = commonAttrs.flatMap { attr =>
+      val repAttr = attr2RepAttr(attr)
+      val otherRepAttr = otherAttr2RepAttr(attr)
+      attr2RepAttr.filter(_._2 == repAttr) ++ otherAttr2RepAttr
+        .filter(_._2 == otherRepAttr)
+        .map(f => (f._1, repAttr))
+    }.toSeq
+
+    val newAttr2RepAttr =
+      leftAttr2RepAttr ++ rightAttr2RepAttr ++ commonAttr2RepAttr
+
+    new EquiAttributes(AttributeMap(newAttr2RepAttr))
+  }
+
+  /** Check if the equivalent attribute is empty */
+  def isEmpty(): Boolean = attr2RepAttr.isEmpty
+
+  /** Put equivalent attributes to an [[Seq]] */
+  def toSeq(): Seq[Attribute] = attr2RepAttr.keys.toSeq
+
+  /** Put equivalent attributes to an [[AttributeSeq]] */
+  def toAttributeSeq(): AttributeSeq = AttributeSeq(attr2RepAttr.keys.toSeq)
+
+  /** Put equivalent attributes to an [[AttributeSet]] */
+  def toAttributeSet(): AttributeSet = AttributeSet(attr2RepAttr.keys)
+
+  /** Put mapping of equivalent attribute tp representative attribute to an [[AttributeMap]] */
+  def toAttributeMap(): AttributeMap[Attribute] = attr2RepAttr
+
+  override def toString: String = {
+    attr2RepAttr.toString()
+  }
+
 }
 
 object EquiAttributes extends PredicateHelper {
+
+  /** Build an naive equivalence attributes from given attributes */
+  def fromAttributes(attrs: Seq[Attribute]): EquiAttributes = {
+    val attr2RepAttr = AttributeMap(attrs.map(f => (f, f)))
+    new EquiAttributes(attr2RepAttr)
+  }
 
   /** Build the equivalence attributes from an expression. */
   def fromCondition(cond: Expression): EquiAttributes = fromConditions(
     Seq(cond)
   )
 
-  /** Build the equivalence attributes of the given attributes from an expression. */
+  /** Build the equivalence attributes of the given attributes from an expression.
+    *
+    * Note: for attributes only exists in cond, we just ignore them.
+    *       for attribute only exists in attrs, we add an naive mapping for it,  e.g., attr -> attr.
+    */
   def fromCondition(attrs: Seq[Attribute], cond: Expression): EquiAttributes =
     fromConditions(attrs, Seq(cond))
 
@@ -62,7 +150,11 @@ object EquiAttributes extends PredicateHelper {
     fromConditions(attrs, conds)
   }
 
-  /** Build the equivalence attributes of the given attributes from expressions. */
+  /** Build the equivalence attributes of the given attributes from expressions.
+    *
+    * Note: For attributes only exists in cond, we just ignore them.
+    *       For attribute only exists in attrs, we add an naive mapping for it,  e.g., attr -> attr.
+    */
   def fromConditions(
       attrs: Seq[Attribute],
       condition: Seq[Expression]

@@ -24,33 +24,15 @@ case class ShareResults(
   */
 class EnumShareComputer(
     schemas: Seq[Seq[Attribute]],
-    constraint: Map[Attribute, Int],
+    shareConstraint: ShareConstraint,
     tasks: Int,
-    cardinalities: Map[Seq[Attribute], Long],
-    equivalenceAttrs: Array[AttributeSet]
+    cardinalities: Map[Seq[Attribute], Long]
 ) extends LogAble {
 
   private var numTask = tasks
   private val attributes = schemas.flatMap(identity)
-  val equiSet2Representative =
-    equivalenceAttrs.map(equiSet => (equiSet, equiSet.head)).toMap
-  val representativeAttrs = AttributeSet(attributes.map { attr =>
-    equiSet2Representative
-      .find { case (key, value) =>
-        key.contains(attr)
-      }
-      .get
-      ._2
-  }).toArray
-  val attrs2Representative = attributes.map { attr =>
-    val representative = equiSet2Representative
-      .find { case (key, value) =>
-        key.contains(attr)
-      }
-      .get
-      ._2
-    (attr, representative)
-  }.toMap
+  val repAttrs = shareConstraint.equivalenceAttrs.repAttrs
+  val attrs2Rep = shareConstraint.equivalenceAttrs.attr2RepAttr
   private val averageBytesPerTuple =
     (schemas.map(_.size).sum.toDouble / schemas.size) * 8
 
@@ -58,7 +40,7 @@ class EnumShareComputer(
   private def genAllShare(): Array[Array[Int]] = {
     //    get all shares
     val shareEnumerator =
-      new ShareEnumerator(representativeAttrs, constraint, numTask)
+      new ShareEnumerator(repAttrs, shareConstraint.rawConstraint, numTask)
     val allShare = shareEnumerator.genAllShares()
     allShare.toArray
   }
@@ -87,7 +69,7 @@ class EnumShareComputer(
 
     // copy share values of representative attributes to other attributes
     val newRawShares = attributes
-      .map(attr => (attr, shareResults.rawShares(attrs2Representative(attr))))
+      .map(attr => (attr, shareResults.rawShares(attrs2Rep(attr))))
       .toMap
 
     shareResults.copy(rawShares = newRawShares)

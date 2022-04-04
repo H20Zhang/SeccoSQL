@@ -84,10 +84,9 @@ case class PullPairExchangeExec(
 
       val shareValuesOptimizer = new EnumShareComputer(
         schemas,
-        shareConstraintContext.shareConstraint.rawConstraint,
+        shareConstraintContext.shareConstraint,
         SeccoConfiguration.newDefaultConf().numPartition,
-        cardinalities,
-        shareValuesContext.shares.equivalenceAttrs
+        cardinalities
       )
       val optimizedShareValuesResult =
         shareValuesOptimizer.optimalShareWithBudget()

@@ -9,6 +9,7 @@ import org.apache.spark.secco.expression.{
   PredicateHelper
 }
 import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
+import org.apache.spark.secco.optimization.util.EquiAttributes
 import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable
@@ -17,9 +18,9 @@ import scala.collection.mutable.ArrayBuffer
 /** An coordinate in HyperCube.
   *
   * Note: it can be used to represent one of the following two things
-  * 1. Coordinate of the sub-task in [[PullPairExchangeExec]], which can be used to identify partitions of relations to
+  *  a. Coordinate of the sub-task in [[PullPairExchangeExec]], which can be used to identify partitions of relations to
   * load.
-  * 2. Coordinate of the partitions of the relation.
+  *  a. Coordinate of the partitions of the relation.
   */
 case class Coordinate(attributes: Array[Attribute], index: Array[Int])
 
@@ -32,7 +33,7 @@ case class Coordinate(attributes: Array[Attribute], index: Array[Int])
   */
 class ShareValues(
     var rawShares: AttributeMap[Int],
-    var equivalenceAttrs: Array[AttributeSet]
+    var equivalenceAttrs: EquiAttributes
 ) {
 
   def isInitialized(): Boolean = rawShares.isEmpty && equivalenceAttrs.isEmpty
@@ -46,31 +47,11 @@ class ShareValues(
     */
   def genHyperCubeCoordinates(attrs: Seq[Attribute]): Array[Coordinate] = {
 
-    // find representative for each attrs based on equivalenceAttrs
-    val equiSet2Representative =
-      equivalenceAttrs.map(equiSet => (equiSet, equiSet.head)).toMap
-
-    val representativeAttrs = AttributeSet(attrs.map { attr =>
-      equiSet2Representative
-        .find { case (key, value) =>
-          key.contains(attr)
-        }
-        .get
-        ._2
-    }).toArray
-
-    val attrs2Representative = attrs.map { attr =>
-      val representative = equiSet2Representative
-        .find { case (key, value) =>
-          key.contains(attr)
-        }
-        .get
-        ._2
-      (attr, representative)
-    }.toMap
+    val repAttrs = equivalenceAttrs.repAttrs
+    val attr2RepAttr = equivalenceAttrs.attr2RepAttr
 
     // generate the raw coordinate values for the representatives attributes
-    val attrsShareSpace = representativeAttrs
+    val attrsShareSpace = repAttrs
       .map(attr => rawShares(attr))
     var i = 0
     val attrsSize = attrsShareSpace.size
@@ -89,9 +70,8 @@ class ShareValues(
 
     // assign coordinate values to other attributes
     val coordinates = buffer.map { rawCoordinate =>
-      val index = attrs.map(attr =>
-        rawCoordinate(representativeAttrs.indexOf(attrs2Representative(attr)))
-      )
+      val index =
+        attrs.map(attr => rawCoordinate(repAttrs.indexOf(attr2RepAttr(attr))))
 
       Coordinate(attrs.toArray, index.toArray)
     }
@@ -127,22 +107,30 @@ object ShareValues extends PredicateHelper {
       rawShares: AttributeMap[Int],
       equalCondition: Expression
   ): ShareValues =
-    new ShareValues(rawShares, findEquivilanceAttrs(equalCondition).toArray)
+    new ShareValues(
+      rawShares,
+      EquiAttributes.fromCondition(rawShares.keys.toSeq, equalCondition)
+    )
 }
 
 /** The context of share values. */
 case class ShareValuesContext(shares: ShareValues)
     extends SharedContext[ShareValues](shares)
 
-/** The constraint on the share number an attribute can take. */
+/** The class that constraint on the share number an attribute can take.
+  *
+  * Note:
+  *  a. The equivalence attributes in terms of Equal To condition must share the same constraint.
+  *  a.  Every attribute at least have a naive equivalence, i.e., itself.
+  */
 class ShareConstraint(
     var rawConstraint: AttributeMap[Int],
-    var equivalenceAttrs: Array[AttributeSet]
+    var equivalenceAttrs: EquiAttributes
 ) extends LogAble {
 
   assert(
     AttributeSet(rawConstraint.keys)
-      .subsetOf(AttributeSet(equivalenceAttrs.flatten)),
+      .subsetOf(equivalenceAttrs.toAttributeSet()),
     "Attributes in rawConstraint and equivilantAttrs does not match."
   )
 
@@ -150,30 +138,18 @@ class ShareConstraint(
   def addNewConstraints(shareConstraint: ShareConstraint): Unit = {
 
     // Compute the new equivalence attributes.
-    val otherEquivalenceAttrs = shareConstraint.equivalenceAttrs
-    val newEquivalanceAttrSet = mutable.Set(equivalenceAttrs: _*)
-    otherEquivalenceAttrs.foreach { otherEquiSet =>
-      newEquivalanceAttrSet.find(equiSet =>
-        equiSet.intersect(otherEquiSet).nonEmpty
-      ) match {
-        case Some(equiSet) =>
-          newEquivalanceAttrSet -= equiSet
-          newEquivalanceAttrSet += (equiSet ++ otherEquiSet)
-
-        case None => newEquivalanceAttrSet += otherEquiSet
-      }
-    }
-    val newEquivalenceAttrs = newEquivalanceAttrSet.toArray
+    val newEquivalenceAttrs =
+      equivalenceAttrs.merge(shareConstraint.equivalenceAttrs)
 
     // Compute the new raw constraints. Note: we assume all raw constraints value is 1.
     val newRawConstraint = AttributeMap(
-      newEquivalenceAttrs
-        .filter { equiSet =>
+      newEquivalenceAttrs.repAttr2Attr.toSeq
+        .filter { case (_, equiAttrs) =>
           rawConstraint.find { case (key, value) =>
-            equiSet.contains(key)
+            equiAttrs.contains(key)
           }.nonEmpty
         }
-        .flatMap(f => f.toSeq.map(g => (g, 1)))
+        .flatMap { case (_, equiAttrs) => equiAttrs.toSeq.map(g => (g, 1)) }
     )
 
     // Update rawConstraint and equivalenceAttrs.
@@ -188,22 +164,32 @@ class ShareConstraint(
 }
 
 object ShareConstraint extends PredicateHelper {
-  def apply(
+
+  /** Build [[ShareConstraint]] from a raw constraint of attributes. */
+  def fromRawConstraint(rawConstraint: AttributeMap[Int]): ShareConstraint = {
+    val equivilanceAttrs =
+      EquiAttributes.fromAttributes(rawConstraint.keys.toSeq)
+    new ShareConstraint(rawConstraint, equivilanceAttrs)
+  }
+
+  /** Build [[ShareConstraint]] from a raw constraint of attributes and expression that contains equal to conditions. */
+  def fromRawConstraintAndCond(
       rawConstraint: AttributeMap[Int],
       equalCondition: Expression
   ): ShareConstraint = {
 
-    val equivilanceAttrs = findEquivilanceAttrs(equalCondition).toArray
+    val equivilanceAttrs =
+      EquiAttributes.fromCondition(rawConstraint.keys.toSeq, equalCondition)
 
     // Propagate constraint among equivalence attributes.
     val newRawConstraint = AttributeMap(
-      equivilanceAttrs
-        .filter { equiSet =>
+      equivilanceAttrs.repAttr2Attr.toSeq
+        .filter { case (_, equiAttrs) =>
           rawConstraint.find { case (key, value) =>
-            equiSet.contains(key)
+            equiAttrs.contains(key)
           }.nonEmpty
         }
-        .flatMap(f => f.toSeq.map(g => (g, 1)))
+        .flatMap { case (_, equiAttrs) => equiAttrs.map(g => (g, 1)) }
     )
 
     new ShareConstraint(newRawConstraint, equivilanceAttrs)

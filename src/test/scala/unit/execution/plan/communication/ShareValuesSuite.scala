@@ -27,20 +27,26 @@ class ShareValuesSuite extends SeccoFunSuite {
 
     val attrB = R12Plan.output(2)
     val shareConstraint1 =
-      ShareConstraint(AttributeMap(Seq(attrB -> 1)), R12Plan.condition.get)
+      ShareConstraint.fromRawConstraintAndCond(
+        AttributeMap(Seq(attrB -> 1)),
+        R12Plan.condition.get
+      )
     val shareConstraint2 =
-      ShareConstraint(AttributeMap(Seq()), R123Plan.condition.get)
+      ShareConstraint.fromRawConstraintAndCond(
+        AttributeMap(Seq()),
+        R123Plan.condition.get
+      )
 
     println(shareConstraint1.rawConstraint)
-    println(shareConstraint1.equivalenceAttrs.toSet)
+    println(shareConstraint1.equivalenceAttrs)
 
     // Check the constraint after merging with new constraint.
     shareConstraint1.addNewConstraints(shareConstraint2)
     println(shareConstraint1.rawConstraint)
-    println(shareConstraint1.equivalenceAttrs.toSet)
+    println(shareConstraint1.equivalenceAttrs)
 
   }
 
-  test("ShareConstraint") {}
+  test("ShareValues") {}
 
 }
