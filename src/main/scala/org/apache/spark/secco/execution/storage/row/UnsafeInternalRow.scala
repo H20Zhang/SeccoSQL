@@ -528,7 +528,8 @@ class UnsafeInternalRow extends InternalRow {
   override def equals(other: Any): Boolean = {
     other match {
       case o: UnsafeInternalRow =>
-        return (sizeInBytes == o.sizeInBytes) && ByteArrayMethods.arrayEquals(baseObject, baseOffset, o.baseObject, o.baseOffset, sizeInBytes)
+        return (sizeInBytes == o.sizeInBytes) &&
+          ByteArrayMethods.arrayEquals(baseObject, baseOffset, o.baseObject, o.baseOffset, sizeInBytes)
       case _ =>
     }
     false

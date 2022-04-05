@@ -4,6 +4,7 @@ import org.apache.spark.secco.codegen.{CodeAndComment, CodeGenerator, CodegenCon
 import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.optimization.util.AttributeOrder
 import org.apache.spark.secco.types.DataType
 
 import scala.collection.mutable
@@ -13,28 +14,29 @@ abstract class BaseLeapFrogJoinIteratorProducer {
 }
 
 object GenerateLeapFrogJoinIterator extends
-  CodeGenerator[(Seq[Attribute], Seq[Seq[Attribute]]), BaseLeapFrogJoinIteratorProducer] {
+  CodeGenerator[(AttributeOrder, Seq[Seq[Attribute]]), BaseLeapFrogJoinIteratorProducer] {
   /** Generates a class for a given input expression.  Called when there is not cached code
     * already available.
     */
-  override protected def create(in: (Seq[Attribute], Seq[Seq[Attribute]])): BaseLeapFrogJoinIteratorProducer
+  override protected def create(in: (AttributeOrder, Seq[Seq[Attribute]])): BaseLeapFrogJoinIteratorProducer
   = create(in._1, in._2)
 
   /** Canonicalizes an input expression. Used to avoid double caching expressions that differ only
     * cosmetically.
     */
-  override protected def canonicalize(in: (Seq[Attribute], Seq[Seq[Attribute]])): (Seq[Attribute], Seq[Seq[Attribute]])
+  override protected def canonicalize(in: (AttributeOrder, Seq[Seq[Attribute]])): (AttributeOrder, Seq[Seq[Attribute]])
   = in
 
   /** Binds an input expression to a given input schema */
-  override protected def bind(in: (Seq[Attribute], Seq[Seq[Attribute]]), inputSchema: Seq[Attribute]):
-  (Seq[Attribute], Seq[Seq[Attribute]])
+  override protected def bind(in: (AttributeOrder, Seq[Seq[Attribute]]), inputSchema: Seq[Attribute]):
+  (AttributeOrder, Seq[Seq[Attribute]])
   = in
 
 
   def getLeapFrogJoinIteratorCode(ctx: CodegenContext,
-                                  schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]]): (String, String) = {
+                                  attrOrder: AttributeOrder, childrenSchemas: Seq[Seq[Attribute]]): (String, String) = {
 
+    val schema = attrOrder.repAttrOrder.order
     val schemaLength = schema.length
     val dataTypes = schema.map(_.dataType).distinct
     val iteratorCodes = new mutable.HashMap[DataType, (String, String)]
@@ -44,7 +46,7 @@ object GenerateLeapFrogJoinIterator extends
     val producerCodes = new Array[(String, String)](schemaLength)
     for(i <- producerCodes.indices){
       producerCodes(i) = GenerateUnaryIterator.getUnaryIteratorProducerCode(ctx,
-        schema.slice(0, i + 1), childrenSchemas, iteratorCodes(schema(i).dataType)._1)
+        attrOrder, i, childrenSchemas, iteratorCodes(schema(i).dataType)._1)
     }
 
     val className = s"LeapFrogJoinIterator"
@@ -164,10 +166,10 @@ object GenerateLeapFrogJoinIterator extends
     (className, classDefinition)
   }
 
-  def create(schema: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]]): BaseLeapFrogJoinIteratorProducer = {
+  def create(attrOrder: AttributeOrder, childrenSchemas: Seq[Seq[Attribute]]): BaseLeapFrogJoinIteratorProducer = {
 
     val ctx = new CodegenContext
-    val (leapFrogJoinClassName, leapFrogJoinClassDefinition) = getLeapFrogJoinIteratorCode(ctx, schema, childrenSchemas)
+    val (leapFrogJoinClassName, leapFrogJoinClassDefinition) = getLeapFrogJoinIteratorCode(ctx, attrOrder, childrenSchemas)
 
     val codeBody =
       s"""
