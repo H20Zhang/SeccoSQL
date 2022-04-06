@@ -148,57 +148,57 @@ class PushBasedSuite extends FunSuite with BeforeAndAfter{
     }
   }
 
-  test("Filter-Project-HashJoin"){
-    for(intVal <- Seq(0)) {
-      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
-      val filterExec = FilterExec(condition: Expression, inputExec)
-      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
-      val projectExec = ProjectExec(projectSeq, filterExec)
-      val leftInput = BlockInputExec(childrenSchemas(1), blocks(1))
-      val leftKeys = Seq(schema(1), schema(2))
-      val rightKeys = leftKeys
-      val hashJoinExec = HashJoinExec(leftInput, projectExec, leftKeys, rightKeys, None)
-      val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
-      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-    }
-  }
-
-  test("Filter-Project-Aggregate"){
-    for(intVal <- Seq(0)) {
-      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
-      val filterExec = FilterExec(condition: Expression, inputExec)
-      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
-      val projectExec = ProjectExec(projectSeq, filterExec)
-      val groupingExpression = Array.empty[NamedExpression]
-      val aggregateFunction = Array[AggregateFunction](Average(schema(2)))
-      val aggregateExec = AggregateExec(groupingExpression, aggregateFunction, projectExec)
-      val pushBasedCodegenExec = PushBasedCodegenExec(aggregateExec)(0)
-      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-    }
-  }
-
-  test("Filter-Project-Aggregate-HashJoin"){
-
-    for (intVal <- Seq(0)) {
-      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
-      val filterExec = FilterExec(condition: Expression, inputExec)
-      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
-      val projectExec = ProjectExec(projectSeq, filterExec)
-      val groupingExpression = Array[NamedExpression](schema(0))
-      val aggregateFunction = Array[AggregateFunction](Average(schema(2)))
-      val aggregateExec = AggregateExec(groupingExpression, aggregateFunction, inputExec)
-      val leftInput = BlockInputExec(childrenSchemas(2), blocks(2))
-      val leftKeys = Seq(schema(2))
-      val rightKeys = aggregateExec.output
-      val hashJoinExec = HashJoinExec(leftInput, aggregateExec, leftKeys, rightKeys, None)
-      val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
-      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-    }
-
-  }
+//  test("Filter-Project-HashJoin"){
+//    for(intVal <- Seq(0)) {
+//      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+//      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
+//      val filterExec = FilterExec(condition: Expression, inputExec)
+//      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
+//      val projectExec = ProjectExec(projectSeq, filterExec)
+//      val leftInput = BlockInputExec(childrenSchemas(1), blocks(1))
+//      val leftKeys = Seq(schema(1), schema(2))
+//      val rightKeys = leftKeys
+//      val hashJoinExec = HashJoinExec(leftInput, projectExec, leftKeys, rightKeys, None)
+//      val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
+//      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+//    }
+//  }
+//
+//  test("Filter-Project-Aggregate"){
+//    for(intVal <- Seq(0)) {
+//      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+//      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
+//      val filterExec = FilterExec(condition: Expression, inputExec)
+//      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
+//      val projectExec = ProjectExec(projectSeq, filterExec)
+//      val groupingExpression = Array.empty[NamedExpression]
+//      val aggregateFunction = Array[AggregateFunction](Average(schema(2)))
+//      val aggregateExec = AggregateExec(groupingExpression, aggregateFunction, projectExec)
+//      val pushBasedCodegenExec = PushBasedCodegenExec(aggregateExec)(0)
+//      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+//    }
+//  }
+//
+//  test("Filter-Project-Aggregate-HashJoin"){
+//
+//    for (intVal <- Seq(0)) {
+//      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
+//      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
+//      val filterExec = FilterExec(condition: Expression, inputExec)
+//      val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(1) :+ childrenSchemas.head(2)
+//      val projectExec = ProjectExec(projectSeq, filterExec)
+//      val groupingExpression = Array[NamedExpression](schema(0))
+//      val aggregateFunction = Array[AggregateFunction](Average(schema(2)))
+//      val aggregateExec = AggregateExec(groupingExpression, aggregateFunction, inputExec)
+//      val leftInput = BlockInputExec(childrenSchemas(2), blocks(2))
+//      val leftKeys = Seq(schema(2))
+//      val rightKeys = aggregateExec.output
+//      val hashJoinExec = HashJoinExec(leftInput, aggregateExec, leftKeys, rightKeys, None)
+//      val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
+//      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
+//    }
+//
+//  }
 
   after{
     var count = 0

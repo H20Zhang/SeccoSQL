@@ -22,8 +22,6 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
                          child: SeccoPlan)
   extends PushBasedCodegen {
 
-//  require(HashAggregateExec.supportsAggregate(aggregateBufferAttributes))
-
   private val aggregateAttributes = aggregateFunctions.map(item => AttributeReference(item.prettyName, item.dataType)())
   private val aggregateBufferAttributes = aggregateFunctions.flatMap(_.aggBufferAttributes).toSeq
 
@@ -39,19 +37,12 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
 
   protected override def doExecute(): RDD[OldInternalBlock] = ???
 
-  // all the mode of aggregate expressions
-//  private val modes = aggregateExpressions.map(_.mode).distinct
-
   override def usedInputs: AttributeSet = inputSet
 
   override def supportCodegen: Boolean = {
     // ImperativeAggregate are not supported right now
     !aggregateFunctions.exists(_.isInstanceOf[ImperativeAggregate])
   }
-
-//  override def inputRDDs(): Seq[RDD[InternalRow]] = {
-//    child.asInstanceOf[PushBasedCodegen].inputRDDs()
-//  }
 
   /**
     * Generate the code for output.
@@ -181,11 +172,6 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
       val evaluateAggResults = evaluateVariables(aggResults)
       // evaluate result expressions
       ctx.currentVars = aggResults
-//      val resultVars = bindReferences(resultExpressions, aggregateAttributes).map(_.genCode(ctx))
-//      (resultVars, s"""
-//                      |$evaluateAggResults
-//                      |${evaluateVariables(resultVars)}
-//       """.stripMargin)
       (aggResults, s"$evaluateAggResults")
     }
 
@@ -226,13 +212,6 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     val boundUpdateExprs = updateExprs.map { updateExprsForOneFunc =>
       bindReferences(updateExprsForOneFunc, inputAttrs)
     }
-//    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(boundUpdateExprs.flatten)
-//    val effectiveCodes = ctx.evaluateSubExprEliminationState(subExprs.states.values)
-//    val bufferEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
-//      ctx.withSubExprEliminationExprs(subExprs.states) {
-//        boundUpdateExprsForOneFunc.map(_.genCode(ctx))
-//      }
-//    }
 
     val bufferEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
       boundUpdateExprsForOneFunc.map(_.genCode(ctx))
@@ -274,13 +253,9 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
 
     // Create a name for the iterator from the regular hash map.
     // Inline mutable state since not many aggregation operations in a task
-//    val iterTerm = ctx.addMutableState(classOf[KVIterator[UnsafeInternalRow, UnsafeInternalRow]].getName,
-//      "mapIter", forceInline = true)
     val iterClassName = classOf[java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]]].getName
     val iterTerm = ctx.addMutableState(iterClassName, "mapIter", forceInline = true)
 //    // create hashMap
-//    val hashMapClassName = classOf[UnsafeFixedWidthAggregationMap].getName
-//    hashMapTerm = ctx.addMutableState(hashMapClassName, "hashMap", forceInline = true)
     val hashMapClassName =
           classOf[java.util.LinkedHashMap[InternalRow, InternalRow]].getName + "<UnsafeInternalRow, UnsafeInternalRow>"
     hashMapTerm = ctx.addMutableState(hashMapClassName,
@@ -291,8 +266,6 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     val b: java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]] = a.entrySet().iterator()
     initialBufferTerm = ctx.addMutableState("UnsafeInternalRow", "initialBuffer",
       v => s"$v = $thisPlan.getInitialBuffer();", forceInline = true)
-//    sorterTerm = ctx.addMutableState(classOf[UnsafeKVExternalSorter].getName, "sorter",
-//      forceInline = true)
 
     val doAgg = ctx.freshName("doAggregateWithKeys")
 
@@ -352,16 +325,6 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     // all the expressions for the buffer of an aggregation function.
     val updateExprs = aggregateFunctions.map(_.asInstanceOf[DeclarativeAggregate].updateExpressions)
 
-//    val (checkFallbackForBytesToBytesMap, resetCounter, incCounter) = testFallbackStartsAt match {
-//      case Some((_, regularMapCounter)) =>
-//        val countTerm = ctx.addMutableState(CodeGenerator.JAVA_INT, "fallbackCounter")
-//        (s"$countTerm < $regularMapCounter", s"$countTerm = 0;", s"$countTerm += 1;")
-//      case _ => ("true", "", "")
-//    }
-
-//    val oomeClassName = classOf[SparkOutOfMemoryError].getName
-
-//    |int $unsafeRowKeyHash = ${unsafeRowKeyCode.value}.hashCode();
     val findOrInsertHashMap: String =
     s"""
          |// generate grouping key

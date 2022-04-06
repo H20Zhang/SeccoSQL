@@ -5,16 +5,54 @@ import org.apache.spark.secco.codegen._
 import org.apache.spark.secco.execution.storage.block.{TrieInternalBlock, TrieInternalBlockBuilder}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.{Attribute, BoundReference}
-import org.apache.spark.secco.expression.codegen.{BaseUnaryIteratorProducer, GenerateUnaryIterator}
+import org.apache.spark.secco.expression.codegen.GenerateUnaryIterator
+import org.apache.spark.secco.optimization.util.AttributeOrder
 import org.apache.spark.secco.types.{DataType, StructType}
 
 import scala.collection.mutable
 
-case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribute])
+/** Physical plan for Build Trie Block. */
+case class BuildTrieExec(child: SeccoPlan)
+  extends BuildExecPushBasedCodegen {
+
+  private var trieBuilderTerm: String = _
+
+  override protected def doProduceBulk(ctx: CodegenContext): (String, String) = {
+    val builderClassName = classOf[TrieInternalBlockBuilder].getName
+    trieBuilderTerm = ctx.addMutableState(builderClassName, "trieBuilder")
+    val blockClassName = classOf[TrieInternalBlock].getName
+    val trieBlockTerm = ctx.addMutableState(blockClassName, "trieBlock")
+    val codeStr = {
+      s"""
+         |$trieBuilderTerm = ($builderClassName) ${
+            ctx.addReferenceObj(s"HashMapBuilder",
+            new TrieInternalBlockBuilder(StructType.fromAttributes(child.output)))};
+         |${child.asInstanceOf[PushBasedCodegen].produce(ctx, this)}
+         |$trieBlockTerm = $trieBuilderTerm.build();
+         |""".stripMargin
+    }
+    (codeStr, trieBlockTerm)
+  }
+
+  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+    s"""
+       |${row.code}
+       |$trieBuilderTerm.add(${row.value}.copy());
+       |""".stripMargin
+  }
+
+  override protected def doExecute(): RDD[OldInternalBlock] = ???
+
+  override def inputRowIterators(): Seq[Iterator[InternalRow]] =
+    child.asInstanceOf[PushBasedCodegen].inputRowIterators()
+}
+
+case class LeapFrogJoinExec(children:Seq[SeccoPlan], attrOrder: AttributeOrder)
   extends PushBasedCodegen with MultipleChildrenExecNode {
 
   private val numChildren = children.length
-  private val numAttrs = outputAttrs.length
+  private lazy val repAttrs = attrOrder.repAttrOrder.order
+  private lazy val numRepAttrs = repAttrs.length
 
   var iteratorClassNames: mutable.HashMap[DataType, String] = _
   var producerClassNames: Array[String] = _
@@ -27,37 +65,35 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
 
   private var bindingTerm: String = _
 
+  override def output: Seq[Attribute] = attrOrder.order
 
   protected override def doProduce(ctx: CodegenContext): String = {
     bindingTerm = ctx.addMutableState("java.lang.Object[]",
-      "binding", v => s"$v = new java.lang.Object[${numAttrs}];", forceInline = true)
-    trieBuildersTerm = ctx.addMutableState(s"${classOf[TrieInternalBlockBuilder].getName}[]",
-      "trieBuilders", v => s"$v = new ${classOf[TrieInternalBlockBuilder].getName}[${numChildren}];",
-      forceInline = true)
+      "binding", v => s"$v = new java.lang.Object[${numRepAttrs}];", forceInline = true)
     triesTerm = ctx.addMutableState(s"${classOf[TrieInternalBlock].getName}[]",
       "trieBlocks", v => s"$v = new ${classOf[TrieInternalBlock].getName}[${numChildren}];",
       forceInline = true)
 
-    val dataTypes = outputAttrs.map(_.dataType).distinct
+    val dataTypes = repAttrs.map(_.dataType).distinct
     iteratorClassNames = new mutable.HashMap[DataType, String]
     for(dt <- dataTypes){
       val (className, classDefinition) = GenerateUnaryIterator.getUnaryIteratorCode(ctx, dt)
       iteratorClassNames(dt) = className
       ctx.addInnerClass(classDefinition)
     }
-    producerClassNames = new Array[String](numAttrs)
+    producerClassNames = new Array[String](numRepAttrs)
     for(i <- producerClassNames.indices){
-      val (className, classDefinition) = getUnaryIteratorProducerCode(ctx,  outputAttrs.slice(0, i + 1),
-        children.map(_.asInstanceOf[PushBasedCodegen].output), iteratorClassNames(outputAttrs(i).dataType))
+      val (className, classDefinition) = getUnaryIteratorProducerCode(ctx,  i,
+        children.map(_.asInstanceOf[PushBasedCodegen].output), iteratorClassNames(repAttrs(i).dataType))
       producerClassNames(i) = className
       ctx.addInnerClass(classDefinition)
     }
-    producerTerms = outputAttrs.indices.map( idx => {
+    producerTerms = repAttrs.indices.map( idx => {
       val className = producerClassNames(idx)
       ctx.addMutableState(className,
         s"unaryIterProducer_${idx}", v => s"$v = new $className();", forceInline = true)}
     )
-    unaryIterTerms = outputAttrs.zipWithIndex.map { case (attr, idx) =>
+    unaryIterTerms = repAttrs.zipWithIndex.map { case (attr, idx) =>
       val className = iteratorClassNames(attr.dataType)
       ctx.addMutableState(className, s"unaryIterProducer_${idx}", forceInline = true)
     }
@@ -65,27 +101,20 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
     val builtOnceTerm = ctx.addMutableState("boolean", "builtOnce", v => s"$v = false;")
     val loopedOnceTerm = ctx.addMutableState("boolean", "loopedOnce", v => s"$v = false;")
 
-//    ${children.zipWithIndex.map{case (child, idx) =>
-//      s"${trieBuildersTerm}[$idx] = new ${classOf[TrieInternalBlockBuilder].getName}" +
-//        s"(${ctx.addReferenceObj(s"schema $idx",
-//          StructType.fromAttributes(child.output))});"}
-    // the generated code string is as below:
+    var builtTrieTerms: Seq[String] = null
     s"""
        |System.out.println("in LeapFrogExec before children produce()");
-       |${children.zipWithIndex.map{case (child, idx) =>
-           s"${trieBuildersTerm}[$idx] = ${ctx.addReferenceObj(s"builder $idx",
-               new TrieInternalBlockBuilder(StructType.fromAttributes(child.output)))};"}
-       .mkString("\n")}
-       |${children.zipWithIndex.map{ case (child, childIdx) => {
-             ctx.setLeapFrogJoinChildIndex(childIdx)
-             val childCode = child.asInstanceOf[PushBasedCodegen].produce(ctx, this);
-             ctx.incrementCurInputIndex()
-             childCode
-         } }.mkString("\n")}
-       |System.out.println("in LeapFrogExec after children produce()");
+       |${val tupleSeq = children.map{ child =>
+            val result = child.asInstanceOf[BuildTrieExec].produceBulk(ctx, this)
+            ctx.incrementCurInputIndex()
+            result}
+         builtTrieTerms = tupleSeq.map{ case (_, term) => term }
+         tupleSeq.map{ case (codeStr, _) => codeStr}.mkString("\n")
+         }
+       |System.out.println("in LeapFrogExec after children produceBulk()");
        |if (!$builtOnceTerm){
        |  for(int i = 0; i < $numChildren; i++){
-       |      ${triesTerm}[i] = ${trieBuildersTerm}[i].build();
+       |      ${builtTrieTerms.zipWithIndex.map{ case(term, idx) => s"$triesTerm[$idx] = $term;"}.mkString("\n")}
        |  }
        |  $builtOnceTerm = true;
        |}
@@ -100,10 +129,10 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
 
   // recursive 用于生成LeapFrogJoin的while循环代码。递归函数，每个attribute对应一层调用。最内层调用consume，把row push到上层。
   private def generateLeapFrogUnaryIteratorCode(ctx: CodegenContext, idx: Int): String = {
-    if(idx < numAttrs) {
+    if(idx < numRepAttrs) {
       val curUnaryIterTerm = unaryIterTerms(idx)
       s"""
-         |${curUnaryIterTerm} = (${iteratorClassNames(outputAttrs(idx).dataType)})${producerTerms(idx)}.getIterator();
+         |${curUnaryIterTerm} = (${iteratorClassNames(repAttrs(idx).dataType)})${producerTerms(idx)}.getIterator();
          |while(${curUnaryIterTerm}.hasNext())
          |{
          |  ${bindingTerm}[${idx}] = ${curUnaryIterTerm}.next();
@@ -113,45 +142,34 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
     }
     else {
       val rowClassName = classOf[InternalRow].getName
-      val outputRowTerm = ctx.addMutableState(rowClassName, "outputRow")
+      val naturalJoinLikeRowTerm = ctx.addMutableState(rowClassName, "outputRow")
       val outputVars = {
         // creating the vars will make the parent consume add an unsafe projection.
-        ctx.INPUT_ROW = outputRowTerm
+        ctx.INPUT_ROW = naturalJoinLikeRowTerm
         ctx.currentVars = null
-        output.zipWithIndex.map { case (a, i) =>
-          BoundReference(i, a.dataType, a.nullable).genCode(ctx)
+        output.map { a =>
+          val repAttrIdxForCurAttr = repAttrs.indexOf(attrOrder.equiAttrs.attr2RepAttr(a))
+          BoundReference(repAttrIdxForCurAttr, a.dataType, a.nullable).genCode(ctx)
         }
       }
+      logInfo(s"outputVars: $outputVars")
       s"""
-        |$outputRowTerm = $rowClassName.apply($bindingTerm);
-        |${consume(ctx, outputVars = outputVars, row=outputRowTerm)}
+        |$naturalJoinLikeRowTerm = $rowClassName.apply($bindingTerm);
+        |${consume(ctx, outputVars = outputVars)}
         |""".stripMargin
     }
   }
 
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
-    val doCopy = if (needCopyResult) {
-      ".copy()"
-    } else {
-      ""
-    }
-    s"""
-       |${row.code}
-       |$trieBuildersTerm[${ctx.getLeapFrogJoinChildIndex}].add(${row.value});
-     """.stripMargin.trim
-  }
-
-  def getUnaryIteratorProducerCode(ctx: CodegenContext,
-                                   prefixAndCurAttributes: Seq[Attribute], childrenSchemas: Seq[Seq[Attribute]],
+  private def getUnaryIteratorProducerCode(ctx: CodegenContext,
+                                   curLevel: Int, childrenSchemas: Seq[Seq[Attribute]],
                                    unaryIteratorClassName: String): (String, String) = {
     val className = ctx.freshName("SpecificUnaryIteratorProducer")
 
     val relevantRelationIndicesForEachAttr: Seq[Seq[Int]] =
-      prefixAndCurAttributes.indices.map { attrIdx =>
-        val curAttr = prefixAndCurAttributes(attrIdx)
+      repAttrs.map { curAttr =>
         childrenSchemas.indices.filter { childIdx =>
-          val idx = childrenSchemas(childIdx).map(_.name).indexOf(curAttr.name)
-          idx > -1 && childrenSchemas(childIdx)(idx).dataType == curAttr.dataType
+          attrOrder.equiAttrs.repAttr2Attr(curAttr).exists{i =>
+            childrenSchemas(childIdx).contains(i)}
         }
       }
 
@@ -166,22 +184,15 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
     // 3. relevant relations for cur level
     // 4. relevant prefix attributes for each relevant relation
 
-    val prefixLength = prefixAndCurAttributes.size - 1
-    val curLevel = prefixLength
+    val prefixLength = curLevel
 
-
-    //    |    final DataType[] dataTypes = {${schema.slice(0, prefixLength).map (attr => {
-    //                                     val boxedType = CodeGenerator.boxedType(attr.dataType)
-    //                                     "DataTypes." + boxedType.substring(boxedType.lastIndexOf(".") + 1) + "Type"
-    //                                     }).mkString(", ")}};
-
-    val dt = prefixAndCurAttributes(curLevel).dataType
+    val dt = repAttrs(curLevel).dataType
     val jt = CodeGenerator.javaType(dt)
     val bt = CodeGenerator.boxedType(dt)
     val fullPt = CodeGenerator.primitiveTypeName(dt)
     val pt = fullPt.substring(fullPt.lastIndexOf(".") + 1)
 
-    val prefixSchema = prefixAndCurAttributes.slice(0, prefixLength)
+    val prefixSchema = repAttrs.slice(0, prefixLength)
     val curRelevantRelationIndices = relevantRelationIndicesForEachAttr(curLevel)
     val numRelevantRelations = curRelevantRelationIndices.length
     val prefixIndicesForEachChild = curRelevantRelationIndices.map(getPrefixIndices(curLevel, _))
@@ -233,7 +244,6 @@ case class LeapFrogJoinExec(children:Seq[SeccoPlan], outputAttrs: Array[Attribut
     */
   override protected def doExecute(): RDD[OldInternalBlock] = ???
 
-//  override def inputRowIterator(): Iterator[InternalRow] = ???
   override def inputRowIterators(): Seq[Iterator[InternalRow]] = {
     println("in LeapFrogExec.inputRowIterators()")
     children.flatMap(_.asInstanceOf[PushBasedCodegen].inputRowIterators())

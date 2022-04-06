@@ -69,14 +69,14 @@ class CodegenContext {
 
   import CodeGenerator._
 
+//  private var leapFrogJoinChildIndex: Int = _
+  //
+  //  def getLeapFrogJoinChildIndex: Int = leapFrogJoinChildIndex
+  //
+  //  def setLeapFrogJoinChildIndex(idx: Int): Unit = {leapFrogJoinChildIndex = idx}
+
   /** Added by lgh
     */
-  private var leapFrogJoinChildIndex: Int = _
-
-  def getLeapFrogJoinChildIndex: Int = leapFrogJoinChildIndex
-
-  def setLeapFrogJoinChildIndex(idx: Int): Unit = {leapFrogJoinChildIndex = idx}
-
   private var curInputIndex: Int = 0
 
   def getCurInputIndex: Int = curInputIndex

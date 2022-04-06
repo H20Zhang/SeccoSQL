@@ -1,30 +1,35 @@
 package unit.execution
 
-import org.apache.spark.secco.execution._
-import org.apache.spark.secco.execution.plan.computation.newIter.TableIterator
+import org.apache.spark.secco.execution.{BlockInputExec, BuildTrieExec, LeapFrogJoinExec, PushBasedCodegenExec}
 import org.apache.spark.secco.execution.storage.block._
 import org.apache.spark.secco.execution.storage.row._
 import org.apache.spark.secco.expression._
+import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.optimization.util.{AttributeOrder, EquiAttributes}
 import org.apache.spark.secco.types._
-import org.scalatest._
+import org.apache.spark.secco.util.misc.LogAble
+import org.scalatest.{BeforeAndAfter, FunSuite}
 
+import scala.collection.mutable.ArrayBuffer
 
-class BasicExecSuite extends FunSuite with BeforeAndAfter {
+class LeapFrogJoinExecSuite extends FunSuite with BeforeAndAfter with LogAble {
 
-  var schema: Seq[Attribute] = _
+  var resultIterList: List[Iterator[InternalRow]] = List.empty
+
+  var count = 0
+  var attrOrder: AttributeOrder = _
+  //  var schema: Seq[Attribute] = _
   var childrenSchemas: Seq[Seq[Attribute]] = _
   var blocks: Array[InternalBlock] = _
-  var tableIters: Seq[TableIterator] = _
-  var inputExecs: Seq[BlockInputExec] = _
-  var resultIterList: List[Iterator[InternalRow]] = List.empty
+  var buildTrieExecs: Array[BuildTrieExec] = _
 
   before {
     val names = Seq("name", "id", "price", "gender", "weight")
     val types = Seq(StringType, IntegerType, DoubleType, BooleanType, FloatType)
 
-    schema = names.zip(types).map {
-      case (name, dataType) => AttributeReference(name, dataType)().asInstanceOf[Attribute]
-    }
+    //    schema = names.zip(types).map {
+    //      case (name, dataType) => AttributeReference(name, dataType)().asInstanceOf[Attribute]
+    //    }
 
     val childrenSchemaIndices: Seq[Seq[Int]] = Seq(
       Seq(0, 1, 2, 3, 4),
@@ -36,9 +41,37 @@ class BasicExecSuite extends FunSuite with BeforeAndAfter {
       Seq(2, 3)
     )
 
+    def getCount = {
+      count += 1
+      count
+    }
+
     childrenSchemas = childrenSchemaIndices.map(_.map {
-      idx => schema(idx)
+      idx => AttributeReference(s"${names(idx)}_${getCount}", types(idx))().asInstanceOf[Attribute]
     })
+
+    val mapItem = childrenSchemaIndices.zipWithIndex.flatMap{
+      case(seq, 0) => seq.map{idx => (childrenSchemas.head(idx), childrenSchemas.head(idx))}
+      case(seq, seqIdx) => seq.zipWithIndex.map {
+        case(seqElem, seqElemIdx) => (childrenSchemas(seqIdx)(seqElemIdx) , childrenSchemas.head(seqElem))
+      }
+    }
+    logInfo(s"mapItem: $mapItem")
+    val attributeMap = AttributeMap(mapItem)
+
+    val equiAttributes = new EquiAttributes(attributeMap)
+    val arrayBuffer = ArrayBuffer[Attribute]()
+    for (attrIdx <- childrenSchemaIndices.head){
+      arrayBuffer.append(childrenSchemas.head(attrIdx))
+      for (i <- 1 until childrenSchemaIndices.length){
+        val index = childrenSchemaIndices(i).indexOf(attrIdx)
+        if (index > -1){
+          arrayBuffer.append(childrenSchemas(i)(index))
+        }
+      }
+    }
+    val orderArray = arrayBuffer.toArray
+    attrOrder = AttributeOrder(equiAttributes, orderArray)
 
     val childrenStructTypes: Seq[StructType] = childrenSchemas.map {
       attrSeq =>
@@ -110,67 +143,23 @@ class BasicExecSuite extends FunSuite with BeforeAndAfter {
     ), childrenStructTypes(6))
 
     blocks = Array(child0, child1, child2, child3, child4, child5, child6)
-    tableIters = blocks.zipWithIndex.flatMap {
-//            case (block, 0) => None
-      //      case (block, 3) => None
-      case (block, idx) => Seq(TableIterator(block, childrenSchemas(idx).toArray, isSorted = false))
-//      case (block, idx) if(idx < 4) => Seq(TableIterator(block, childrenSchemas(idx).toArray, isSorted = false))
-      case _ => None
-    }
-    inputExecs = blocks.zipWithIndex.flatMap {
-//            case (block, 0) => None
-      //      case (block, 3) => None
-      case (block, idx) => Seq(BlockInputExec(childrenSchemas(idx), block))
-//      case (block, idx) if(idx < 4) => Seq(BlockInputExec(childrenSchemas(idx), block))
-      case _ => None
+    buildTrieExecs = blocks.zipWithIndex.flatMap {
+      //      case (block, 0) => None
+      case (block, 3) => None
+      case (block, idx) => {
+        val inputExec = BlockInputExec(childrenSchemas(idx), block)
+        Seq(BuildTrieExec(inputExec))
+      }
     }
 
-    println("the begin part finished! ")
   }
 
-  test("BlockInputExec"){
-    val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-    val pushBasedCodegenExec = PushBasedCodegenExec(inputExec)(0)
+  test("test_LeapFrogJoinExec"){
+    val leapFrogJoinExec  = LeapFrogJoinExec(buildTrieExecs, attrOrder)
+    val pushBasedCodegenExec = PushBasedCodegenExec(leapFrogJoinExec)(0)
+    println("in test, before executeWithCodeGen()")
     resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
   }
-
-//  test("LeapFrogJoinExec"){
-//    val leapFrogJoinExec = LeapFrogJoinExec(inputExecs, schema.xtoArray)
-//    val pushBasedCodegenExec = PushBasedCodegenExec(leapFrogJoinExec)(0)
-//    println("in test, before executeWithCodeGen()")
-//    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-//  }
-
-  test("FilterExec"){
-    for(intVal <- Seq(1,2)) {
-      val condition = EqualTo(childrenSchemas.head(1), Literal(intVal))
-      val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-      val filterExec = FilterExec(condition: Expression, inputExec)
-      val pushBasedCodegenExec = PushBasedCodegenExec(filterExec)(0)
-      resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-    }
-  }
-
-  test("ProjectExec"){
-    val projectSeq = (childrenSchemas.head(0) :: Nil) :+ childrenSchemas.head(2)
-    val inputExec = BlockInputExec(childrenSchemas.head, blocks.head)
-    val projectExec = ProjectExec(projectSeq, inputExec)
-    val pushBasedCodegenExec = PushBasedCodegenExec(projectExec)(0)
-    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-  }
-
-//  test("HashJoinExec"){
-//    val leftInput = BlockInputExec(childrenSchemas(2), blocks(2))
-//    val rightInput = BlockInputExec(childrenSchemas(1), blocks(1))
-//    val leftKeys = Seq(childrenSchemas(2)(1))
-//    val rightKeys = Seq(childrenSchemas(1)(1))
-//    println("in test, before HashJoinExecExec")
-//    val hashJoinExec = HashJoinExec(leftInput, rightInput, leftKeys, None)
-//    println("in test, before PushBasedCodegenExec")
-//    val pushBasedCodegenExec = PushBasedCodegenExec(hashJoinExec)(0)
-//    println("in test, before executeWithCodeGen()")
-//    resultIterList = resultIterList :+ pushBasedCodegenExec.executeWithCodeGen()
-//  }
 
   after{
     var count = 0
@@ -185,4 +174,6 @@ class BasicExecSuite extends FunSuite with BeforeAndAfter {
       count += 1
     }
   }
+
+
 }

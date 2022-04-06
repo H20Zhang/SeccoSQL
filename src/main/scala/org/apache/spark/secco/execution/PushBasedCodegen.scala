@@ -16,15 +16,7 @@ trait PushBasedCodegen extends SeccoPlan {
 
 //  def variablePrefix: String
   //  /** Prefix used in the current operator's variable names. */
-    private def variablePrefix: String = this match {
-//    case _: HashAggregateExec => "agg"
-//    case _: BroadcastHashJoinExec => "bhj"
-//    case _: ShuffledHashJoinExec => "shj"
-//    case _: SortMergeJoinExec => "smj"
-//    case _: BroadcastNestedLoopJoinExec => "bnlj"
-//    case _: RDDScanExec => "rdd"
-//    case _: DataSourceScanExec => "scan"
-//    case _: InMemoryTableScanExec => "memoryScan"
+    protected def variablePrefix: String = this match {
     case _: PushBasedCodegenExec => "wholestagecodegen"
     case _ => nodeName.toLowerCase(Locale.ROOT)
   }
@@ -89,7 +81,7 @@ trait PushBasedCodegen extends SeccoPlan {
         ctx.INPUT_ROW = row
         ctx.currentVars = colVars
         val ev = GenerateUnsafeProjection.createCode(ctx, colExprs, false)
-//       lgh: finished: Import GenerateUnsafeProjection to our project.
+        // lgh: finished: Import GenerateUnsafeProjection to our project.
         val code = code"""
                          |$evaluateInputs
                          |${ev.code}
@@ -259,6 +251,33 @@ trait PushBasedCodegen extends SeccoPlan {
   } else {
     "// shouldStop check is eliminated"
   }
+}
+
+trait BuildExecPushBasedCodegen extends UnaryExecNode with PushBasedCodegen {
+
+  override def output: Seq[Attribute] = child.output
+
+  override def doProduce(ctx: CodegenContext): String = {
+    throw new UnsupportedOperationException
+  }
+  /**
+    * Returns Java source code to process the rows from input,
+    * and the variable term that stores the result.
+    */
+  final def produceBulk(ctx: CodegenContext, parent: PushBasedCodegen): (String, String) = {
+    this.parent = parent
+    ctx.freshNamePrefix = variablePrefix
+    var resultTerm: String = null
+    val codeStr =
+    s"""
+       |${ctx.registerComment(s"PRODUCE_BULK: ${this.simpleString}")}
+       |${val (codeStrInner, resultTermInner) = doProduceBulk(ctx); resultTerm = resultTermInner; codeStrInner}
+     """.stripMargin
+    (codeStr, resultTerm)
+  }
+
+  protected def doProduceBulk(context: CodegenContext): (String, String)
+
 }
 
 

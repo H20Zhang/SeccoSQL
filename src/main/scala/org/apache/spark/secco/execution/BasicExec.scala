@@ -8,10 +8,9 @@ import org.apache.spark.secco.execution.storage.block.InternalBlock
 import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
 import org.apache.spark.secco.expression.BindReferences.bindReferences
 import org.apache.spark.secco.expression._
-import org.apache.spark.secco.expression.codegen._
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.types.StructType
-//import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight}
+import org.apache.spark.secco.util.misc.LogAble
 
 import scala.collection.mutable
 
@@ -20,7 +19,7 @@ import scala.collection.mutable
   * Leaf codegen node reading from a single table.
   */
 case class BlockInputExec(override val output: Seq[Attribute],
-                          block: InternalBlock) extends PushBasedCodegen with LeafExecNode {
+                          block: InternalBlock) extends PushBasedCodegen with LeafExecNode with LogAble{
 
   // If the input can be InternalRows, an UnsafeProjection needs to be created.
   private val createUnsafeProjection: Boolean = false
@@ -29,34 +28,20 @@ case class BlockInputExec(override val output: Seq[Attribute],
     if (block.isEmpty()) {
       Iterator.empty
     } else {
-//      println("in unsafeRowIterator: before generate")
-//      val proj = GenerateUnsafeProjection.generate(output, output)
-//      println("in unsafeRowIterator: after generate")
       val rowArray = block.toArray()
-      println("in unsafeRowIterator: after rowArray")
-//      val resultRowArray = rowArray.map(r => proj(r).copy())
+      logTrace("in unsafeRowIterator: after rowArray")
       val resultRowArray = rowArray.map(r => UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(output), r))
-      println("in unsafeRowIterator: after resultRowArray")
+      logTrace("in unsafeRowIterator: after resultRowArray")
       resultRowArray.iterator
     }
   }
-//  private lazy val rowIterator: Iterator[InternalRow] = {
-//    if (block.isEmpty()) {
-//      Iterator.empty
-//    } else {
-//      val proj = GenerateUnsafeProjection.generate(output, output)
-//      block.toArray().iterator
-//    }
-//  }
 
-//  override def inputRowIterator(): Iterator[InternalRow] = unsafeRowIterator
   override def inputRowIterators(): Seq[Iterator[InternalRow]] = {
-    println("in BlockInputExec.inputRowIterators(), before unsafeRowIterator")
+    logTrace("in BlockInputExec.inputRowIterators(), before unsafeRowIterator")
     val out = Seq(unsafeRowIterator)
-    println("in BlockInputExec.inputRowIterators(), after unsafeRowIterator")
+    logTrace("in BlockInputExec.inputRowIterators(), after unsafeRowIterator")
     out
   }
-//  override def inputRowIterators(): Seq[Iterator[InternalRow]] = rowIterator :: Nil
 
   override def doProduce(ctx: CodegenContext): String = {
     // Inline mutable state since an InputRDDCodegen is used once in a task for WholeStageCodegen
@@ -243,14 +228,6 @@ case class FilterExec(condition: Expression, child: SeccoPlan)
   //  |  $numOutput.add(1);
 
   protected override def doExecute(): RDD[OldInternalBlock] = ???
-//  protected override def doExecute(): RDD[InternalRow] = {
-////    val numOutputRows = longMetric("numOutputRows")
-//    child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
-//      val predicate = GeneratePredicate.generate(condition, child.output)
-//      predicate.initialize(0)
-//      iter.filter { row => predicate.eval(row)}
-//    }
-//  }
 
   def verboseStringWithOperatorId(): String = {
     s"""
@@ -263,259 +240,8 @@ case class FilterExec(condition: Expression, child: SeccoPlan)
   protected def withNewChildInternal(newChild: SeccoPlan): FilterExec =
     copy(child = newChild)
 
-//  override def inputRowIterator(): Iterator[InternalRow] = child.asInstanceOf[PushBasedCodegen].inputRowIterator()
   override def inputRowIterators(): Seq[Iterator[InternalRow]] =
     child.asInstanceOf[PushBasedCodegen].inputRowIterators()
-}
-
-sealed abstract class BuildSide
-
-case object BuildRight extends BuildSide
-
-case object BuildLeft extends BuildSide
-//
-///**
-//  * @param relationTerm variable name for HashedRelation
-//  * @param keyIsUnique  indicate whether keys of HashedRelation known to be unique in code-gen time
-//  * @param isEmpty indicate whether it known to be EmptyHashedRelation in code-gen time
-//  */
-//private[execution] case class HashedRelationInfo(
-//                                              relationTerm: String,
-//                                              keyIsUnique: Boolean,
-//                                              isEmpty: Boolean)
-
-/** Physical plan for Hash Join. */
-case class HashJoinExec(
-  left: SeccoPlan,
-  //    right: BaseBuildIndexIterator,
-  right: SeccoPlan,
-  leftKeys: Seq[Expression],
-  rightKeys: Seq[Expression],
-  joinCondition: Option[Expression]
-  )
-  extends BinaryExecNode
-    with PushBasedCodegen {
-
-  var thisPlan: String = _
-  var relationTerm: String = _
-  var keyIsUnique: Boolean = false
-  var isEmptyHashedRelation: Boolean = false
-
-  def buildSide: BuildSide = BuildLeft
-
-  protected lazy val (buildPlan, streamedPlan) = buildSide match {
-    case BuildLeft => (left, right)
-    case BuildRight => (right, left)
-  }
-
-  protected lazy val (buildKeys, streamedKeys) = {
-    require(leftKeys.length == rightKeys.length &&
-      leftKeys.map(_.dataType)
-        .zip(rightKeys.map(_.dataType))
-        .forall(types => types._1.sameType(types._2)),
-      "Join keys from two sides should have same length and types")
-    buildSide match {
-      case BuildLeft => (leftKeys, rightKeys)
-      case BuildRight => (rightKeys, leftKeys)
-    }
-  }
-
-  @transient protected lazy val (buildOutput, streamedOutput) = {
-    buildSide match {
-      case BuildLeft => (left.output, right.output)
-      case BuildRight => (right.output, left.output)
-    }
-  }
-
-  @transient protected lazy val buildBoundKeys: Seq[Expression] =
-    bindReferences(buildKeys, buildOutput)
-
-  @transient protected lazy val streamedBoundKeys: Seq[Expression] =
-    bindReferences(streamedKeys, streamedOutput)
-
-  override def output: Seq[Attribute] = left.output ++ right.output
-
-  /**
-    * Generates the code for variables of one child side of join.
-    */
-  protected def genOneSideJoinVars(
-                                    ctx: CodegenContext,
-                                    row: String,
-                                    plan: SeccoPlan,
-                                    setDefaultValue: Boolean): Seq[ExprCode] = {
-    ctx.currentVars = null
-    ctx.INPUT_ROW = row
-    plan.output.zipWithIndex.map { case (a, i) =>
-      val ev = BoundReference(i, a.dataType, a.nullable).genCode(ctx)
-      if (setDefaultValue) {
-        // the variables are needed even there is no matched rows
-        val isNull = ctx.freshName("isNull")
-        val value = ctx.freshName("value")
-        val javaType = CodeGenerator.javaType(a.dataType)
-        val code = code"""
-                         |boolean $isNull = true;
-                         |$javaType $value = ${CodeGenerator.defaultValue(a.dataType)};
-                         |if ($row != null) {
-                         |  ${ev.code}
-                         |  $isNull = ${ev.isNull};
-                         |  $value = ${ev.value};
-                         |}
-          """.stripMargin
-        ExprCode(code, JavaCode.isNullVariable(isNull), JavaCode.variable(value, a.dataType))
-      } else {
-        ev
-      }
-    }
-  }
-
-  /**
-    * Generate the (non-equi) condition used to filter joined rows.
-    * This is used in Inner, Left Semi, Left Anti and Full Outer joins.
-    *
-    * @return Tuple of variable name for row of build side, generated code for condition,
-    *         and generated code for variables of build side.
-    */
-  protected def getJoinCondition(
-                                  ctx: CodegenContext,
-                                  streamVars: Seq[ExprCode],
-                                  streamPlan: SeccoPlan,
-                                  buildPlan: SeccoPlan,
-                                  buildRow: Option[String] = None): (String, String, Seq[ExprCode]) = {
-    val buildSideRow = buildRow.getOrElse(ctx.freshName("buildRow"))
-    val buildVars = genOneSideJoinVars(ctx, buildSideRow, buildPlan, setDefaultValue = false)
-    val checkCondition = if (joinCondition.isDefined) {
-      val expr = joinCondition.get
-      // evaluate the variables from build side that used by condition
-      val eval = evaluateRequiredVariables(buildPlan.output, buildVars, expr.references)
-
-      // filter the output via condition
-      ctx.currentVars = streamVars ++ buildVars
-      val ev =
-        BindReferences.bindReference(expr, streamPlan.output ++ buildPlan.output).genCode(ctx)
-      val skipRow = s"${ev.isNull} || !${ev.value}"
-      s"""
-         |$eval
-         |${ev.code}
-         |if (!($skipRow))
-       """.stripMargin
-    } else {
-      ""
-    }
-    (buildSideRow, checkCondition, buildVars)
-  }
-
-  protected override def doProduce(ctx: CodegenContext): String = {
-    thisPlan = ctx.addReferenceObj("plan", this)
-    val clsName = classOf[HashedRelation].getName
-
-    // Inline mutable state since not many join operations in a task
-    relationTerm = ctx.addMutableState(clsName, "relation",
-      v => s"$v = $thisPlan.buildHashedRelation(inputs[${ctx.getCurInputIndex}]);", forceInline = true)
-    ctx.incrementCurInputIndex()
-    streamedPlan.asInstanceOf[PushBasedCodegen].produce(ctx, this)
-  }
-
-  /**
-    * This is called by generated Java class, should be public.
-    */
-  def buildHashedRelation(iter: Iterator[InternalRow]): HashedRelation = HashedRelation(iter, buildBoundKeys)
-
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
-
-    // generate the join key as UnsafeInternalRow
-    ctx.currentVars = input
-    val ev = GenerateUnsafeProjection.createCode(ctx, streamedBoundKeys)
-    val (keyEv, anyNull) = (ev, s"${ev.value}.anyNull()")
-
-    val (matched, checkCondition, buildVars) = getJoinCondition(ctx, input, streamedPlan, buildPlan)
-
-    val resultVars = buildSide match {
-      case BuildLeft => buildVars ++ input
-      case BuildRight => input ++ buildVars
-    }
-
-
-    if (isEmptyHashedRelation) {
-      """
-        |// If HashedRelation is empty, hash inner join simply returns nothing.
-      """.stripMargin
-    } else if (keyIsUnique) {
-      s"""
-         |// generate join key for stream side
-         |${keyEv.code}
-         |// find matches from HashedRelation
-         |UnsafeInternalRow $matched = $anyNull ? null: (UnsafeInternalRow)$relationTerm.getValue(${keyEv.value});
-         |System.out.println("$relationTerm: " + ${relationTerm}.toString());
-         |if ($matched != null) {
-         |  $checkCondition {
-         |    System.out.println("find a match: " + $matched);
-         |    ${consume(ctx, resultVars)}
-         |  }
-         |}
-       """.stripMargin
-//      |    $numOutput.add(1);
-    } else {
-      val matches = ctx.freshName("matches")
-      val iteratorCls = classOf[Iterator[UnsafeInternalRow]].getName
-
-      s"""
-         |// generate join key for stream side
-         |${keyEv.code}
-         |// find matches from HashRelation
-         |$iteratorCls $matches = $anyNull ?
-         |  null : ($iteratorCls)$relationTerm.get(${keyEv.value});
-         |System.out.println("$relationTerm: " + ${relationTerm}.toString());
-         |if ($matches != null) {
-         |  System.out.println("find matches, matches.hasNext(): " + $matches.hasNext());
-         |  while ($matches.hasNext()) {
-         |    UnsafeInternalRow $matched = (UnsafeInternalRow) $matches.next();
-         |    $checkCondition {
-         |    System.out.println("find a match: " + $matched);
-         |      ${consume(ctx, resultVars)}
-         |    }
-         |  }
-         |}
-       """.stripMargin
-//      |      $numOutput.add(1);
-    }
-  }
-
-  protected override def doExecute(): RDD[OldInternalBlock] = ???
-//  protected override def doExecute(): RDD[InternalRow] = {
-//    child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
-//      val project = UnsafeProjection.create(projectList, child.output)
-//      project.initialize(index)
-//      iter.map(project)
-//    }
-//  }
-
-  def verboseStringWithOperatorId(): String = {
-    val joinCondStr = if (joinCondition.isDefined) {
-      s"${joinCondition.get}"
-    } else "None"
-    if (leftKeys.nonEmpty || rightKeys.nonEmpty) {
-      s"""
-         |$nodeName
-         |${ExplainUtils.generateFieldString("Left keys", leftKeys)}
-         |${ExplainUtils.generateFieldString("Right keys", rightKeys)}
-         |${ExplainUtils.generateFieldString("Join condition", joinCondStr)}
-         |""".stripMargin
-    } else {
-      s"""
-         |$nodeName
-         |${ExplainUtils.generateFieldString("Join condition", joinCondStr)}
-         |""".stripMargin
-    }
-  }
-
-  protected def withNewChildrenInternal(newLeft: SeccoPlan, newRight: SeccoPlan): HashJoinExec =
-    copy(left = newLeft, right = newRight)
-
-//  override def inputRowIterator(): Iterator[InternalRow] =
-//    streamedPlan.asInstanceOf[PushBasedCodegen].inputRowIterator()
-  override def inputRowIterators(): Seq[Iterator[InternalRow]] =
-    buildPlan.asInstanceOf[PushBasedCodegen].inputRowIterators() ++
-      streamedPlan.asInstanceOf[PushBasedCodegen].inputRowIterators()
 }
 
 /** Physical plan for Project. */
@@ -552,13 +278,6 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SeccoPlan)
   }
 
   protected override def doExecute(): RDD[OldInternalBlock] = ???
-  //  protected override def doExecute(): RDD[InternalRow] = {
-  //    child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
-  //      val project = UnsafeProjection.create(projectList, child.output)
-  //      project.initialize(index)
-  //      iter.map(project)
-  //    }
-  //  }
 
   def verboseStringWithOperatorId(): String = {
     s"""
@@ -571,7 +290,6 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SeccoPlan)
   protected def withNewChildInternal(newChild: SeccoPlan): ProjectExec =
     copy(child = newChild)
 
-//  override def inputRowIterator(): Iterator[InternalRow] = child.asInstanceOf[PushBasedCodegen].inputRowIterator()
   override def inputRowIterators(): Seq[Iterator[InternalRow]] =
     child.asInstanceOf[PushBasedCodegen].inputRowIterators()
 }
