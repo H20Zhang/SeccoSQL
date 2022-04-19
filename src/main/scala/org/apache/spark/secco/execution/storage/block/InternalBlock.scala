@@ -1,7 +1,10 @@
 package org.apache.spark.secco.execution.storage.block
 
 import org.apache.spark.Partitioner
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{
+  GenericInternalRow,
+  InternalRow
+}
 import org.apache.spark.secco.types.StructType
 
 import scala.reflect.ClassTag
@@ -98,8 +101,21 @@ abstract class InternalBlock {
   /** Convert the InternalBlock to array of [[InternalRow]] */
   def toArray(): Array[InternalRow]
 
-  override def toString: String =
-    toArray().map(_.toString).mkString("[", ";\n", "]")
+  /** Convert to human readable string */
+  def verboseString(isHumanReadable: Boolean = true): String = {
+
+    if (isHumanReadable) {
+      toArray()
+        .map(f => new GenericInternalRow(f.toSeq(schema).toArray))
+        .mkString("{", ",", "}")
+    } else {
+      toArray().map(_.toString).mkString("[", ";\n", "]")
+    }
+
+  }
+
+  override def toString: String = verboseString()
+
 }
 
 object InternalBlock {
@@ -116,7 +132,7 @@ object InternalBlock {
   /** This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
     */
   def fromSeq(rows: Seq[InternalRow], schema: StructType): InternalBlock =
-    UnsafeInternalBlock(rows.toArray, schema)
+    UnsafeInternalRowBlock(rows.toArray, schema)
 
   /** Returns an empty [[InternalRow]]. */
   val empty = apply(Array.empty[InternalRow], new StructType)

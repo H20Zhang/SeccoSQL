@@ -1,10 +1,20 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
 
 import org.apache.spark.secco.execution.storage.Utils
-import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock}
+import org.apache.spark.secco.execution.storage.block.{
+  GenericInternalRowBlock,
+  InternalBlock
+}
 import org.apache.spark.secco.execution.storage.row.InternalRow
-import org.apache.spark.secco.expression.{Attribute, AttributeReference, Expression}
-import org.apache.spark.secco.expression.codegen.{GeneratePredicate, PredicateFunc}
+import org.apache.spark.secco.expression.{
+  Attribute,
+  AttributeReference,
+  Expression
+}
+import org.apache.spark.secco.expression.codegen.{
+  GeneratePredicate,
+  PredicateFunc
+}
 import org.apache.spark.secco.types.{StructField, StructType}
 
 import scala.collection.mutable.ArrayBuffer
@@ -27,9 +37,11 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
   private var hasNextCacheValid = false
   private var hasNextCache: Boolean = _
 
-  override lazy val filterFunc: PredicateFunc = GeneratePredicate.generate(condition, childIter.localAttributeOrder())
+  override lazy val filterFunc: PredicateFunc =
+    GeneratePredicate.generate(condition, childIter.localAttributeOrder())
 
-  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
+  override def localAttributeOrder(): Array[Attribute] =
+    childIter.localAttributeOrder()
 
   override def isSorted(): Boolean = childIter.isSorted()
 
@@ -44,11 +56,11 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
 //      localAttributeOrder().map(_.asInstanceOf[AttributeReference]).map(i => StructField(i.name, i.dataType))
 //    }
 //    val schema = StructType(structFieldsArray)
-    for (row <- childIter.results().toArray()){
-      if(filterFunc.eval(row)) rowArrayBuffer += row
+    for (row <- childIter.results().toArray()) {
+      if (filterFunc.eval(row)) rowArrayBuffer += row
     }
     val schema = StructType.fromAttributes(localAttributeOrder())
-    GenericInternalBlock(rowArrayBuffer.toArray, schema)
+    GenericInternalRowBlock(rowArrayBuffer.toArray, schema)
   }
 
 //  def row_equal(a: InternalRow, b: InternalRow): Boolean = {
@@ -56,10 +68,9 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
 //  }
 
   override def hasNext: Boolean = {
-    if(!hasNextCacheValid)
-    {
+    if (!hasNextCacheValid) {
       var evalResult = false
-      while(!evalResult && childIter.hasNext){
+      while (!evalResult && childIter.hasNext) {
         row = childIter.next()
         evalResult = filterFunc.eval(row)
       }
@@ -70,9 +81,8 @@ case class SelectIterator(childIter: SeccoIterator, condition: Expression)
   }
 
   override def next(): InternalRow = {
-    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
-    else
-    {
+    if (!hasNext) throw new NoSuchElementException("next on empty iterator")
+    else {
       hasNextCacheValid = false
       row
     }
@@ -95,10 +105,11 @@ case class IndexableSelectIterator(
   private var hasNextCacheValid = false
   private var hasNextCache: Boolean = _
 
-  override def filterFunc(): PredicateFunc = GeneratePredicate.generate(condition)
+  override def filterFunc(): PredicateFunc =
+    GeneratePredicate.generate(condition)
 
   override def setKey(key: InternalRow): Boolean = {
-    if(childIter.setKey(key))
+    if (childIter.setKey(key))
       filterFunc().eval(childIter.getOneRow(key).get)
     else
       false
@@ -109,8 +120,8 @@ case class IndexableSelectIterator(
 //    var result: Option[InternalRow] = None
     var evalResult = false
     val childRow = childIter.getOneRow(key)
-    if(childRow.isDefined) evalResult = filterFunc().eval(childRow.get)
-    if(evalResult) childRow else None
+    if (childRow.isDefined) evalResult = filterFunc().eval(childRow.get)
+    if (evalResult) childRow else None
 //    while(!evalResult && childRow.isDefined){
 //      childRow = childIter.getOneRow(key)
 //      if(childRow.isDefined) evalResult = filterFunc().eval(childRow.get)
@@ -121,11 +132,12 @@ case class IndexableSelectIterator(
   override def unsafeGetOneRow(key: InternalRow): InternalRow = {
     var evalResult = false
     val childRow = childIter.getOneRow(key)
-    if(childRow.isDefined) evalResult = filterFunc().eval(childRow.get)
-    if(evalResult) childRow.get else null
+    if (childRow.isDefined) evalResult = filterFunc().eval(childRow.get)
+    if (evalResult) childRow.get else null
   }
 
-  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
+  override def localAttributeOrder(): Array[Attribute] =
+    childIter.localAttributeOrder()
 
   override def isSorted(): Boolean = childIter.isSorted()
 
@@ -142,17 +154,16 @@ case class IndexableSelectIterator(
 //    GenericInternalBlock(rowArrayBuffer.toArray, schema)
     val schema = StructType.fromAttributes(localAttributeOrder())
     val rowArrayBuffer = ArrayBuffer[InternalRow]()
-    for(row <- childIter.results().toArray()){
-      if(filterFunc().eval(row)) rowArrayBuffer += row
+    for (row <- childIter.results().toArray()) {
+      if (filterFunc().eval(row)) rowArrayBuffer += row
     }
     InternalBlock(rowArrayBuffer.toArray, schema)
   }
 
   override def hasNext: Boolean = {
-    if(!hasNextCacheValid)
-    {
+    if (!hasNextCacheValid) {
       var evalResult = false
-      while(!evalResult && childIter.hasNext){
+      while (!evalResult && childIter.hasNext) {
         row = childIter.next()
         evalResult = filterFunc().eval(row)
       }
@@ -163,9 +174,8 @@ case class IndexableSelectIterator(
   }
 
   override def next(): InternalRow = {
-    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
-    else
-    {
+    if (!hasNext) throw new NoSuchElementException("next on empty iterator")
+    else {
       hasNextCacheValid = false
       row
     }

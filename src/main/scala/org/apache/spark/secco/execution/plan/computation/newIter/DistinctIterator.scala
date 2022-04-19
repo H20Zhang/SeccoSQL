@@ -1,6 +1,13 @@
 package org.apache.spark.secco.execution.plan.computation.newIter
-import org.apache.spark.secco.execution.storage.block.{GenericInternalBlock, InternalBlock, UnsafeInternalBlock}
-import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
+import org.apache.spark.secco.execution.storage.block.{
+  GenericInternalRowBlock,
+  InternalBlock,
+  UnsafeInternalRowBlock
+}
+import org.apache.spark.secco.execution.storage.row.{
+  InternalRow,
+  UnsafeInternalRow
+}
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.execution.storage.Utils.InternalRowComparator
 import org.apache.spark.secco.types.StructType
@@ -22,27 +29,29 @@ case class DistinctIterator(childIter: SeccoIterator)
   private var hasNextCache: Boolean = _
   private var hasNextCacheValid = false
 
-  private val schema: StructType =  StructType.fromAttributes(localAttributeOrder())
+  private val schema: StructType =
+    StructType.fromAttributes(localAttributeOrder())
 
   private val comparator = new InternalRowComparator(schema)
 
-  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
+  override def localAttributeOrder(): Array[Attribute] =
+    childIter.localAttributeOrder()
 
   // lgh if childerIter.isSorted() == false, we will sort the rows in the method results()
 //  override def isSorted(): Boolean = childIter.isSorted()
   override def isSorted(): Boolean = true
 
-  override def isBreakPoint(): Boolean = ! childIter.isSorted()
+  override def isBreakPoint(): Boolean = !childIter.isSorted()
 
   override def results(): InternalBlock = {
     val rowArrayBuffer = ArrayBuffer[InternalRow]()
     val rows = childIter.results().toArray()
     java.util.Arrays.sort(rows, comparator)
     val rowIter = rows.toIterator
-    if(!rowIter.hasNext) return InternalBlock(Array(), schema)
+    if (!rowIter.hasNext) return InternalBlock(Array(), schema)
     var rowTemp1 = rowIter.next()
     rowArrayBuffer += rowTemp1.copy()
-    while(rowIter.hasNext){
+    while (rowIter.hasNext) {
       val rowTemp2 = rowIter.next()
       val encounterNewRow = comparator.compare(rowTemp2, rowTemp1) != 0
       if (encounterNewRow) {
@@ -56,18 +65,17 @@ case class DistinctIterator(childIter: SeccoIterator)
   override def children: Seq[SeccoIterator] = childIter :: Nil
 
   override def hasNext: Boolean = {
-    if(isBreakPoint())  throw new NoSuchMethodException()
-    if(!hasNextCacheValid)
-    {
-      if(!rowCacheAssignedOnce && childIter.hasNext) {
-        rowCache=childIter.next()
+    if (isBreakPoint()) throw new NoSuchMethodException()
+    if (!hasNextCacheValid) {
+      if (!rowCacheAssignedOnce && childIter.hasNext) {
+        rowCache = childIter.next()
         rowCacheAssignedOnce = true
         hasNextCache = true
         hasNextCacheValid = true
         return true
       }
       var encounterNewRow = false
-      while(!encounterNewRow && childIter.hasNext){
+      while (!encounterNewRow && childIter.hasNext) {
         val row_temp = childIter.next()
         encounterNewRow = comparator.compare(row_temp, rowCache) != 0
         if (encounterNewRow)
@@ -81,10 +89,9 @@ case class DistinctIterator(childIter: SeccoIterator)
   }
 
   override def next(): InternalRow = {
-    if(isBreakPoint())  throw new NoSuchMethodException()
-    if(!hasNext) throw new NoSuchElementException("next on empty iterator")
-    else
-    {
+    if (isBreakPoint()) throw new NoSuchMethodException()
+    if (!hasNext) throw new NoSuchElementException("next on empty iterator")
+    else {
       hasNextCacheValid = false
       UnsafeInternalRow.fromInternalRow(schema, rowCache)
     }
@@ -100,25 +107,27 @@ case class IndexableDistinctIterator(
 
   override def setKey(key: InternalRow): Boolean = childIter.setKey(key)
 
-  override def getOneRow(key: InternalRow): Option[InternalRow] = childIter.getOneRow(key)
+  override def getOneRow(key: InternalRow): Option[InternalRow] =
+    childIter.getOneRow(key)
 
-  override def unsafeGetOneRow(key: InternalRow): InternalRow = childIter.unsafeGetOneRow(key)
+  override def unsafeGetOneRow(key: InternalRow): InternalRow =
+    childIter.unsafeGetOneRow(key)
 
-  override def localAttributeOrder(): Array[Attribute] = childIter.localAttributeOrder()
+  override def localAttributeOrder(): Array[Attribute] =
+    childIter.localAttributeOrder()
 
-  override def isSorted(): Boolean = ???  // same with above
+  override def isSorted(): Boolean = ??? // same with above
 
-  override def isBreakPoint(): Boolean = ! childIter.isSorted()
+  override def isBreakPoint(): Boolean = !childIter.isSorted()
 
   override def results(): InternalBlock = ??? // same with above
 
   override def children: Seq[SeccoIterator] = childIter :: Nil
 
-  override def hasNext: Boolean = ???  // same with above
+  override def hasNext: Boolean = ??? // same with above
 
   override def next(): InternalRow = ??? // same with above
 }
-
 
 //lgh backup code segment
 

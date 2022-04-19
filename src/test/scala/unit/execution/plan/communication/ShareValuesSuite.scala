@@ -1,16 +1,33 @@
 package unit.execution.plan.communication
 
-import org.apache.spark.secco.execution.plan.communication.ShareConstraint
+import org.apache.spark.secco.execution.plan.communication.{
+  Coordinate,
+  PartitionExchangeExec,
+  ShareConstraint,
+  ShareValues,
+  ShareValuesContext
+}
 import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
 import org.apache.spark.secco.optimization.plan.BinaryJoin
+import org.apache.spark.secco.optimization.util.EquiAttributes
 import util.SeccoFunSuite
+
+import scala.util.Try
 
 class ShareValuesSuite extends SeccoFunSuite {
 
   override def setupDB(): Unit = {
-    createDummyRelation("R1", "a", "b")()
-    createDummyRelation("R2", "b", "c")()
-    createDummyRelation("R3", "b", "c", "d")()
+    createTestEmptyRelation("R1", "a", "b")()
+    createTestEmptyRelation("R2", "b", "c")()
+    createTestEmptyRelation("R3", "b", "c", "d")()
+
+    createTestRelation(
+      Seq(Seq(0, 1, 1), Seq(2, 3, 3), Seq(3, 4, 4)),
+      "R4",
+      "a",
+      "b",
+      "c"
+    )()
   }
 
   test("ShareConstaint") {
@@ -47,6 +64,56 @@ class ShareValuesSuite extends SeccoFunSuite {
 
   }
 
-  test("ShareValues") {}
+  test("ShareValues") {
+    val R4 = seccoSession.table("R4")
+    val inputExec = R4.queryExecution.executionPlan
+
+    val attrA = inputExec.output(0)
+    val attrB = inputExec.output(1)
+    val attrC = inputExec.output(2)
+
+    val equiAttrs =
+      EquiAttributes.fromEquiAttributes(Seq(Seq(attrA), Seq(attrB, attrC)))
+    val rawShares =
+      AttributeMap(
+        Seq((attrA, 2), (attrB, 3), (attrC, 3))
+      )
+    val shareValues = ShareValues(rawShares, equiAttrs)
+
+    val sentry = shareValues.genSentryRows(Seq(attrA, attrB, attrC).toArray)
+
+    println(sentry.toSeq)
+  }
+
+  test("coordinate") {
+    val attrA = createTestAttribute("A")
+    val attrB = createTestAttribute("B")
+    val attrC = createTestAttribute("C")
+    val attrD = createTestAttribute("D")
+
+    val equiAttrs =
+      EquiAttributes.fromEquiAttributes(
+        Seq(Seq(attrA), Seq(attrB, attrC), Seq(attrD))
+      )
+
+    val coordinate1 =
+      Coordinate(Array(attrA, attrC, attrD), Array(1, 2, 3), equiAttrs)
+
+    assert(
+      coordinate1.repAttrs.toSeq == Seq(attrA, attrB, attrD),
+      "Every attribute's representative attribute must appear"
+    )
+
+    assert(
+      Try(coordinate1.subCoordinate(Array(attrB, attrD))).isFailure,
+      "subCooridnate should fail if there exists subAttribtues that is not included in the original attributes."
+    )
+
+    assert(
+      coordinate1.subCoordinate(Array(attrC, attrD)).index.toSeq == Seq(2, 3),
+      "subCoordinate does not correctly compute sub-index."
+    )
+
+  }
 
 }

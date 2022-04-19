@@ -11,7 +11,7 @@ import org.apache.spark.secco.types._
 import scala.collection.mutable.ArrayBuffer
 
 /** The InternalBlock backed by GenericInternalRows */
-class GenericInternalBlock extends InternalBlock with RowLike {
+class GenericInternalRowBlock extends InternalBlock with RowLike {
   private var rows: Array[InternalRow] = _
   private var blockSchema: StructType = _
   private var dictionaryOrder: Option[Seq[String]] = None
@@ -49,7 +49,7 @@ class GenericInternalBlock extends InternalBlock with RowLike {
     }
     quickSort(unsortedRows, priority, 0, size().toInt) // sort the unsortedRows
     val newGenericInternalBlock =
-      GenericInternalBlock.apply(unsortedRows, blockSchema)
+      GenericInternalRowBlock.apply(unsortedRows, blockSchema)
     newGenericInternalBlock.setDictionaryOrder(Option(DictionaryOrder))
     newGenericInternalBlock
   }
@@ -137,16 +137,16 @@ class GenericInternalBlock extends InternalBlock with RowLike {
       sortedRows = Array.concat(this.toArray(), other.toArray())
     }
     val mergedGenericInternalBlock =
-      GenericInternalBlock.apply(sortedRows, blockSchema)
+      GenericInternalRowBlock.apply(sortedRows, blockSchema)
     mergedGenericInternalBlock
   }
 
-  override def clone(): GenericInternalBlock = {
+  override def clone(): GenericInternalRowBlock = {
     val clonedRows = new Array[InternalRow](size().toInt)
     for (i <- rows.indices) {
       clonedRows(i) = this.getRow(i)
     }
-    GenericInternalBlock.apply(clonedRows, blockSchema)
+    GenericInternalRowBlock.apply(clonedRows, blockSchema)
   }
 
   private def quickSort(
@@ -421,13 +421,13 @@ class GenericInternalBlock extends InternalBlock with RowLike {
   override def getDictionaryOrder: Option[Seq[String]] = dictionaryOrder
 }
 
-object GenericInternalBlock {
+object GenericInternalRowBlock {
 
-  /** Initialize the [[GenericInternalBlock]] by array of [[InternalRow]] */
+  /** Initialize the [[GenericInternalRowBlock]] by array of [[InternalRow]] */
   def apply(
       rows: Array[InternalRow],
       schema: StructType
-  ): GenericInternalBlock = {
+  ): GenericInternalRowBlock = {
     val builder = new GenericInternalRowBlockBuilder(schema)
     for (row <- rows) {
       builder.add(row)
@@ -435,7 +435,7 @@ object GenericInternalBlock {
     builder.build()
   }
 
-  /** Return the builder for building [[GenericInternalBlock]] */
+  /** Return the builder for building [[GenericInternalRowBlock]] */
   def builder(schema: StructType): GenericInternalRowBlockBuilder =
     new GenericInternalRowBlockBuilder(schema)
 }
@@ -446,6 +446,6 @@ class GenericInternalRowBlockBuilder(schema: StructType)
 
   override def add(row: InternalRow): Unit = rows.append(row.copy())
 
-  override def build(): GenericInternalBlock =
-    new GenericInternalBlock(rows.toArray, schema)
+  override def build(): GenericInternalRowBlock =
+    new GenericInternalRowBlock(rows.toArray, schema)
 }

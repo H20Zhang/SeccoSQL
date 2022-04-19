@@ -7,12 +7,15 @@ import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.execution.plan.communication.PairPartitioner
+import org.apache.spark.secco.execution.plan.communication.HyperCubePartitioner
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
   PairedPartition
 }
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{
+  GenericInternalRow,
+  InternalRow
+}
 import org.apache.spark.storage.StorageLevel
 
 /** The base class for physical operators.
@@ -29,7 +32,13 @@ abstract class SeccoPlan
   @transient val dataManager =
     SeccoSession.currentSession.sessionState.tempViewManager
 
-  def taskPartitioner(): PairPartitioner = {
+  /** The hypercube partitioner for partitioning the relation.
+    *
+    * For a hypercube partitioner, it partitions the relation based attribute by attribute.
+    *
+    * TODO: gives a example how relation is partitioned
+    */
+  def hyperCubePartitioner(): HyperCubePartitioner = {
     throw new Exception(s"taskPartition not avaiable for ${this.getClass}")
   }
 
@@ -52,8 +61,13 @@ abstract class SeccoPlan
   override def verboseString: String =
     simpleString + s"-> (${output.mkString(",")})"
 
-  /** Collect the results as [[Seq[InternalRow]]] */
-  def collectSeq(): Seq[InternalRow] = {
+  /** Collect the results as [[Seq[InternalRow]]]
+    *
+    * By default the InternalRow are converted to generic row for better results illustrations.
+    */
+  def collectRows(
+      isConvert2GenericRow: Boolean = true
+  ): Seq[InternalRow] = {
     val partitionRDD = execute()
 
     val time1 = System.currentTimeMillis()
@@ -70,10 +84,21 @@ abstract class SeccoPlan
       .collect()
     val time2 = System.currentTimeMillis()
     logInfo(
-      s"execute `collectSeq` of ${this.verboseString} in ${time2 - time1}ms"
+      s"execute `collectRows` of ${this.verboseString} in ${time2 - time1}ms"
     )
 
-    rows
+    if (isConvert2GenericRow) {
+      if (rows.forall(_.isInstanceOf[GenericInternalRow])) {
+        rows
+      } else {
+        rows.map { f =>
+          val rowArray = f.toSeq(output.map(_.dataType)).toArray
+          new GenericInternalRow(rowArray)
+        }
+      }
+    } else {
+      rows
+    }
   }
 
   /** Returns the numbers of tuples */

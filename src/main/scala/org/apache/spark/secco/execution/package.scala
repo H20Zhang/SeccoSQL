@@ -17,7 +17,7 @@ package object execution {
     * Note: for preserve contextual information, this class overrides equals behaviors to reference based rather than
     * value based.
     */
-  class SharedContext[T](val res: T) {
+  class SharedContext[T](val res: T) extends Serializable {
 
     override def equals(obj: Any): Boolean = {
       obj match {

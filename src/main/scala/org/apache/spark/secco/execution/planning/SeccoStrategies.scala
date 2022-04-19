@@ -306,7 +306,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       )
       val shareConstraintContext = partitions.head.shareConstraintContext
 
-      val shareValues = new ShareValues(
+      val shareValues = ShareValues(
         AttributeMap(Seq()),
         shareConstraintContext.shareConstraint.equivalenceAttrs
       )

@@ -39,17 +39,17 @@ import scala.util.Try
 class OptimizationRuleSuite extends SeccoFunSuite {
   override def setupDB(): Unit = {
 
-    createDummyRelation("R1", "a", "b")()
-    createDummyRelation("R2", "b", "c")()
-    createDummyRelation("R3", "c", "d")()
-    createDummyRelation("R4", "d", "e")()
-    createDummyRelation("R5", "a", "b")()
-    createDummyRelation("R6", "a", "b")()
-    createDummyRelation("R7", "a", "b")()
-    createDummyRelation("R8", "e", "a")()
-    createDummyRelation("R9", "a", "c")()
-    createDummyRelation("R10", "b", "f")("b")
-    createDummyRelation("R11", "f", "g")("f")
+    createTestEmptyRelation("R1", "a", "b")()
+    createTestEmptyRelation("R2", "b", "c")()
+    createTestEmptyRelation("R3", "c", "d")()
+    createTestEmptyRelation("R4", "d", "e")()
+    createTestEmptyRelation("R5", "a", "b")()
+    createTestEmptyRelation("R6", "a", "b")()
+    createTestEmptyRelation("R7", "a", "b")()
+    createTestEmptyRelation("R8", "e", "a")()
+    createTestEmptyRelation("R9", "a", "c")()
+    createTestEmptyRelation("R10", "b", "f")("b")
+    createTestEmptyRelation("R11", "f", "g")("f")
 
 //    val catalog = seccoSession.sessionState.catalog
 //    catalog.createTable(

@@ -18,7 +18,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /** The class for storing the equivilance attributes in terms of EqualTo condition. */
-class EquiAttributes(val attr2RepAttr: AttributeMap[Attribute]) {
+case class EquiAttributes(attr2RepAttr: AttributeMap[Attribute]) {
 
   /** The representative attributes for each set of attributes related by EqualTo in `condition`. */
   lazy val repAttrs: Seq[Attribute] = attr2RepAttr.values.toSeq.distinct
@@ -95,6 +95,9 @@ class EquiAttributes(val attr2RepAttr: AttributeMap[Attribute]) {
   /** Check if the equivalent attribute is empty */
   def isEmpty(): Boolean = attr2RepAttr.isEmpty
 
+  /** Check if the equivalent attribute is non-empty. */
+  def nonEmpty(): Boolean = !isEmpty()
+
   /** Put equivalent attributes to an [[Seq]] */
   def toSeq(): Seq[Attribute] = attr2RepAttr.keys.toSeq
 
@@ -108,7 +111,7 @@ class EquiAttributes(val attr2RepAttr: AttributeMap[Attribute]) {
   def toAttributeMap(): AttributeMap[Attribute] = attr2RepAttr
 
   override def toString: String = {
-    attr2RepAttr.toString()
+    repAttr2Attr.map(f => (f._1, f._2.mkString("[", ",", "]"))).toString()
   }
 
 }
@@ -119,6 +122,18 @@ object EquiAttributes extends PredicateHelper {
   def fromAttributes(attrs: Seq[Attribute]): EquiAttributes = {
     val attr2RepAttr = AttributeMap(attrs.map(f => (f, f)))
     new EquiAttributes(attr2RepAttr)
+  }
+
+  def fromEquiAttributes(equiAttrs: Seq[Seq[Attribute]]): EquiAttributes = {
+    assert(
+      equiAttrs.forall(_.nonEmpty),
+      s"empty equivalent attribute set found:${equiAttrs}"
+    )
+
+    new EquiAttributes(AttributeMap(equiAttrs.flatMap { equiSet =>
+      val repAttr = equiSet.head
+      equiSet.map(attr => (attr, repAttr))
+    }))
   }
 
   /** Build the equivalence attributes from an expression. */

@@ -4,13 +4,13 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.execution.SeccoPlan
 import org.apache.spark.secco.execution.storage.{
   ColumnarBlockPartition,
-  GenericBlockPartition,
+  GenericRowBlockPartition,
   HashMapPartition,
   InternalPartition,
   PairedPartition,
   SetPartition,
   TrieIndexedPartition,
-  UnsafeBlockPartition
+  UnsafeRowBlockPartition
 }
 import org.apache.spark.secco.expression.Attribute
 
@@ -24,13 +24,13 @@ case class SubqueryExec(
   override protected def doExecute(): RDD[InternalPartition] = {
     subquery.execute().map { partition =>
       partition match {
-        case p: HashMapPartition       => p.copy(output = output)
-        case p: TrieIndexedPartition   => p.copy(output = output)
-        case p: UnsafeBlockPartition   => p.copy(output = output)
-        case p: GenericBlockPartition  => p.copy(output = output)
-        case p: SetPartition           => p.copy(output = output)
-        case p: PairedPartition        => p.copy(output = output)
-        case p: ColumnarBlockPartition => p.copy(output = output)
+        case p: HashMapPartition         => p.copy(output = output)
+        case p: TrieIndexedPartition     => p.copy(output = output)
+        case p: UnsafeRowBlockPartition  => p.copy(output = output)
+        case p: GenericRowBlockPartition => p.copy(output = output)
+        case p: SetPartition             => p.copy(output = output)
+        case p: PairedPartition          => p.copy(output = output)
+        case p: ColumnarBlockPartition   => p.copy(output = output)
       }
     }
   }

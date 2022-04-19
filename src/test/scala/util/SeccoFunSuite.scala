@@ -1,13 +1,17 @@
 package util
 
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.secco.analysis.UnresolvedAttribute
 import org.apache.spark.secco.{SeccoDataFrame, SeccoSession}
 import org.apache.spark.secco.catalog.Catalog
+import org.apache.spark.secco.execution.plan.communication.ShareValues
 import org.apache.spark.secco.execution.storage.row.{
   InternalRow,
   UnsafeInternalRow
 }
-import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.expression.{Attribute, AttributeReference}
+import org.apache.spark.secco.optimization.util.EquiAttributes
 import org.apache.spark.secco.types.{
   DataTypes,
   StructField,
@@ -22,12 +26,17 @@ class SeccoFunSuite
     with BeforeAndAfterEach
     with BeforeAndAfterAll {
 
+  /** Create dummy attribute for testing. */
+  def createTestAttribute(name: String): Attribute = {
+    AttributeReference(name, DataTypes.IntegerType)()
+  }
+
   /** Create an empty relation for testing.
     * @param name name of the relation.
     * @param schema schema of the relation in strings. Note: the default Datatype is IntegerType.
     * @param primaryKeyNames the name of primary keys in schema.
     */
-  def createDummyRelation(name: String, schema: String*)(
+  def createTestEmptyRelation(name: String, schema: String*)(
       primaryKeyNames: String*
   ): Unit = {
 

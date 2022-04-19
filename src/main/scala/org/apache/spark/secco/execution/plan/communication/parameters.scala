@@ -1,6 +1,6 @@
 package org.apache.spark.secco.execution.plan.communication
 
-import org.apache.spark.secco.execution.plan.communication.ShareValues.findEquivilanceAttrs
+import org.apache.spark.secco.debug
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.execution.{OldInternalRow, SharedContext}
 import org.apache.spark.secco.expression.{
@@ -22,7 +22,55 @@ import scala.collection.mutable.ArrayBuffer
   * load.
   *  a. Coordinate of the partitions of the relation.
   */
-case class Coordinate(attributes: Array[Attribute], index: Array[Int])
+case class Coordinate(
+    attributes: Array[Attribute],
+    index: Array[Int],
+    equiAttributes: EquiAttributes
+) {
+
+  /** The representative attributes of the coordinate, which following same relatively order as in `attributes`. */
+  lazy val repAttrs = {
+    val attr2RepAttr = equiAttributes.attr2RepAttr
+    attributes.map(attr => attr2RepAttr(attr)).distinct
+  }
+
+  /** Update the index of the coordinate with the new index. */
+  def updateAllIndex(newIndex: Array[Int]): Unit = {
+    for (i <- 0 until index.size) {
+      index(i) = newIndex(i)
+    }
+  }
+
+  /** Returns the index at the i-th position. */
+  def apply(idx: Int): Int = index(idx)
+
+  /** Update the index at the i-th position. */
+  def update(idx: Int, value: Int): Unit = {
+    index(idx) = value
+  }
+
+  /** Get the sub-coordinate under the given attributes. */
+  def subCoordinate(
+      subAttributes: Array[Attribute]
+  ): Coordinate = {
+
+    assert(
+      subAttributes.toSet.subsetOf(attributes.toSet),
+      s"Some attributes in subAttributes:${subAttributes.toSet} does not appear in total attributes:${attributes.toSet}"
+    )
+
+    val newIndex = subAttributes.map { attr =>
+      index(attributes.indexOf(attr))
+    }
+
+    Coordinate(subAttributes, newIndex, equiAttributes)
+  }
+
+  override def toString: String = {
+    s"${attributes.zip(index).mkString("[", ",", "]")}"
+  }
+
+}
 
 /** The shares that defines HyperCube.
   *
@@ -31,12 +79,21 @@ case class Coordinate(attributes: Array[Attribute], index: Array[Int])
   *
   * For example, for share {"a" -> 2, "b" -> 2}
   */
-class ShareValues(
+case class ShareValues(
     var rawShares: AttributeMap[Int],
     var equivalenceAttrs: EquiAttributes
 ) {
 
-  def isInitialized(): Boolean = rawShares.isEmpty && equivalenceAttrs.isEmpty
+  // Sanity checking
+  assert(
+    equivalenceAttrs.repAttr2Attr.forall { case (repAttr, attrs) =>
+      attrs.forall(attr => rawShares(attr) == rawShares(repAttr))
+    },
+    s"Inconsistency found in rawShares:${rawShares}, some equivalent attributes does not have the same attribute value."
+  )
+
+  def isInitialized(): Boolean =
+    rawShares.nonEmpty && equivalenceAttrs.nonEmpty()
 
   def apply(attr: Attribute): Int = rawShares(attr)
 
@@ -47,22 +104,21 @@ class ShareValues(
     */
   def genHyperCubeCoordinates(attrs: Seq[Attribute]): Array[Coordinate] = {
 
-    val repAttrs = equivalenceAttrs.repAttrs
     val attr2RepAttr = equivalenceAttrs.attr2RepAttr
+    val repAttrs = attrs.map(attr => attr2RepAttr(attr)).distinct
 
     // generate the raw coordinate values for the representatives attributes
-    val attrsShareSpace = repAttrs
-      .map(attr => rawShares(attr))
+    val repAttrSpaceVector = repAttrs.map(attr => rawShares(attr))
     var i = 0
-    val attrsSize = attrsShareSpace.size
+    val attrsSize = repAttrSpaceVector.size
     var buffer = new ArrayBuffer[Array[Int]]()
 
     while (i < attrsSize) {
       if (i == 0) {
-        buffer ++= Range(0, attrsShareSpace(i)).map(f => Array(f))
+        buffer ++= Range(0, repAttrSpaceVector(i)).map(f => Array(f))
       } else {
         buffer = buffer.flatMap { shareVector =>
-          Range(0, attrsShareSpace(i)).map(f => shareVector :+ f)
+          Range(0, repAttrSpaceVector(i)).map(f => shareVector :+ f)
         }
       }
       i += 1
@@ -73,41 +129,37 @@ class ShareValues(
       val index =
         attrs.map(attr => rawCoordinate(repAttrs.indexOf(attr2RepAttr(attr))))
 
-      Coordinate(attrs.toArray, index.toArray)
+      Coordinate(attrs.toArray, index.toArray, equivalenceAttrs)
     }
 
     coordinates.toArray
   }
 
   /** Generate the partitioner for partitioning rows for HyperCube Shuffle. */
-  def genTaskPartitioner(attributes: Array[Attribute]): PairPartitioner =
-    new PairPartitioner(attributes, this)
+  def genTaskPartitioner(attributes: Array[Attribute]): HyperCubePartitioner =
+    new HyperCubePartitioner(attributes, this)
 
   /** Generate the sentry tuples, which consists of (sentryTuple, isSentryTuple), for HyperCube Shuffle */
   def genSentryRows(attrs: Array[Attribute]): Array[(InternalRow, Boolean)] = {
-    genHyperCubeCoordinates(attrs).map(f => (InternalRow(f.index), true))
+    genHyperCubeCoordinates(attrs).map(f => (InternalRow(f.index: _*), true))
   }
 
-  /** Get the sub-coordinate under the given attributes. */
-  def getSubCoordinate(
-      coordinate: Coordinate,
-      attributes: Array[Attribute]
-  ): Coordinate = {
-    val newIndex = attributes.map { attr =>
-      coordinate.index(coordinate.attributes.indexOf(attr))
-    }
+  override def toString: String = {
+    rawShares.toString()
+  }
 
-    Coordinate(attributes, newIndex)
+  def verboseString: String = {
+    s"rawShares:${rawShares}\nequiAttrs:${equivalenceAttrs}"
   }
 
 }
 
 object ShareValues extends PredicateHelper {
-  def apply(
+  def fromCondition(
       rawShares: AttributeMap[Int],
       equalCondition: Expression
   ): ShareValues =
-    new ShareValues(
+    ShareValues(
       rawShares,
       EquiAttributes.fromCondition(rawShares.keys.toSeq, equalCondition)
     )
@@ -115,7 +167,7 @@ object ShareValues extends PredicateHelper {
 
 /** The context of share values. */
 case class ShareValuesContext(shares: ShareValues)
-    extends SharedContext[ShareValues](shares)
+    extends SharedContext[ShareValues](shares) {}
 
 /** The class that constraint on the share number an attribute can take.
   *
@@ -123,7 +175,7 @@ case class ShareValuesContext(shares: ShareValues)
   *  a. The equivalence attributes in terms of Equal To condition must share the same constraint.
   *  a.  Every attribute at least have a naive equivalence, i.e., itself.
   */
-class ShareConstraint(
+case class ShareConstraint(
     var rawConstraint: AttributeMap[Int],
     var equivalenceAttrs: EquiAttributes
 ) extends LogAble {

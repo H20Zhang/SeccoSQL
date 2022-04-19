@@ -1,5 +1,6 @@
 package org.apache.spark.secco.execution.storage
 
+import org.apache.spark.secco.debug
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.{Attribute, AttributeReference}
 import org.apache.spark.secco.types._
@@ -25,10 +26,10 @@ object Utils {
   def calculateBitMapWidthInWords(numFields: Int): Int = (numFields + 63) / 64
 
   // lgh: this method is static in spark's Java implementation
-  def calculateBitMapWidthInBytes(numFields: Int): Int = ((numFields + 63) / 64) * 8
+  def calculateBitMapWidthInBytes(numFields: Int): Int =
+    ((numFields + 63) / 64) * 8
 
-  /**
-    * lgh: This method is from org.apache.spark.unsafe.array.ByteArrayMethods,
+  /** lgh: This method is from org.apache.spark.unsafe.array.ByteArrayMethods,
     * and is originally a static method with long as returned data type, in Java
     * @param numBytes
     * @return
@@ -47,18 +48,28 @@ object Utils {
     f.get(null).asInstanceOf[Unsafe]
   }
 
-
-
-  def getStringAtColumnAddress(columnAddress: Long, variableLengthZoneAddress: Long, i: Int, elemSize: Int): String = {
-    val offsetAndSize = Utils._UNSAFE.getLong(null, columnAddress + i * elemSize)
-    val stringAddress = variableLengthZoneAddress + (offsetAndSize >>> 32)   //lgh: !!! the bracelet is necessary
+  def getStringAtColumnAddress(
+      columnAddress: Long,
+      variableLengthZoneAddress: Long,
+      i: Int,
+      elemSize: Int
+  ): String = {
+    val offsetAndSize =
+      Utils._UNSAFE.getLong(null, columnAddress + i * elemSize)
+    val stringAddress =
+      variableLengthZoneAddress + (offsetAndSize >>> 32) //lgh: !!! the bracelet is necessary
     val stringSize = offsetAndSize.toInt
     val buf = new Array[Byte](stringSize)
-    Utils.copyMemory(null, stringAddress, buf, Utils.BYTE_ARRAY_OFFSET, stringSize.toLong)
+    Utils.copyMemory(
+      null,
+      stringAddress,
+      buf,
+      Utils.BYTE_ARRAY_OFFSET,
+      stringSize.toLong
+    )
     val str = new String(buf)
     return str
   }
-
 
 //
 //  def getStringAtColumnAddress(
@@ -86,6 +97,7 @@ object Utils {
       blockSchema: StructType,
       otherInternalRoW: InternalRow
   ): Array[Long] = {
+
     val fields = blockSchema.fields
     val bitMapData = new Array[Long](calculateBitMapWidthInWords(fields.length))
     var data = 0L
@@ -108,8 +120,7 @@ object Utils {
     address
   }
 
-  /**
-    * lgh: This method is from org.apache.spark.unsafe.Platform, originally a static method of Platform.
+  /** lgh: This method is from org.apache.spark.unsafe.Platform, originally a static method of Platform.
     * lgh: This method capsulates Unsafe.copyMemory(Object, long, Object, long, long)
     * lgh: The comment below is from org.apache.spark.unsafe.Platform
     * Limits the number of bytes to copy per {@link Unsafe# copyMemory ( long, long, long)} to
@@ -237,7 +248,7 @@ object Utils {
   }
 
   class InternalRowComparator(rowSchema: StructType)
-    extends Comparator[InternalRow]
+      extends Comparator[InternalRow]
       with Serializable {
 
     var indexMapArray: Array[Int] = {
@@ -249,21 +260,21 @@ object Utils {
     var directions: Array[Boolean] = rowSchema.fields.map(_ => true)
 
     // later added by lgh
-    def this(rowSchema: StructType, indexMap: Array[Int]){
+    def this(rowSchema: StructType, indexMap: Array[Int]) {
       this(rowSchema)
       indexMapArray = indexMap
     }
 
     // later added by lgh
-    def this(rowSchema: StructType, sortDirections: Array[Boolean]){
+    def this(rowSchema: StructType, sortDirections: Array[Boolean]) {
       this(rowSchema)
       directions = sortDirections
     }
 
     override def compare(
-                          o1: InternalRow,
-                          o2: InternalRow
-                        ): Int = {
+        o1: InternalRow,
+        o2: InternalRow
+    ): Int = {
 
       var i = 0
       while (i < rowSchema.length) {
@@ -273,7 +284,8 @@ object Utils {
         val compResult = Utils.anyCompare(item1, item2)
         if (compResult != 0) {
 //          return compResult
-          return if(directions(i)) compResult else -compResult // later added by lgh
+          return if (directions(i)) compResult
+          else -compResult // later added by lgh
         } else {
           i += 1
         }

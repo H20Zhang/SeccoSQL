@@ -14,9 +14,9 @@ import util.SeccoFunSuite
 class PairThenComputeSuite extends SeccoFunSuite {
 
   override def setupDB(): Unit = {
-    createDummyRelation("R1", "a", "b")()
-    createDummyRelation("R2", "b", "c")()
-    createDummyRelation("R3", "c", "d")()
+    createTestEmptyRelation("R1", "a", "b")()
+    createTestEmptyRelation("R2", "b", "c")()
+    createTestEmptyRelation("R3", "c", "d")()
   }
 
   test("box and unbox") {

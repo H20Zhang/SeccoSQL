@@ -1,9 +1,9 @@
 package unit.execution.storage.block
 
 import org.apache.spark.secco.execution.storage.block.{
-  GenericInternalBlock,
+  GenericInternalRowBlock,
   GenericInternalRowBlockBuilder,
-  UnsafeInternalBlock,
+  UnsafeInternalRowBlock,
   UnsafeInternalRowBlockBuilder
 }
 import org.apache.spark.secco.execution.storage.row._
@@ -16,8 +16,8 @@ import java.util.Date
   * tested by trf
   */
 class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
-  var testUnsafeBlock: UnsafeInternalBlock = _
-  var testGenericBlock: GenericInternalBlock = _
+  var testUnsafeBlock: UnsafeInternalRowBlock = _
+  var testGenericBlock: GenericInternalRowBlock = _
   val dictionaryOrder: Seq[String] = Seq("string0", "int1")
   val structField0: StructField = StructField("string0", StringType)
   val structField1: StructField = StructField("int1", IntegerType)
@@ -47,7 +47,8 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
 
   before {
     // create two InternalRows with different type
-    val unsafeInternalRow = new UnsafeInternalRow(numFields = 7, autoInit = true)
+    val unsafeInternalRow =
+      new UnsafeInternalRow(numFields = 7, autoInit = true)
 
     val genericInternalRow: GenericInternalRow =
       new GenericInternalRow(theArray)
@@ -66,7 +67,7 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
     unsafeInternalRow.setString(6, "variableLength")
 
     // build UnsafeInternalBlock and GenericInternalBlock based on the two
-    val unsafeBuilder = UnsafeInternalBlock.builder(schema)
+    val unsafeBuilder = UnsafeInternalRowBlock.builder(schema)
     unsafeBuilder.add(genericInternalRow)
     unsafeBuilder.add(genericInternalRow2)
     unsafeBuilder.add(genericInternalRow3)
@@ -75,7 +76,7 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
     testUnsafeBlock = unsafeBuilder.build()
     //    testUnsafeBlock.show(testUnsafeBlock.size().toInt)
 
-    val genericBuilder = GenericInternalBlock.builder(schema)
+    val genericBuilder = GenericInternalRowBlock.builder(schema)
     genericBuilder.add(genericInternalRow)
     genericBuilder.add(genericInternalRow2)
     genericBuilder.add(genericInternalRow3)
@@ -169,15 +170,15 @@ class UnsafeAndGenericBlockTest extends FunSuite with BeforeAndAfter {
 
     // Then, check if the sorted order is right
     val sortedRow0 =
-      sortedUnsafeBlock.asInstanceOf[UnsafeInternalBlock].getRow(0)
+      sortedUnsafeBlock.asInstanceOf[UnsafeInternalRowBlock].getRow(0)
     val sortedRow1 =
-      sortedUnsafeBlock.asInstanceOf[UnsafeInternalBlock].getRow(1)
+      sortedUnsafeBlock.asInstanceOf[UnsafeInternalRowBlock].getRow(1)
     val sortedRow2 =
-      sortedUnsafeBlock.asInstanceOf[UnsafeInternalBlock].getRow(2)
+      sortedUnsafeBlock.asInstanceOf[UnsafeInternalRowBlock].getRow(2)
     val sortedRow3 =
-      sortedUnsafeBlock.asInstanceOf[UnsafeInternalBlock].getRow(3)
+      sortedUnsafeBlock.asInstanceOf[UnsafeInternalRowBlock].getRow(3)
     val sortedRow4 =
-      sortedUnsafeBlock.asInstanceOf[UnsafeInternalBlock].getRow(4)
+      sortedUnsafeBlock.asInstanceOf[UnsafeInternalRowBlock].getRow(4)
     assert(sortedRow0.getString(0) == "abc" && sortedRow0.getInt(1) == 1)
     assert(sortedRow1.getString(0) == "abc" && sortedRow1.getInt(1) == 1)
     assert(sortedRow2.getString(0) == "bcd" && sortedRow2.getInt(1) == 2)

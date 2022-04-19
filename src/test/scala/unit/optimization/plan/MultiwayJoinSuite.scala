@@ -6,9 +6,9 @@ import util.SeccoFunSuite
 class MultiwayJoinSuite extends SeccoFunSuite {
 
   override def setupDB(): Unit = {
-    createDummyRelation("R1", "a", "b")()
-    createDummyRelation("R2", "b", "c", "d")()
-    createDummyRelation("R3", "a", "c", "e")()
+    createTestEmptyRelation("R1", "a", "b")()
+    createTestEmptyRelation("R2", "b", "c", "d")()
+    createTestEmptyRelation("R3", "a", "c", "e")()
   }
 
   test("basic") {

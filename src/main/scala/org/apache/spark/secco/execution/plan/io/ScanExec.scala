@@ -5,9 +5,12 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.execution.plan.communication.Coordinate
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
-  UnsafeBlockPartition
+  UnsafeRowBlockPartition
 }
-import org.apache.spark.secco.execution.storage.block.UnsafeInternalRowBlockBuilder
+import org.apache.spark.secco.execution.storage.block.{
+  GenericInternalRowBlockBuilder,
+  UnsafeInternalRowBlockBuilder
+}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
@@ -34,7 +37,7 @@ case class ExternalRDDScanExec(
       partition.foreach { builder.add }
 
       Iterator(
-        UnsafeBlockPartition(
+        UnsafeRowBlockPartition(
           output,
           Seq(builder.build()),
           None,
@@ -53,10 +56,23 @@ case class LocalRowScanExec(seq: Seq[InternalRow], output: Seq[Attribute])
 
     if (seq.nonEmpty) {
       // parallelize local rows.
-      val rdd = sc.parallelize(seq)
+      val inputRDD = sc.parallelize(seq)
 
-      // delegate to ExternalRDDScanExec
-      ExternalRDDScanExec(rdd, output).execute()
+      inputRDD.mapPartitionsWithIndex { (index, partition) =>
+        // by default, we use UnsafeInternalBlock to store rows.
+        val schema = StructType.fromAttributes(output)
+        val builder = new UnsafeInternalRowBlockBuilder(schema)
+        partition.foreach { builder.add }
+
+        Iterator(
+          InternalPartition.fromInternalBlock(
+            output,
+            builder.build(),
+            None,
+            None
+          )
+        )
+      }
     } else {
       sc.emptyRDD
     }

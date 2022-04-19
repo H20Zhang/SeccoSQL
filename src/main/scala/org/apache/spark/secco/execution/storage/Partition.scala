@@ -3,7 +3,7 @@ package org.apache.spark.secco.execution.storage
 import org.apache.spark.Partitioner
 import org.apache.spark.secco.execution.plan.communication.{
   Coordinate,
-  PairPartitioner
+  HyperCubePartitioner
 }
 import org.apache.spark.secco.execution.plan.computation.utils.{
   ConsecutiveRowArray,
@@ -11,13 +11,14 @@ import org.apache.spark.secco.execution.plan.computation.utils.{
 }
 import org.apache.spark.secco.execution.storage.block.{
   ColumnarInternalBlock,
-  GenericInternalBlock,
+  GenericInternalRowBlock,
   HashMapInternalBlock,
   HashSetInternalBlock,
   InternalBlock,
   TrieInternalBlock,
-  UnsafeInternalBlock
+  UnsafeInternalRowBlock
 }
+import org.apache.spark.secco.execution.storage.row.GenericInternalRow
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
 
@@ -33,7 +34,7 @@ abstract class InternalPartition extends Serializable {
   /** The partitioner used to create this partition. */
   def partitioner: Option[Partitioner]
 
-  /** For [[PairPartitioner]], the coordinate stores the hash
+  /** For [[HyperCubePartitioner]], the coordinate stores the hash
     * values on each attributes.
     */
   def coordinate: Option[Coordinate]
@@ -41,11 +42,25 @@ abstract class InternalPartition extends Serializable {
   /** The actual data in block. */
   def data: Seq[InternalBlock]
 
+  /** The head block in data. */
+  def headBlock: InternalBlock = data.head
+
   /** Check if the partition is empty.
     *
     * Note: we assume that all data is stored on the first block.
     */
   def isEmpty: Boolean = data.isEmpty || data.head.isEmpty()
+
+  override def toString: String = {
+    s"""
+       |${getClass.getName}
+       |schema:${schema}
+       |coordinate:${coordinate}
+       |data: ${data.mkString(",")}
+       |
+       |""".stripMargin
+  }
+
 }
 
 object InternalPartition {
@@ -57,8 +72,8 @@ object InternalPartition {
       partitioner: Option[Partitioner] = None
   ): InternalPartition = {
     block match {
-      case u: UnsafeInternalBlock =>
-        UnsafeBlockPartition(output, Seq(u), index, partitioner)
+      case u: UnsafeInternalRowBlock =>
+        UnsafeRowBlockPartition(output, Seq(u), index, partitioner)
       case h: HashMapInternalBlock =>
         HashMapPartition(output, Seq(h), index, partitioner)
       case s: HashSetInternalBlock =>
@@ -67,8 +82,8 @@ object InternalPartition {
         TrieIndexedPartition(output, Seq(t), index, partitioner)
       case c: ColumnarInternalBlock =>
         ColumnarBlockPartition(output, Seq(c), index, partitioner)
-      case g: GenericInternalBlock =>
-        GenericBlockPartition(output, Seq(g), index, partitioner)
+      case g: GenericInternalRowBlock =>
+        GenericRowBlockPartition(output, Seq(g), index, partitioner)
       case _ => throw new Exception("not supported block type")
     }
   }
@@ -88,13 +103,13 @@ case class PairedPartition(
   override def isEmpty: Boolean = pairedPartitions.forall(_.isEmpty)
 }
 
-/** The partition that composes of [[UnsafeInternalBlock]].
+/** The partition that composes of [[UnsafeInternalRowBlock]].
   *
   * Note: we assume all data is stored in the first [[InternalBlock]]
   */
-case class UnsafeBlockPartition(
+case class UnsafeRowBlockPartition(
     output: Seq[Attribute],
-    data: Seq[UnsafeInternalBlock],
+    data: Seq[UnsafeInternalRowBlock],
     coordinate: Option[Coordinate],
     partitioner: Option[Partitioner]
 ) extends InternalPartition {}
@@ -131,10 +146,10 @@ case class ColumnarBlockPartition(
     partitioner: Option[Partitioner]
 ) extends InternalPartition {}
 
-/** The partition that composes of [[GenericInternalBlock]]. */
-case class GenericBlockPartition(
+/** The partition that composes of [[GenericInternalRowBlock]]. */
+case class GenericRowBlockPartition(
     output: Seq[Attribute],
-    data: Seq[GenericInternalBlock],
+    data: Seq[GenericInternalRowBlock],
     coordinate: Option[Coordinate],
     partitioner: Option[Partitioner]
 ) extends InternalPartition {}

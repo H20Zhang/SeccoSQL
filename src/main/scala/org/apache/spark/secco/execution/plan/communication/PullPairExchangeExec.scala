@@ -7,6 +7,7 @@ import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.execution.{SeccoPlan, SharedContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.scheduler.TaskLocation
+import org.apache.spark.secco.debug
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
   PairedPartition
@@ -35,6 +36,9 @@ case class PullPairExchangeExec(
     )
   }
 
+  override def hyperCubePartitioner(): HyperCubePartitioner =
+    shareValuesContext.shares.genTaskPartitioner(output.toArray)
+
   override def output: Seq[Attribute] = children.flatMap(_.output)
 
   /** Generate the partition information for [[PullPairExchangeExec]] */
@@ -44,24 +48,26 @@ case class PullPairExchangeExec(
   ): Array[PullPairRDDPartition] = {
 
     val shareValues = shareValuesContext.shares
-    val taskPartitioner = shareValues.genTaskPartitioner(output.toArray)
-    val partitioners = children.map(child => child.taskPartitioner())
+    val partitioners = children.map(child => child.hyperCubePartitioner())
     val taskCoordinates = shareValues.genHyperCubeCoordinates(output)
 
     val pairPartitions = taskCoordinates
       .map { coordinate =>
-        val partitionIDs = children
+        val subCoordinates = children
           .map { child =>
-            shareValues.getSubCoordinate(coordinate, child.output.toArray)
+            coordinate.subCoordinate(child.output.toArray)
           }
-          .zipWithIndex
+
+        val serverIDs = subCoordinates.zipWithIndex
           .map { case (subCoordinate, idx) =>
-            partitioners(idx).getPartition(subCoordinate)
+            partitioners(idx).getServerId(subCoordinate)
           }
 
-        val taskID = taskPartitioner.getPartition(coordinate)
+        val taskID = hyperCubePartitioner.getServerId(coordinate)
 
-        new PullPairRDDPartition(taskID, partitionIDs, inputs)
+//        debug(subCoordinates, serverIDs, taskID)
+
+        new PullPairRDDPartition(taskID, serverIDs, coordinate, inputs)
       }
       .sortBy(_.index)
 
@@ -137,7 +143,7 @@ case class PullPairExchangeExec(
       output,
       sparkContext,
       subTaskPartitions,
-      taskPartitioner,
+      hyperCubePartitioner,
       inputRDDs
     )
 
@@ -149,9 +155,12 @@ case class PullPairExchangeExec(
 class PullPairRDDPartition(
     idx: Int,
     dependencyBlockID: Seq[Int],
+    coordinate: Coordinate,
     @transient private val rdds: Seq[RDD[_]]
 ) extends Partition {
   override val index: Int = idx
+
+  val hyperCubeCoordinate = coordinate
 
   var partitionValues: Seq[(Int, Partition)] = dependencyBlockID.zipWithIndex
     .map(_.swap)
@@ -244,8 +253,8 @@ class PullPairRDD[A <: InternalPartition: Manifest](
       iterator1.hasNext
       block
     }.toArray
-
-    Iterator(PairedPartition(output, partitionList, None, None))
+    val coordinate = pairedPartition.hyperCubeCoordinate
+    Iterator(PairedPartition(output, partitionList, Some(coordinate), None))
   }
 
 }

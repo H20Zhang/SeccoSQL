@@ -94,7 +94,8 @@ class SeccoDataFrame(
   def rdd(): RDD[InternalRow] = queryExecution.executionPlan.rdd()
 
   /** Return rows of the dataset in Seq. */
-  def collect(): Seq[InternalRow] = queryExecution.executionPlan.collectSeq()
+  def collect(): Seq[InternalRow] =
+    queryExecution.executionPlan.collectRows()
 
   /** Return the numbers of row of the dataset. */
   def count(): Long = queryExecution.executionPlan.count()

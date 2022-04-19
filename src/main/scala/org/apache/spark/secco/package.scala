@@ -5,6 +5,10 @@ package object secco {
     type PreferenceLevel = Value
     val SatisfyAll, SatisfyOne, MaybeSatisfy = Value
   }
+
+  def debug(x: Any): Unit = {
+    pprint.pprintln(s"[debug]:${x}")
+  }
 }
 
 //type RawGraph = DefaultUndirectedGraph[Int, DefaultEdge]

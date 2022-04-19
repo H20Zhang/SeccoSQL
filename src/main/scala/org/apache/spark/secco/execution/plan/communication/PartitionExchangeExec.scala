@@ -4,11 +4,13 @@ import org.apache.spark.secco.execution._
 import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.util.misc.SparkSingle
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.execution.storage.block.UnsafeInternalBlock
+import org.apache.spark.secco.debug
+import org.apache.spark.secco.execution.storage.block.UnsafeInternalRowBlock
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.execution.storage.{
+  GenericRowBlockPartition,
   InternalPartition,
-  UnsafeBlockPartition
+  UnsafeRowBlockPartition
 }
 import org.apache.spark.secco.expression.Attribute
 import org.apache.spark.secco.types.StructType
@@ -27,7 +29,7 @@ case class PartitionExchangeExec(
 
   override def output: Seq[Attribute] = child.output
 
-  override def taskPartitioner(): PairPartitioner =
+  override def hyperCubePartitioner(): HyperCubePartitioner =
     share.genTaskPartitioner(output.toArray)
 
   /** Generate the sentry row in case some of the coordinate that does not have any rows.
@@ -35,17 +37,25 @@ case class PartitionExchangeExec(
     * Note: In current HyperCube Shuffle implement, it is crucial to gurantee that each coordiante have at least one row.
     * (Empty row is used if there is no row that contains actual data)
     */
-  lazy val sentryRowRDD: RDD[(InternalRow, Boolean)] =
-    sparkContext.parallelize(share.genSentryRows(output.toArray), 10).cache()
+  lazy val sentryRowRDD: RDD[(InternalRow, Boolean)] = {
+
+    val sentryRows = share.genSentryRows(output.toArray)
+
+    sparkContext
+      .parallelize(sentryRows, math.min(10, sentryRows.length))
+      .cache()
+  }
 
   override protected def doExecute(): RDD[InternalPartition] = {
 
     val spark = SparkSingle.getSparkSession()
 
     val rowRDD = child.execute().flatMap {
-      case UnsafeBlockPartition(_, data, _, _) =>
+      case UnsafeRowBlockPartition(_, data, _, _) =>
         data.head.iterator
-          .map(row => (row, true)) //TODO: try directly partition UnsafeBlock
+          .map(row =>
+            (row, false)
+          ) //TODO: try directly partition UnsafeInternalRowBlock
       case _ =>
         throw new Exception(
           s"The input of PartitionExchangeExec must output UnsafeBlockPartition."
@@ -53,11 +63,12 @@ case class PartitionExchangeExec(
     }
 
     val rawPartitionedRDD =
-      rowRDD.union(sentryRowRDD).partitionBy(taskPartitioner)
+      rowRDD.union(sentryRowRDD).partitionBy(hyperCubePartitioner)
 
     val partitionRDD = rawPartitionedRDD.mapPartitions { it =>
       var coordinate: Coordinate = null
       val content = it.toArray
+
       val array = new Array[InternalRow](content.length - 1)
 
       var j = 0
@@ -70,7 +81,11 @@ case class PartitionExchangeExec(
         if (isSentry) {
           coordinate = Coordinate(
             output.toArray,
-            tuple.toSeq(output.map(_.dataType)).map(_.asInstanceOf[Int]).toArray
+            tuple
+              .toSeq(output.map(_.dataType))
+              .map(_.asInstanceOf[Int])
+              .toArray,
+            share.equivalenceAttrs
           )
         } else {
           array(i) = tuple
@@ -79,11 +94,11 @@ case class PartitionExchangeExec(
         j += 1
       }
 
-      val unsafeBlockPartition = UnsafeBlockPartition(
+      val unsafeBlockPartition = UnsafeRowBlockPartition(
         output,
-        Seq(UnsafeInternalBlock(array, StructType.fromAttributes(output))),
+        Seq(UnsafeInternalRowBlock(array, StructType.fromAttributes(output))),
         Some(coordinate),
-        Some(taskPartitioner)
+        Some(hyperCubePartitioner)
       )
 
       // We assume each RDD partition just stores one InternalPartition.

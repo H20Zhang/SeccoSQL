@@ -14,7 +14,10 @@ import scala.collection.AbstractIterator
 import scala.collection.mutable.ArrayBuffer
 
 /** The InternalBlock backed by UnsafeInternalRows */
-class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
+class UnsafeInternalRowBlock
+    extends InternalBlock
+    with RowLike
+    with UnsafeHelper {
   private var dictionaryOrder: Option[Seq[String]] = None
   private var baseOffset: Long = _
   private var variableBaseOffset: Array[Long] =
@@ -118,7 +121,8 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
       theVariableBaseOffset: Array[Long],
       i: Int
   ): UnsafeInternalRow = {
-    val unsafeInternalRow = new UnsafeInternalRow(blockSchema.fields.length, true)
+    val unsafeInternalRow =
+      new UnsafeInternalRow(blockSchema.fields.length, true)
     copyMemory(
       null,
       theBaseOffset + i * rowSize,
@@ -213,7 +217,7 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
       0,
       blockSize
     ) // sort in the new memory space
-    val newUnsafeInternalBlock = new UnsafeInternalBlock(
+    val newUnsafeInternalBlock = new UnsafeInternalRowBlock(
       newBaseOffset,
       newVariableBaseOffset,
       newVariableLengthRecord,
@@ -487,7 +491,7 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
         tail -= 1
       }
       val newBlockSize = blockSize + other.size().toInt
-      new UnsafeInternalBlock(
+      new UnsafeInternalRowBlock(
         newBaseOffset,
         newVariableBaseOffset,
         newVariableLengthRecord,
@@ -549,7 +553,7 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
         copyDataFromInternalRow(newBaseOffset, i, otherInternalRow)
       }
       val newBlockSize = blockSize + otherIterator.size
-      new UnsafeInternalBlock(
+      new UnsafeInternalRowBlock(
         newBaseOffset,
         newVariableBaseOffset,
         newVariableLengthRecord,
@@ -823,28 +827,28 @@ class UnsafeInternalBlock extends InternalBlock with RowLike with UnsafeHelper {
     dictionaryOrder
   }
 
-  /** Let JVM do the GC for us
-    */
-  override def finalize(): Unit = {
-    _UNSAFE.freeMemory(baseOffset) // free the memory of fixed-length area
-    val variableFields = blockSchema.fields.filter(_.dataType == StringType)
-    for (field <- variableFields) {
-      // free the memory of the variable-length area
-      val index = blockSchema.fields.indexOf(field)
-      _UNSAFE.freeMemory(variableBaseOffset(index))
-    }
-    super.finalize()
-  }
+//  /** Let JVM do the GC for us
+//    */
+//  override def finalize(): Unit = {
+//    _UNSAFE.freeMemory(baseOffset) // free the memory of fixed-length area
+//    val variableFields = blockSchema.fields.filter(_.dataType == StringType)
+//    for (field <- variableFields) {
+//      // free the memory of the variable-length area
+//      val index = blockSchema.fields.indexOf(field)
+//      _UNSAFE.freeMemory(variableBaseOffset(index))
+//    }
+//    super.finalize()
+//  }
 
 }
 
-object UnsafeInternalBlock extends UnsafeHelper {
+object UnsafeInternalRowBlock extends UnsafeHelper {
 
-  /** Initialize the [[UnsafeInternalBlock]] by array of [[InternalRow]] */
+  /** Initialize the [[UnsafeInternalRowBlock]] by array of [[InternalRow]] */
   def apply(
       rows: Array[InternalRow],
       schema: StructType
-  ): UnsafeInternalBlock = {
+  ): UnsafeInternalRowBlock = {
     val variableFields = schema.fields.filter(_.dataType == StringType)
     val variableNum = variableFields.length
     val variableBaseOffset = new Array[Long](schema.fields.length)
@@ -904,7 +908,7 @@ object UnsafeInternalBlock extends UnsafeHelper {
       copyDataFromRowToBlock(schema, blockBaseOffset, rowCursor, row)
       rowCursor += 1
     }
-    new UnsafeInternalBlock(
+    new UnsafeInternalRowBlock(
       blockBaseOffset,
       variableBaseOffset,
       variableLengthRecord,
@@ -913,7 +917,7 @@ object UnsafeInternalBlock extends UnsafeHelper {
     )
   }
 
-  /** Return the builder for building [[UnsafeInternalBlock]] */
+  /** Return the builder for building [[UnsafeInternalRowBlock]] */
   def builder(schema: StructType): UnsafeInternalRowBlockBuilder =
     new UnsafeInternalRowBlockBuilder(schema)
 }
@@ -925,8 +929,8 @@ class UnsafeInternalRowBlockBuilder(schema: StructType)
 
   override def add(row: InternalRow): Unit = rows.append(row.copy())
 
-  override def build(): UnsafeInternalBlock = {
-    UnsafeInternalBlock.apply(rows.toArray, schema)
+  override def build(): UnsafeInternalRowBlock = {
+    UnsafeInternalRowBlock.apply(rows.toArray, schema)
   }
 }
 
