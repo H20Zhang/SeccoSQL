@@ -305,9 +305,12 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         "numbers of partitions participated in PiarExchangeExc should > 1."
       )
       val shareConstraintContext = partitions.head.shareConstraintContext
+      val naiveRawShares = AttributeMap(
+        partitions.flatMap(f => f.output).map(f => (f, 1))
+      )
 
       val shareValues = ShareValues(
-        AttributeMap(Seq()),
+        naiveRawShares,
         shareConstraintContext.shareConstraint.equivalenceAttrs
       )
 

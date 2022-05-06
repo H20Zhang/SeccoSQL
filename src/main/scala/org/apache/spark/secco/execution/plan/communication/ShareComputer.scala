@@ -14,7 +14,12 @@ case class ShareResults(
     serverLoadInBytes: Double,
     communicationCostInTuples: Long,
     serverLoadInTuples: Double
-)
+) {
+  override def toString: String = {
+    s"share:[${rawShares.mkString(",")}], cost(Bytes/Tuple): ${communicationCostInBytes}/${communicationCostInTuples}, Load(Bytes/Tuples):${serverLoadInBytes}/${serverLoadInTuples}"
+
+  }
+}
 
 /** The optimizer for computing the optimal share in terms of load.
   * @param schemas schema of the input relations.
@@ -29,10 +34,24 @@ class EnumShareComputer(
     cardinalities: Map[Seq[Attribute], Long]
 ) extends LogAble {
 
+  /** Numbers of hypercube task to generate. */
   private var numTask = tasks
+
+  /** Total attributes. */
   private val attributes = schemas.flatMap(identity)
-  val repAttrs = shareConstraint.equivalenceAttrs.repAttrs
-  val attrs2Rep = shareConstraint.equivalenceAttrs.attr2RepAttr
+
+  /** Mapping from attribute to representative attributes. */
+  private val attrs2Rep = shareConstraint.equivalenceAttrs.attr2RepAttr
+
+  /** Representative attributes of the attribute. */
+  private val repAttrs = attributes.map(f => attrs2Rep(f)).distinct
+
+  /** Cardinalities of the relations with attributes being represented by rep attrs. */
+  private val repCardinalities = cardinalities.map { case (key, value) =>
+    (key.map(attrs2Rep), value)
+  }
+
+  /** Average number of bytes for a tuple. */
   private val averageBytesPerTuple =
     (schemas.map(_.size).sum.toDouble / schemas.size) * 8
 
@@ -63,16 +82,18 @@ class EnumShareComputer(
       loadInBytes = shareResults.serverLoadInBytes
     }
 
-    logInfo(
-      s"shareResults:${shareResults}, loadInBytes:${loadInBytes}, maximalLoad:${maximalLoad}, cardinalities:${cardinalities}"
-    )
-
     // copy share values of representative attributes to other attributes
     val newRawShares = attributes
       .map(attr => (attr, shareResults.rawShares(attrs2Rep(attr))))
       .toMap
 
-    shareResults.copy(rawShares = newRawShares)
+    val newShareResults = shareResults.copy(rawShares = newRawShares)
+
+    logInfo(
+      s"shareResults:${newShareResults}, loadInBytes:${loadInBytes}, maximalLoad:${maximalLoad}, cardinalities:${cardinalities}"
+    )
+
+    newShareResults
   }
 
   /** Compute the optimal share without memory budget */
@@ -81,18 +102,16 @@ class EnumShareComputer(
     //    get all shares
     val allShare = genAllShare()
 
-//    println(s"allShare.size:${allShare.size}")
-
     //    find optimal share --- init
-    val attribute2ToPos = attributes.zipWithIndex.toMap
+    val repAttr2ToPos = repAttrs.zipWithIndex.toMap
     var minShare: Array[Int] = Array()
     var minCommunicationInTuples: Long = Long.MaxValue
     var minLoadInTuples: Double = Double.MaxValue
     var shareSum: Int = Int.MaxValue
 
-    val excludedAttributesOfRelationAndCardinality = cardinalities
-      .map(f => (attributes.filter(A => !f._1.contains(A)), f._2))
-      .map(f => (f._1.map(attribute2ToPos), f._2))
+    val excludedAttributesOfRelationAndCardinality = repCardinalities
+      .map { f => (repAttrs.filter(A => !f._1.contains(A)), f._2) }
+      .map { f => (f._1.map(repAttr2ToPos), f._2) }
 
     //    find optimal share --- examine communication cost incurred by every share
     allShare.foreach { share =>
@@ -123,7 +142,7 @@ class EnumShareComputer(
 
     }
 
-    val share = attribute2ToPos.mapValues(idx => minShare(idx))
+    val share = repAttr2ToPos.mapValues(idx => minShare(idx))
     val minLoadInBytes = minLoadInTuples * averageBytesPerTuple
     val minCommunicationInBytes =
       (minCommunicationInTuples * averageBytesPerTuple).toLong

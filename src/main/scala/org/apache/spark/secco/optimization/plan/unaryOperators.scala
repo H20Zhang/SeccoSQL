@@ -247,7 +247,7 @@ case class Partition(
   override def output: Seq[Attribute] = child.output
 
   override def argString: String = {
-    s"[constraint:(${shareConstraintContext.shareConstraint.rawConstraint.keys.toSeq.mkString(",")})]"
+    shareConstraintContext.shareConstraint.toString
   }
 
 }

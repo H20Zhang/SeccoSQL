@@ -29,16 +29,16 @@ case class LocalStageExec(
 
   override protected def doExecute(): RDD[InternalPartition] = {
 
-    logInfo(s"""
-         |== Begin Local Computation Stage ==
-         | ${simpleString}
-         | """.stripMargin)
+//    logInfo(s"""
+//         |== Begin Local Computation Stage ==
+//         | ${simpleString}
+//         | """.stripMargin)
     child.execute().map { partition =>
       localExec.foreach { exec =>
         if (exec.isInstanceOf[LocalInputExec]) {
           exec
             .asInstanceOf[LocalInputExec]
-            .setBlock(partition)
+            .setLocalPartition(partition)
         }
       }
 

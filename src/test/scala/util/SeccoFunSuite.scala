@@ -115,6 +115,8 @@ class SeccoFunSuite
 
   def seccoSession = SeccoSession.currentSession
 
+  def conf = seccoSession.sessionState.conf
+
   override protected def beforeAll(): Unit = {
     super.beforeAll()
     SeccoSession.setCurrentSession(SeccoSession.newDefaultSession)

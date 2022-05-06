@@ -19,7 +19,10 @@ import org.apache.spark.secco.execution.plan.computation.newIter.{
   TableIterator,
   UnionIterator
 }
-import org.apache.spark.secco.execution.storage.InternalPartition
+import org.apache.spark.secco.execution.storage.{
+  InternalPartition,
+  PairedPartition
+}
 import org.apache.spark.secco.execution.storage.block.{
   HashMapInternalBlock,
   InternalBlock
@@ -78,12 +81,12 @@ case class LocalInputExec(
     output: Seq[Attribute]
 ) extends LocalProcessingExec {
 
-  private var localBlock: Option[InternalPartition] = None
+  private var localPartition: Option[InternalPartition] = None
 
   private lazy val block = result()
 
-  def setBlock(partition: InternalPartition) = {
-    this.localBlock = Some(partition)
+  def setLocalPartition(partition: InternalPartition) = {
+    this.localPartition = Some(partition)
   }
 
   //TODO: add `isSorted` field to InternalBlock.
@@ -95,11 +98,17 @@ case class LocalInputExec(
 
   override def result(): InternalBlock = {
     assert(
-      localBlock.nonEmpty,
-      "LocalInputExec has not been initialized by setting local block."
+      localPartition.nonEmpty,
+      "LocalInputExec has not been initialized by setting local partitions."
     )
 
-    block
+    localPartition.get match {
+      case p: PairedPartition => p.pairedPartitions(pos).headBlock
+      case p: InternalPartition =>
+        assert(pos == 0, s"Cannot retrieve pos:${pos} from p:${p}")
+        p.headBlock
+    }
+
   }
 
   override def children: Seq[SeccoPlan] = Nil

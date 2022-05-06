@@ -36,6 +36,7 @@ import org.apache.spark.secco.types.{
   StructField,
   StructType
 }
+import org.apache.spark.secco.util.TableFormmater
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.{sql => sparksql}
 
@@ -103,9 +104,16 @@ class SeccoDataFrame(
   /** Show first k rows of datasets.
     * @param numRow the first k rows
     */
-  def show(numRow: Int): Unit = {
-    val seq = collect().take(numRow)
-    pprint.pprintln(seq)
+  def show(numRow: Int = 10): Unit = {
+    val rows = collect().take(numRow).map { row =>
+      row.toSeq(schema.map(_.dataType))
+    }
+
+    val header = schema.map(f => f.name)
+
+    val formattedStr = TableFormmater.format(header +: rows)
+
+    println(formattedStr)
   }
 
   /* == relational algebra operations == */

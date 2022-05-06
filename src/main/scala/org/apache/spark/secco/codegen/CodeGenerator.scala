@@ -1,20 +1,43 @@
 package org.apache.spark.secco.codegen
 
 import com.google.common.cache.{CacheBuilder, CacheLoader}
-import com.google.common.util.concurrent.{ExecutionError, UncheckedExecutionException}
+import com.google.common.util.concurrent.{
+  ExecutionError,
+  UncheckedExecutionException
+}
 import org.apache.spark.internal.Logging
 import org.apache.spark.secco.codegen.Block.BlockHelper
 import org.apache.spark.secco.execution.storage.block.TrieInternalBlock
-import org.apache.spark.secco.execution.storage.row.{GenericInternalRow, InternalRow, UnsafeInternalRow}
+import org.apache.spark.secco.execution.storage.row.{
+  GenericInternalRow,
+  InternalRow,
+  UnsafeInternalRow
+}
 import org.apache.spark.secco.expression.{Attribute, Expression}
-import org.apache.spark.secco.types.{AtomicType, BooleanType, DataType, DataTypes, DoubleType, FloatType, IntegerType, LongType, StringType, StructType}
+import org.apache.spark.secco.types.{
+  AtomicType,
+  BooleanType,
+  DataType,
+  DataTypes,
+  DoubleType,
+  FloatType,
+  IntegerType,
+  LongType,
+  StringType,
+  StructType
+}
 import org.apache.spark.secco.util.DebugUtils.printlnDebug
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.{TaskContext, TaskKilledException}
 import org.codehaus.commons.compiler.CompileException
 import org.codehaus.janino.util.ClassFile
-import org.codehaus.janino.{ByteArrayClassLoader, ClassBodyEvaluator, InternalCompilerException, SimpleCompiler}
+import org.codehaus.janino.{
+  ByteArrayClassLoader,
+  ClassBodyEvaluator,
+  InternalCompilerException,
+  SimpleCompiler
+}
 
 import java.io.ByteArrayInputStream
 import java.util.{Map => JavaMap}
@@ -383,13 +406,16 @@ class CodegenContext {
   // The collection of sub-expression result resetting methods that need to be called on each row.
   val subexprFunctions = mutable.ArrayBuffer.empty[String]
 
-  /**
-    * Returns the code for subexpression elimination after splitting it if necessary.
+  /** Returns the code for subexpression elimination after splitting it if necessary.
     */
   def subexprFunctionsCode: String = {
     // Whole-stage codegen's subexpression elimination is handled in another code path
     assert(currentVars == null || subexprFunctions.isEmpty)
-    splitExpressions(subexprFunctions.toSeq, "subexprFunc_split", Seq("InternalRow" -> INPUT_ROW))
+    splitExpressions(
+      subexprFunctions.toSeq,
+      "subexprFunc_split",
+      Seq("InternalRow" -> INPUT_ROW)
+    )
   }
 
   val outerClassName = "OuterClass"
@@ -582,7 +608,8 @@ class CodegenContext {
       case DoubleType =>
         s"((java.lang.Double.isNaN($c1) && java.lang.Double.isNaN($c2)) || $c1 == $c2)"
       case dt: DataType if isPrimitiveType(dt) => s"$c1 == $c2"
-    case dt: DataType if dt.isInstanceOf[AtomicType] => s"$c1.equals($c2)"  // edited by lgh: uncommented
+      case dt: DataType if dt.isInstanceOf[AtomicType] =>
+        s"$c1.equals($c2)" // edited by lgh: uncommented
 //    case array: ArrayType => genComp(array, c1, c2) + " == 0"
 //    case struct: StructType => genComp(struct, c1, c2) + " == 0"
 //    case udt: UserDefinedType[_] => genEqual(udt.sqlType, c1, c2)
@@ -621,7 +648,7 @@ class CodegenContext {
 //      val compareFunc = freshName("compareArray")
 //      val minLength = freshName("minLength")
 //      val jt = javaType(elementType)
-  //      val funcCode: String =
+      //      val funcCode: String =
 //        s"""
 //          public int $compareFunc(ArrayData a, ArrayData b) {
 //            // when comparing unsafe arrays, try equals first as it compares the binary directly
@@ -677,7 +704,8 @@ class CodegenContext {
 //        """
 //      s"${addNewFunction(compareFunc, funcCode)}($c1, $c2)"
 //    case other if other.isInstanceOf[AtomicType] => s"$c1.compare($c2)"
-    case other if other.isInstanceOf[AtomicType] => s"$c1.compareTo($c2)"  // added by lgh
+      case other if other.isInstanceOf[AtomicType] =>
+        s"$c1.compareTo($c2)" // added by lgh
 //    case udt: UserDefinedType[_] => genComp(udt.sqlType, c1, c2)
       case _ =>
         throw new IllegalArgumentException(
@@ -1252,7 +1280,6 @@ object CodeGenerator extends Logging {
         throw e.getCause
     }
 
-
   /** Compile the Java source code into a Java class, using Janino.
     */
   private[this] def doCompile(code: CodeAndComment): (GeneratedClass, Int) = {
@@ -1278,9 +1305,9 @@ object CodeGenerator extends Logging {
       classOf[Platform].getName,
       classOf[InternalRow].getName,
       classOf[UnsafeInternalRow].getName,
-      classOf[DataType].getName,  // added by lgh
-      classOf[DataTypes].getName,  // added by lgh
-      classOf[TrieInternalBlock].getName,  // added by lgh
+      classOf[DataType].getName, // added by lgh
+      classOf[DataTypes].getName, // added by lgh
+      classOf[TrieInternalBlock].getName, // added by lgh
       classOf[GenericInternalRow].getName,
       classOf[Expression].getName,
       classOf[TaskContext].getName,
@@ -1401,7 +1428,7 @@ object CodeGenerator extends Logging {
     val cacheLoader = new CacheLoader[CodeAndComment, (GeneratedClass, Int)]() {
       override def load(code: CodeAndComment): (GeneratedClass, Int) = {
         val startTime = System.nanoTime()
-        printlnDebug(code.body)
+//        printlnDebug(code.body)
         val result = doCompile(code)
         val endTime = System.nanoTime()
         def timeMs: Double = (endTime - startTime).toDouble / 1000000
@@ -1551,15 +1578,15 @@ object CodeGenerator extends Logging {
   /** Update a column in MutableRow from ExprCode.
     *
     * @param isVectorized True if the underlying row is of type `ColumnarBatch.Row`, false otherwise
-    *
     */
   def updateColumn(
-                    row: String,
-                    dataType: DataType,
-                    ordinal: Int,
-                    ev: ExprCode,
-                    nullable: Boolean,
-                    isVectorized: Boolean = false): String = {
+      row: String,
+      dataType: DataType,
+      ordinal: Int,
+      ev: ExprCode,
+      nullable: Boolean,
+      isVectorized: Boolean = false
+  ): String = {
     if (nullable) {
       // Can't call setNullAt on DecimalType, because we need to keep the offset
 //      if (!isVectorized && dataType.isInstanceOf[DecimalType]) {
@@ -1571,7 +1598,7 @@ object CodeGenerator extends Logging {
 //           |}
 //         """.stripMargin
 //      } else {
-        s"""
+      s"""
            |if (!${ev.isNull}) {
            |  ${setColumn(row, dataType, ordinal, ev.value)};
            |} else {

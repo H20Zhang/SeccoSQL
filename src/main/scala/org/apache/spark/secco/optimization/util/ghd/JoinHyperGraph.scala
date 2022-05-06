@@ -354,7 +354,9 @@ case class JoinHyperGraph(
   }
 
   /** Return true if this hypergraph is an cyclic hypergraph. */
-  def isCyclic(): Boolean = allGHDs.exists(_.fractionalHyperNodeWidth == 1.0)
+  def isCyclic(): Boolean = !isAcyclic()
+
+  def isAcyclic(): Boolean = allGHDs.exists(_.fractionalHyperNodeWidth == 1.0)
 
   /** Generate an [[LogicalPlan]] corresponds to the optimal [[GHDHyperTree]] in terms of given `rankFunction`.
     * @param filterFunction the function to filter unpromising [[GHDHyperTree]]
@@ -363,18 +365,22 @@ case class JoinHyperGraph(
     */
   def ghdPlan(
       filterFunction: GHDHyperTree => Boolean,
-      rankFunction: GHDHyperTree => Double = { hypertree =>
-        hypertree.fractionalHyperNodeWidth
+      rankFunction: (GHDHyperTree, GHDHyperTree) => Boolean = {
+        import scala.math.Ordering.Implicits._
+        (lTree, rTree) =>
+          (
+            lTree.fractionalHyperNodeWidth,
+            lTree.nodes.size
+          ) < (rTree.fractionalHyperNodeWidth, rTree.nodes.size)
       }
   ): LogicalPlan = {
     val optimalGHDOpt = allGHDs
       .filter(filterFunction)
-      .map(ghd => (ghd, rankFunction(ghd)))
-      .sortBy(_._2)
+      .sortWith(rankFunction)
       .headOption
 
     optimalGHDOpt
-      .map { case (ghd, rank) =>
+      .map { case ghd =>
         constructGHDBasedJoinPlan(ghd)
       }
       .getOrElse(

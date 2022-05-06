@@ -10,6 +10,7 @@ import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.execution.storage.{
   GenericRowBlockPartition,
   InternalPartition,
+  PairedPartition,
   UnsafeRowBlockPartition
 }
 import org.apache.spark.secco.expression.Attribute
@@ -50,16 +51,12 @@ case class PartitionExchangeExec(
 
     val spark = SparkSingle.getSparkSession()
 
-    val rowRDD = child.execute().flatMap {
-      case UnsafeRowBlockPartition(_, data, _, _) =>
-        data.head.iterator
-          .map(row =>
-            (row, false)
-          ) //TODO: try directly partition UnsafeInternalRowBlock
-      case _ =>
-        throw new Exception(
-          s"The input of PartitionExchangeExec must output UnsafeBlockPartition."
-        )
+    val rowRDD = child.execute().flatMap { partition =>
+      if (!partition.isInstanceOf[PairedPartition]) {
+        partition.data.head.iterator.map(row => (row, false))
+      } else {
+        throw new Exception("PairedPartition cannot be further partitioned.")
+      }
     }
 
     val rawPartitionedRDD =

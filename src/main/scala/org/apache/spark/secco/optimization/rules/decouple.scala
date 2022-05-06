@@ -339,14 +339,11 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       d.child.children.flatMap(_.outputSet)
     ) -- d.child.outputSet).toSeq
 
-    val shareConstriantContext =
-      ShareConstraintContext(
-        ShareConstraint.fromRawConstraint(
-          AttributeMap(
-            constraintedAttributes.map(f => (f, 1))
-          )
-        )
-      )
+    val rawConstraint = AttributeMap(constraintedAttributes.map(f => (f, 1)))
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(d.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstriantContext = ShareConstraintContext(shareConstraint)
 
     val partition = Partition(d.child, shareConstriantContext)
 
@@ -382,14 +379,20 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     val constraintedAttributes =
       (a.child.outputSet -- AttributeSet(a.groupingExpressions)).toSeq
 
-    val shareConstriantContext =
-      ShareConstraintContext(
-        ShareConstraint.fromRawConstraint(
-          AttributeMap(
-            constraintedAttributes.map(f => (f, 1))
-          )
-        )
-      )
+    val rawConstraint = AttributeMap(constraintedAttributes.map(f => (f, 1)))
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(a.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstriantContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstriantContext =
+//      ShareConstraintContext(
+//        ShareConstraint.fromRawConstraint(
+//          AttributeMap(
+//            constraintedAttributes.map(f => (f, 1))
+//          )
+//        )
+//      )
 
     val partition = Partition(a.child, shareConstriantContext)
 
@@ -480,12 +483,11 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     )
 
     val children = u.children
-    val shareConstraintContext = ShareConstraintContext(
-      ShareConstraint.fromRawConstraintAndCond(
-        AttributeMap(Seq()),
-        u.condition.get
-      )
-    )
+
+    val equiAttrs = EquiAttributes.fromCondition(u.output, u.condition.get)
+    val shareConstraint = ShareConstraint(AttributeMap(Seq()), equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
     val childrenPartitions =
       children.map(child => Partition(child, shareConstraintContext))
 
@@ -504,13 +506,20 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   }
 
   private def decoupleMultiwayJoin(u: MultiwayJoin) = {
+
     val children = u.children
-    val shareConstraintContext = ShareConstraintContext(
-      ShareConstraint.fromRawConstraintAndCond(
-        AttributeMap(Seq()),
-        u.conditions.reduce(And)
-      )
-    )
+
+    val equiAttrs =
+      EquiAttributes.fromCondition(u.output, u.conditions.reduce(And))
+    val shareConstraint = ShareConstraint(AttributeMap(Seq()), equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(
+//      ShareConstraint.fromRawConstraintAndCond(
+//        AttributeMap(Seq()),
+//        u.conditions.reduce(And)
+//      )
+//    )
     val childrenPartitions =
       children.map(child => Partition(child, shareConstraintContext))
 
@@ -530,9 +539,16 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   private def decoupleUnion(u: Union) = {
     val children = u.children
-    val shareConstraintContext = ShareConstraintContext(
-      ShareConstraint.fromRawConstraint(AttributeMap(Seq()))
-    )
+
+    val rawConstraint = AttributeMap[Int](Seq())
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(u.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(
+//      ShareConstraint.fromRawConstraint()
+//    )
     val childrenPartitions =
       children.map(child => Partition(child, shareConstraintContext))
 
@@ -552,9 +568,14 @@ object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
   private def decoupleCartesianProduct(c: CartesianProduct) = {
     val children = c.children
-    val shareConstraintContext = ShareConstraintContext(
-      ShareConstraint.fromRawConstraint(AttributeMap(Seq()))
-    )
+
+    val rawConstraint = AttributeMap[Int](Seq())
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(c.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(ShareConstraint.fromRawConstraint(AttributeMap(Seq())))
     val childrenPartitions =
       children.map(child => Partition(child, shareConstraintContext))
 

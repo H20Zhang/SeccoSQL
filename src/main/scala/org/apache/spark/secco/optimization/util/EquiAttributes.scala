@@ -119,11 +119,12 @@ case class EquiAttributes(attr2RepAttr: AttributeMap[Attribute]) {
 object EquiAttributes extends PredicateHelper {
 
   /** Build an naive equivalence attributes from given attributes */
-  def fromAttributes(attrs: Seq[Attribute]): EquiAttributes = {
+  def fromNaiveEquiAttributes(attrs: Seq[Attribute]): EquiAttributes = {
     val attr2RepAttr = AttributeMap(attrs.map(f => (f, f)))
     new EquiAttributes(attr2RepAttr)
   }
 
+  /** Build equivalence attributes from Seq[Seq[Attribute]] */
   def fromEquiAttributes(equiAttrs: Seq[Seq[Attribute]]): EquiAttributes = {
     assert(
       equiAttrs.forall(_.nonEmpty),
@@ -136,40 +137,11 @@ object EquiAttributes extends PredicateHelper {
     }))
   }
 
-  /** Build the equivalence attributes from an expression. */
-  def fromCondition(cond: Expression): EquiAttributes = fromConditions(
-    Seq(cond)
-  )
-
-  /** Build the equivalence attributes of the given attributes from an expression.
-    *
-    * Note: for attributes only exists in cond, we just ignore them.
-    *       for attribute only exists in attrs, we add an naive mapping for it,  e.g., attr -> attr.
-    */
+  /** Build the equivalence attributes for `attrs` based on given condition. */
   def fromCondition(attrs: Seq[Attribute], cond: Expression): EquiAttributes =
     fromConditions(attrs, Seq(cond))
 
-  /** Build the equivalence attributes from expressions. */
-  def fromConditions(conds: Seq[Expression]): EquiAttributes = {
-
-    // Find attributes involved in EqualTo conditions.
-    val attrs = AttributeSet(conds.flatMap { expr =>
-      splitConjunctivePredicates(expr).flatMap { subExpr =>
-        subExpr match {
-          case EqualTo(a: Attribute, b: Attribute) => Seq(a, b)
-          case _                                   => Seq()
-        }
-      }
-    }).toSeq
-
-    fromConditions(attrs, conds)
-  }
-
-  /** Build the equivalence attributes of the given attributes from expressions.
-    *
-    * Note: For attributes only exists in cond, we just ignore them.
-    *       For attribute only exists in attrs, we add an naive mapping for it,  e.g., attr -> attr.
-    */
+  /** Build the equivalence attributes for `attrs` based on given condition. */
   def fromConditions(
       attrs: Seq[Attribute],
       condition: Seq[Expression]
@@ -234,6 +206,28 @@ object EquiAttributes extends PredicateHelper {
 
     new EquiAttributes(attr2RepresentativeAttr)
   }
+
+  /** Build the equivalence attributes from an expression. */
+  def fromOnlyCondition(cond: Expression): EquiAttributes = fromOnlyConditions(
+    Seq(cond)
+  )
+
+  /** Build the equivalence attributes from expressions. */
+  def fromOnlyConditions(conds: Seq[Expression]): EquiAttributes = {
+
+    // Find attributes involved in EqualTo conditions.
+    val attrs = AttributeSet(conds.flatMap { expr =>
+      splitConjunctivePredicates(expr).flatMap { subExpr =>
+        subExpr match {
+          case EqualTo(a: Attribute, b: Attribute) => Seq(a, b)
+          case _                                   => Seq()
+        }
+      }
+    }).toSeq
+
+    fromConditions(attrs, conds)
+  }
+
 }
 
 /** The class for storing the attribute orders.

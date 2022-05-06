@@ -213,25 +213,19 @@ case class ShareConstraint(
     rawConstraint.isEmpty && equivalenceAttrs.isEmpty
 
   def apply(attr: Attribute): Int = rawConstraint(attr)
+
+  override def toString: String = {
+    s"[Constraint:${rawConstraint.keys.toSeq.mkString(",")}, EquiAttrs:${equivalenceAttrs}]"
+  }
 }
 
 object ShareConstraint extends PredicateHelper {
 
   /** Build [[ShareConstraint]] from a raw constraint of attributes. */
-  def fromRawConstraint(rawConstraint: AttributeMap[Int]): ShareConstraint = {
-    val equivilanceAttrs =
-      EquiAttributes.fromAttributes(rawConstraint.keys.toSeq)
-    new ShareConstraint(rawConstraint, equivilanceAttrs)
-  }
-
-  /** Build [[ShareConstraint]] from a raw constraint of attributes and expression that contains equal to conditions. */
-  def fromRawConstraintAndCond(
+  def fromRawConstraint(
       rawConstraint: AttributeMap[Int],
-      equalCondition: Expression
+      equivilanceAttrs: EquiAttributes
   ): ShareConstraint = {
-
-    val equivilanceAttrs =
-      EquiAttributes.fromCondition(rawConstraint.keys.toSeq, equalCondition)
 
     // Propagate constraint among equivalence attributes.
     val newRawConstraint = AttributeMap(
@@ -246,6 +240,29 @@ object ShareConstraint extends PredicateHelper {
 
     new ShareConstraint(newRawConstraint, equivilanceAttrs)
   }
+
+//  /** Build [[ShareConstraint]] from a raw constraint of attributes and expression that contains equal to conditions. */
+//  def fromRawConstraintAndCond(
+//      rawConstraint: AttributeMap[Int],
+//      equalCondition: Expression
+//  ): ShareConstraint = {
+//
+//    val equivilanceAttrs =
+//      EquiAttributes.fromCondition(rawConstraint.keys.toSeq, equalCondition)
+//
+//    // Propagate constraint among equivalence attributes.
+//    val newRawConstraint = AttributeMap(
+//      equivilanceAttrs.repAttr2Attr.toSeq
+//        .filter { case (_, equiAttrs) =>
+//          rawConstraint.find { case (key, value) =>
+//            equiAttrs.contains(key)
+//          }.nonEmpty
+//        }
+//        .flatMap { case (_, equiAttrs) => equiAttrs.map(g => (g, 1)) }
+//    )
+//
+//    new ShareConstraint(newRawConstraint, equivilanceAttrs)
+//  }
 }
 
 /** The context of share constraint. */

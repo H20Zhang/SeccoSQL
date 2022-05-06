@@ -29,7 +29,7 @@ class EquiAttributesSuite extends SeccoFunSuite {
 
     // Check fromCondition(expr).
     val expr = And(EqualTo(attrA, attrB), EqualTo(attrB, attrC))
-    val equiAttrs = EquiAttributes.fromCondition(expr)
+    val equiAttrs = EquiAttributes.fromOnlyCondition(expr)
 
     assert(
       equiAttrs.attr2RepAttr == Map(
@@ -70,8 +70,8 @@ class EquiAttributesSuite extends SeccoFunSuite {
     // Check merge.
     val expr2 = And(EqualTo(attrA, attrB), EqualTo(attrB, attrC))
     val expr3 = EqualTo(attrC, attrD)
-    val equiAttrs2 = EquiAttributes.fromCondition(expr2)
-    val equiAttrs3 = EquiAttributes.fromCondition(expr3)
+    val equiAttrs2 = EquiAttributes.fromOnlyCondition(expr2)
+    val equiAttrs3 = EquiAttributes.fromOnlyCondition(expr3)
 
     println(equiAttrs2)
     println(equiAttrs3)

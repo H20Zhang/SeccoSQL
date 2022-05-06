@@ -135,7 +135,7 @@ object Utils {
   ): Unit = {
     // Check if dstOffset is before or after srcOffset to determine if we should copy
     // forward or backwards. This is necessary in case src and dst overlap.
-    println("copying memory happened")
+//    println("copying memory happened")
     var lengthRemained = length
     var curSrcOffset = srcOffset
     var curDstOffset = dstOffset

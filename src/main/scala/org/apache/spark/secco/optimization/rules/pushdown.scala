@@ -433,7 +433,7 @@ object PushDownProjection extends Rule[LogicalPlan] {
   /** Applies a projection only when the child is producing unnecessary attributes */
   private def prunedChild(c: LogicalPlan, allReferences: AttributeSet) =
     if ((c.outputSet -- allReferences.filter(c.outputSet.contains)).nonEmpty) {
-      Project(c, c.output.filter(allReferences.contains), c.mode)
+      Project(c, c.output.filter(allReferences.contains))
     } else {
       c
     }
@@ -553,6 +553,9 @@ object PushDownProjection extends Rule[LogicalPlan] {
 
       // Can't prune the columns of distinct
       case p @ Project(_: Distinct, _, _) => p
+
+      // Can't prune subquery alias
+      case p @ Project(_: SubqueryAlias, _, _) => p
 
       // for all other logical plans that inherits the output from it's children
       case p @ Project(child, _, _) =>
