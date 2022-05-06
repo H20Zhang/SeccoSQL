@@ -1,9 +1,12 @@
 package org.apache.spark.secco
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Expression}
-import org.apache.spark.sql.catalyst.rules
+//import org.apache.spark.sql.catalyst.expressions.{Alias, Expression}
+//import org.apache.spark.sql.catalyst.rules
 import org.apache.spark.util.Utils
+import org.apache.spark.secco.expression._
+//import org.apache.spark.secco.optimization.rules
 
+import java.io.File
 import scala.reflect.internal.util.AbstractFileClassLoader
 
 /** A collection of generators that build custom bytecode at runtime for performing the evaluation
@@ -12,11 +15,13 @@ import scala.reflect.internal.util.AbstractFileClassLoader
 package object codegen {
 
   /** Canonicalizes an expression so those that differ only by names can reuse the same code. */
-  object ExpressionCanonicalizer extends rules.RuleExecutor[Expression] {
-    val batches =
-      Batch("CleanExpressions", FixedPoint(20), CleanExpressions) :: Nil
+//  object ExpressionCanonicalizer extends rules.RuleExecutor[Expression] {
+  object ExpressionCanonicalizer {
+//    val batches =
+//      Batch("CleanExpressions", FixedPoint(20), CleanExpressions) :: Nil
 
-    object CleanExpressions extends rules.Rule[Expression] {
+//    object CleanExpressions extends rules.Rule[Expression] {
+    object CleanExpressions {
       def apply(e: Expression): Expression =
         e transform { case Alias(c, _) =>
           c
@@ -28,7 +33,7 @@ package object codegen {
     */
   object DumpByteCode {
     import scala.sys.process._
-    val dumpDirectory = Utils.createTempDir()
+    val dumpDirectory: File = Utils.createTempDir()
     dumpDirectory.mkdir()
 
     def apply(obj: Any): Unit = {

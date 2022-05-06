@@ -31,6 +31,7 @@ case class HashJoinIterator(
   private var row: InternalRow = _
   private var hasNextCacheValid = true
   private var hasNextCache: Boolean = false
+
   private lazy val joiner = GenerateUnsafeInternalRowJoiner.generate(
     (StructType.fromAttributes(left.localAttributeOrder()),
       StructType.fromAttributes(right.localAttributeOrder())
@@ -121,7 +122,7 @@ case class HashJoinIterator(
     else
     {
       hasNextCacheValid = false
-      row
+      UnsafeInternalRow.fromInternalRow(StructType.fromAttributes(localAttributeOrder()), row)
     }
   }
 }

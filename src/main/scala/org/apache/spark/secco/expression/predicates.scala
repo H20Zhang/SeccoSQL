@@ -120,6 +120,39 @@ trait PredicateHelper {
     }
   }
 
+  protected def outputWithNonNullability(
+      output: Seq[Attribute],
+      nonNullAttrExprIds: Seq[ExprId]
+  ): Seq[Attribute] = {
+    output.map { a =>
+      if (a.nullable && nonNullAttrExprIds.contains(a.exprId)) {
+        a.withNullability(false)
+      } else {
+        a
+      }
+    }
+  }
+
+//  /**
+//   * Returns true if `expr` can be evaluated using only the output of `plan`.  This method
+//   * can be used to determine when it is acceptable to move expression evaluation within a query
+//   * plan.
+//   *
+//   * For example consider a join between two relations R(a, b) and S(c, d).
+//   *
+//   * - `canEvaluate(EqualTo(a,b), R)` returns `true`
+//   * - `canEvaluate(EqualTo(a,c), R)` returns `false`
+//   * - `canEvaluate(Literal(1), R)` returns `true` as literals CAN be evaluated on any plan
+//   */
+//  protected def canEvaluate(expr: Expression, plan: LogicalPlan): Boolean =
+//    expr.references.subsetOf(plan.outputSet)
+//
+//  /**
+//   * Returns true iff `expr` could be evaluated as a condition within join.
+//   */
+//  protected def canEvaluateWithinJoin(expr: Expression): Boolean = expr match {
+//    // Non-deterministic expressions are not allowed as join conditions.
+//    case e if !e.deterministic => false
   /** Returns true if `expr` can be evaluated using only the output of `plan`.  This method
     * can be used to determine when it is acceptable to move expression evaluation within a query
     * plan.

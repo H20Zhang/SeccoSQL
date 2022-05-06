@@ -12,8 +12,8 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable
 
 class HashMapInternalBlock(private val hashMap: HashMap[InternalRow, Array[InternalRow]],
-                           val blockSchema: Array[Attribute],
-                           val keySchema: Array[Attribute])
+                           val blockSchema: Seq[Attribute],
+                           val keySchema: Seq[Attribute])
   extends InternalBlock with MapLike {
 
   override def iterator: Iterator[InternalRow] = hashMap.values.flatten.toIterator
@@ -114,7 +114,7 @@ class HashMapInternalBlock(private val hashMap: HashMap[InternalRow, Array[Inter
 }
 
 object HashMapInternalBlock extends LogAble {
-  def apply(table: Array[InternalRow], schema: Array[Attribute], keySchema: Array[Attribute]): HashMapInternalBlock = {
+  def apply(table: Array[InternalRow], schema: Seq[Attribute], keySchema: Seq[Attribute]): HashMapInternalBlock = {
     logInfo(s"keySchema: ${keySchema.mkString("Array(", ", ", ")")}")
     if(table.isEmpty){
       new HashMapInternalBlock(HashMap[InternalRow, Array[InternalRow]](), schema, keySchema)
@@ -138,7 +138,7 @@ object HashMapInternalBlock extends LogAble {
     new HashMapInternalBlockBuilder(schema, keySchema)
 }
 
-class HashMapInternalBlockBuilder(schema: Array[Attribute], keySchema: Array[Attribute])
+class HashMapInternalBlockBuilder(schema: Seq[Attribute], keySchema: Seq[Attribute])
     extends InternalBlockBuilder {
   private val rows: ArrayBuffer[InternalRow] = ArrayBuffer[InternalRow]()
 
