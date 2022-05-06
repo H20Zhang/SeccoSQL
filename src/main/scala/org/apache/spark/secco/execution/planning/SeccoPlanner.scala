@@ -14,14 +14,15 @@ class SeccoPlanner(
   def numPartitions: Int = conf.numPartition
 
   override def strategies: Seq[Strategy] =
-    IOStrategy :: LOpStrategy :: LocalExecStrategy :: AtomicStrategy :: Nil
+    PlanningSubquery :: PlanningRowScan :: PlanningLocalComputation :: PlanningPairAndLocalCompute :: Nil
 
   override protected def collectPlaceholders(
       plan: SeccoPlan
   ): Seq[(SeccoPlan, LogicalPlan)] = {
     plan.collect {
-      case placeholder @ PlanLater(logicalPlan) => (placeholder, logicalPlan)
-      case placeholder @ LocalPlanLater(logicalPlan) =>
+      case placeholder @ PlanLater(logicalPlan) =>
+        (placeholder, logicalPlan)
+      case placeholder @ LocalPlanLater(logicalPlan, _) =>
         (placeholder, logicalPlan)
     }
   }

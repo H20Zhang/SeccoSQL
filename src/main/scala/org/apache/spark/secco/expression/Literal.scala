@@ -1,14 +1,15 @@
 package org.apache.spark.secco.expression
 
 import org.apache.spark.secco.types._
-import java.util.Objects
 
+import java.util.Objects
 import org.apache.spark.secco.codegen.{
   CodeGenerator,
   CodegenContext,
   ExprCode,
   JavaCode
 }
+import org.apache.spark.secco.errors.QueryExecutionErrors
 import org.apache.spark.secco.execution.storage.row.InternalRow
 
 case class Literal(value: Any, dataType: DataType) extends LeafExpression {
@@ -53,8 +54,7 @@ case class Literal(value: Any, dataType: DataType) extends LeafExpression {
       case v: (String, StringType) => v._1
     }
 
-  /**
-    * Returns Java source code that can be compiled to evaluate this expression.
+  /** Returns Java source code that can be compiled to evaluate this expression.
     * The default behavior is to call the eval method of the expression. Concrete expression
     * implementations should override this to do actual code generation.
     *
@@ -99,6 +99,8 @@ case class Literal(value: Any, dataType: DataType) extends LeafExpression {
               case _ =>
                 toExprCode(s"${value}D")
             }
+          case LongType => // added by lgh
+            toExprCode(s"${value}L")
           case _ =>
             val constRef = ctx.addReferenceObj("literal", value, javaType)
             ExprCode.forNonNullValue(JavaCode.global(constRef, dataType))
@@ -127,4 +129,43 @@ object Literal {
           "Unsupported literal type " + v.getClass + " " + v
         )
     }
+
+  def create(v: Any, dataType: DataType): Literal = {
+
+    Literal(TypeConverters.convertToSecco(v), dataType)
+  }
+
+  /** Create a literal with default value for given DataType
+    */
+  def default(dataType: DataType): Literal = dataType match {
+    case NullType    => Literal(null, NullType)
+    case BooleanType => Literal(false)
+    //    case ByteType => Literal(0.toByte)
+    //    case ShortType => Literal(0.toShort)
+    case IntegerType => Literal(0)
+    case LongType    => Literal(0L)
+    case DoubleType  => Literal(0.0)
+    case FloatType   => Literal(0.0f)
+    case StringType  => Literal("")
+    case BooleanType => Literal(false)
+    case _ =>
+      throw new RuntimeException(s"no default for type $dataType")
+    case DoubleType => Literal(0.0)
+    //    case dt: DecimalType => Literal(Decimal(0, dt.precision, dt.scale))
+    //    case DateType => create(0, DateType)
+    //    case TimestampType => create(0L, TimestampType)
+    //    case TimestampNTZType => create(0L, TimestampNTZType)
+    //    case it: DayTimeIntervalType => create(0L, it)
+    //    case it: YearMonthIntervalType => create(0, it)
+    case StringType => Literal("")
+    //    case BinaryType => Literal("".getBytes(StandardCharsets.UTF_8))
+    //    case CalendarIntervalType => Literal(new CalendarInterval(0, 0, 0))
+    //    case arr: ArrayType => create(Array(), arr)
+    //    case map: MapType => create(Map(), map)
+    //    case struct: StructType =>
+    //      create(InternalRow.fromSeq(struct.fields.map(f => default(f.dataType).value)), struct)
+    //    case udt: UserDefinedType[_] => Literal(default(udt.sqlType).value, udt)
+    case other =>
+      throw QueryExecutionErrors.noDefaultForDataTypeError(dataType)
+  }
 }

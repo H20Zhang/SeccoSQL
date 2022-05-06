@@ -9,7 +9,8 @@ import org.apache.spark.secco.codegen.{
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.codegen.PredicateFunc
-import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
+import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.types.{
   AbstractDataType,
   AnyDataType,
@@ -19,6 +20,9 @@ import org.apache.spark.secco.types.{
   DoubleType,
   FloatType
 }
+
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 object InterpretedPredicateFunc {
   def create(
@@ -46,14 +50,44 @@ case class InterpretedPredicateFunc(expression: Expression)
   }
 }
 
-/**
-  * An [[Expression]] that returns a boolean value.
+/** An [[Expression]] that returns a boolean value.
   */
 trait Predicate extends Expression {
   override def dataType: DataType = BooleanType
 }
 
 trait PredicateHelper {
+
+//  protected def findEquivilanceAttrs(
+//      condition: Expression
+//  ): Seq[AttributeSet] = {
+//    val equiAttrPair = splitConjunctivePredicates(condition).flatMap { expr =>
+//      expr match {
+//        case EqualTo(a: Attribute, b: Attribute) => Some((a, b))
+//        case _                                   => None
+//      }
+//    }
+//
+//    val res = ArrayBuffer[AttributeSet]()
+//
+//    equiAttrPair.foreach { case (a, b) =>
+//      // find equivalence set that contains a or b
+//      val attrSetOpt =
+//        res.find(attrSet => attrSet.contains(a) || attrSet.contains(b))
+//
+//      // add new element into the equivalence set
+//      attrSetOpt match {
+//        case Some(equiAttrSet) =>
+//          res.remove(res.indexOf(equiAttrSet))
+//          res += (equiAttrSet ++ AttributeSet(a :: b :: Nil))
+//        case None =>
+//          res += AttributeSet(a :: b :: Nil)
+//      }
+//    }
+//
+//    res
+//  }
+
   protected def splitConjunctivePredicates(
       condition: Expression
   ): Seq[Expression] = {
@@ -81,46 +115,43 @@ trait PredicateHelper {
   ): Expression = {
     // Use transformUp to prevent infinite recursion when the replacement expression
     // redefines the same ExprId,
-    condition.transformUp {
-      case a: Attribute =>
-        aliases.getOrElse(a, a)
+    condition.transformUp { case a: Attribute =>
+      aliases.getOrElse(a, a)
     }
   }
 
-//  /**
-//   * Returns true if `expr` can be evaluated using only the output of `plan`.  This method
-//   * can be used to determine when it is acceptable to move expression evaluation within a query
-//   * plan.
-//   *
-//   * For example consider a join between two relations R(a, b) and S(c, d).
-//   *
-//   * - `canEvaluate(EqualTo(a,b), R)` returns `true`
-//   * - `canEvaluate(EqualTo(a,c), R)` returns `false`
-//   * - `canEvaluate(Literal(1), R)` returns `true` as literals CAN be evaluated on any plan
-//   */
-//  protected def canEvaluate(expr: Expression, plan: LogicalPlan): Boolean =
-//    expr.references.subsetOf(plan.outputSet)
-//
-//  /**
-//   * Returns true iff `expr` could be evaluated as a condition within join.
-//   */
-//  protected def canEvaluateWithinJoin(expr: Expression): Boolean = expr match {
-//    // Non-deterministic expressions are not allowed as join conditions.
-//    case e if !e.deterministic => false
+  /** Returns true if `expr` can be evaluated using only the output of `plan`.  This method
+    * can be used to determine when it is acceptable to move expression evaluation within a query
+    * plan.
+    *
+    * For example consider a join between two relations R(a, b) and S(c, d).
+    *
+    *   - `canEvaluate(EqualTo(a,b), R)` returns `true`
+    *   - `canEvaluate(EqualTo(a,c), R)` returns `false`
+    *   - `canEvaluate(Literal(1), R)` returns `true` as literals CAN be evaluated on any plan
+    */
+  protected def canEvaluate(expr: Expression, plan: LogicalPlan): Boolean =
+    expr.references.subsetOf(plan.outputSet)
+
+  /** Returns true iff `expr` could be evaluated as a condition within join.
+    */
+  protected def canEvaluateWithinJoin(expr: Expression): Boolean = expr match {
+    // Non-deterministic expressions are not allowed as join conditions.
+    case e if !e.deterministic => false
 //    case _: ListQuery | _: Exists =>
-//      // A ListQuery defines the query which we want to search in an IN subquery expression.
-//      // Currently the only way to evaluate an IN subquery is to convert it to a
-//      // LeftSemi/LeftAnti/ExistenceJoin by `RewritePredicateSubquery` rule.
-//      // It cannot be evaluated as part of a Join operator.
-//      // An Exists shouldn't be push into a Join operator too.
+    // A ListQuery defines the query which we want to search in an IN subquery expression.
+    // Currently the only way to evaluate an IN subquery is to convert it to a
+    // LeftSemi/LeftAnti/ExistenceJoin by `RewritePredicateSubquery` rule.
+    // It cannot be evaluated as part of a Join operator.
+    // An Exists shouldn't be push into a Join operator too.
 //      false
 //    case e: SubqueryExpression =>
-//      // non-correlated subquery will be replaced as literal
+//       non-correlated subquery will be replaced as literal
 //      e.children.isEmpty
-//    case a: AttributeReference => true
-//    case e: Unevaluable => false
-//    case e => e.children.forall(canEvaluateWithinJoin)
-//  }
+    case a: AttributeReference => true
+    case e: Unevaluable        => false
+    case e                     => e.children.forall(canEvaluateWithinJoin)
+  }
 }
 
 case class Not(child: Expression) extends UnaryExpression with Predicate {

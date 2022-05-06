@@ -1,6 +1,9 @@
 *.class
 *.log
 
+# Mac DS_Store
+.DS_Store
+
 # Datasets
 /datasets/
 /script/upload/
@@ -39,7 +42,9 @@ out
 .metadata
 .idea
 *.iml
+*.DS_Store
 
 # ignore log files
 *.log
 
+/err_log/

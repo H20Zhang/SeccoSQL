@@ -1,35 +1,34 @@
 package org.apache.spark.secco.execution.plan.communication
 
 import java.io.{IOException, ObjectOutputStream}
-
 import org.apache.spark._
 import org.apache.spark.secco.config.SeccoConfiguration
-import org.apache.spark.secco.execution.plan.communication.utils.{
-  EnumShareComputer,
-  PairPartitioner,
-  ShareResults
-}
-import org.apache.spark.secco.execution.plan.support.PairExchangeSupport
 import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
-import org.apache.spark.secco.execution.{
-  SeccoPlan,
-  InternalBlock,
-  MultiTableIndexedBlock,
-  SharedParameter
-}
+import org.apache.spark.secco.execution.{SeccoPlan, SharedContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.scheduler.TaskLocation
+import org.apache.spark.secco.debug
+import org.apache.spark.secco.execution.storage.{
+  InternalPartition,
+  PairedPartition
+}
+import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.utils.AttributeMap
 import org.apache.spark.storage.RDDBlockId
 import org.apache.spark.util.Utils
 
 import scala.collection.mutable
 
+/** The operator that pairs partitions from multiple inputs.
+  * @param children The input relations
+  * @param shareConstraintContext The constraint on the share values an attribute can take
+  * @param shareValuesContext The share values of the attributes
+  */
 case class PullPairExchangeExec(
     children: Seq[SeccoPlan],
-    constraint: Map[String, Int],
-    sharedShare: SharedParameter[mutable.HashMap[String, Int]]
-) extends SeccoPlan
-    with PairExchangeSupport {
+    shareConstraintContext: ShareConstraintContext,
+    shareValuesContext: ShareValuesContext
+) extends SeccoPlan {
 
   override lazy val statisticKeeper: StatisticKeeper = {
     throw new Exception(
@@ -37,76 +36,74 @@ case class PullPairExchangeExec(
     )
   }
 
-  override def outputOld: Seq[String] = children.flatMap(_.outputOld).distinct
+  override def hyperCubePartitioner(): HyperCubePartitioner =
+    shareValuesContext.shares.genTaskPartitioner(output.toArray)
 
-  /** generate the partition for [[PullPairExchangeExec]] */
+  override def output: Seq[Attribute] = children.flatMap(_.output)
+
+  /** Generate the partition information for [[PullPairExchangeExec]] */
   def genPullPairPartitions(
       children: Seq[SeccoPlan],
-      inputs: Seq[RDD[InternalBlock]]
+      inputs: Seq[RDD[InternalPartition]]
   ): Array[PullPairRDDPartition] = {
 
-    val attrs = outputOld
-    val shareSpaceVector = attrs.map(share).toArray
-    val taskPartitioner = new PairPartitioner(shareSpaceVector)
-    val partitioners = children.map(child => child.taskPartitioner())
-    val shareOfTasks = genShareVectorsForAttrs(attrs)
+    val shareValues = shareValuesContext.shares
+    val partitioners = children.map(child => child.hyperCubePartitioner())
+    val taskCoordinates = shareValues.genHyperCubeCoordinates(output)
 
-    val subTaskPartitions = shareOfTasks
-      .map { shareVector =>
-        val blockIDs = children
+    val pairPartitions = taskCoordinates
+      .map { coordinate =>
+        val subCoordinates = children
           .map { child =>
-            val childAttrs = child.outputOld
-            val pos = childAttrs.map { attrID =>
-              attrs.indexOf(attrID)
-            }
-            pos.map(shareVector).toArray
-          }
-          .zipWithIndex
-          .map {
-            case (subShareVector, relationPos) =>
-              partitioners(relationPos).getPartition(subShareVector)
+            coordinate.subCoordinate(child.output.toArray)
           }
 
-        val taskID = taskPartitioner.getPartition(shareVector)
+        val serverIDs = subCoordinates.zipWithIndex
+          .map { case (subCoordinate, idx) =>
+            partitioners(idx).getServerId(subCoordinate)
+          }
 
-        new PullPairRDDPartition(taskID, blockIDs, inputs)
+        val taskID = hyperCubePartitioner.getServerId(coordinate)
+
+//        debug(subCoordinates, serverIDs, taskID)
+
+        new PullPairRDDPartition(taskID, serverIDs, coordinate, inputs)
       }
       .sortBy(_.index)
 
-    subTaskPartitions
+    pairPartitions
   }
 
   override protected def doPrepare(): Unit = {
     super.doPrepare()
 
-//    /** make sure all the children are of type [[PartitionExchangeExec]] */
-//    assert(children.forall(_.isInstanceOf[PartitionExchangeExec]))
+    // Compute the share.
+    if (!shareValuesContext.shares.isInitialized()) {
 
-    //compute the share
-    if (share.isEmpty) {
-
-      val schemas = children.map(_.outputOld)
+      val schemas = children.map(_.output)
       val cardinalities = children.map { child =>
         (
-          child.outputOld,
+          child.output,
           child.statisticKeeper.rowCountOnlyStatistic().rowCount.toLong
         )
       }.toMap
 
-      val shareComputer = new EnumShareComputer(
+      val shareValuesOptimizer = new EnumShareComputer(
         schemas,
-        constraint,
+        shareConstraintContext.shareConstraint,
         SeccoConfiguration.newDefaultConf().numPartition,
         cardinalities
       )
-      val shareResults = shareComputer.optimalShareWithBudget()
-      _shareResults = Some(shareResults)
-      shareResults.share.foreach { case (key, value) => share(key) = value }
+      val optimizedShareValuesResult =
+        shareValuesOptimizer.optimalShareWithBudget()
+      shareValuesContext.shares.rawShares = AttributeMap(
+        optimizedShareValuesResult.rawShares.toSeq
+      )
     }
 
-    //cache the output of children to avoid repeated materialization during pairing
-    //it is worth noting that we should change the storagelevel to serialization to avoid memory overflow when
-    //trying to satisfy multiple get block request
+    // Cache the output of children to avoid repeated materialization during pairing.
+    // It is worth noting that we should change the storagelevel to serialization to avoid memory overflow when
+    // trying to satisfy multiple get block request.
     children.foreach(_.cacheOutput())
 
   }
@@ -115,23 +112,22 @@ case class PullPairExchangeExec(
     children.foreach { child =>
       val grandChildren = child.children
       grandChildren.foreach { grandChild =>
-        grandChild.foreach { dolpinPlan =>
-          dolpinPlan.cachedExecuteResult match {
+        grandChild.foreach { execPlan =>
+          execPlan.cachedExecuteResult match {
             case Some(rdd) => rdd.unpersist(false)
             case None      => {}
           }
-          dolpinPlan.cachedExecuteResult = None
+          execPlan.cachedExecuteResult = None
         }
       }
     }
   }
 
-  /**
-    * Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
+  /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[InternalPartition] = {
 
     //gen inputRDDs
     val inputRDDs = children.map(_.cachedExecuteResult.get)
@@ -144,36 +140,12 @@ case class PullPairExchangeExec(
 
     //gen PullPairRDD
     val pairedRDD = new PullPairRDD(
-      outputOld,
+      output,
       sparkContext,
       subTaskPartitions,
-      taskPartitioner,
+      hyperCubePartitioner,
       inputRDDs
     )
-
-    // increment the counter for benchmark
-
-    val counterManager = dlSession.sessionState.counterManager
-    counterManager
-      .getOrCreateCounter("benchmark", s"communicationCostInTuples")
-      .increment(_shareResults.map(_.communicationCostInTuples).getOrElse(0))
-    counterManager
-      .getOrCreateCounter("benchmark", s"communicationCostInBytes")
-      .increment(_shareResults.map(_.communicationCostInBytes).getOrElse(0))
-
-    if (conf.recordCommunicationTime) {
-      logInfo(
-        s"""perform communication only execution of plan:${this}""".stripMargin
-      )
-      val time1 = System.currentTimeMillis()
-      pairedRDD.map(f => 1).sum()
-      val time2 = System.currentTimeMillis()
-      val communicationTime = time2 - time1
-
-      counterManager
-        .getOrCreateCounter("benchmark", "communicationTime(ms)")
-        .increment(communicationTime)
-    }
 
     pairedRDD
   }
@@ -183,9 +155,12 @@ case class PullPairExchangeExec(
 class PullPairRDDPartition(
     idx: Int,
     dependencyBlockID: Seq[Int],
+    coordinate: Coordinate,
     @transient private val rdds: Seq[RDD[_]]
 ) extends Partition {
   override val index: Int = idx
+
+  val hyperCubeCoordinate = coordinate
 
   var partitionValues: Seq[(Int, Partition)] = dependencyBlockID.zipWithIndex
     .map(_.swap)
@@ -244,13 +219,13 @@ class PullPairRDDPartition(
     }
 }
 
-class PullPairRDD[A <: InternalBlock: Manifest](
-    output: Seq[String],
+class PullPairRDD[A <: InternalPartition: Manifest](
+    output: Seq[Attribute],
     sc: SparkContext,
     pairedPartitions: Array[PullPairRDDPartition],
     _partitioner: Partitioner,
-    var rdds: Seq[RDD[InternalBlock]]
-) extends RDD[InternalBlock](sc, rdds.map(x => new OneToOneDependency(x))) {
+    var rdds: Seq[RDD[InternalPartition]]
+) extends RDD[InternalPartition](sc, rdds.map(x => new OneToOneDependency(x))) {
   override val partitioner: Option[Partitioner] = Some(_partitioner)
 
   //reorder the subTaskPartitions according to their idx
@@ -270,19 +245,16 @@ class PullPairRDD[A <: InternalBlock: Manifest](
   override def compute(
       split: Partition,
       context: TaskContext
-  ): Iterator[InternalBlock] = {
-    val subTaskPartition = split.asInstanceOf[PullPairRDDPartition]
-    val blockList = subTaskPartition.partitionValues.par.map { f =>
+  ): Iterator[InternalPartition] = {
+    val pairedPartition = split.asInstanceOf[PullPairRDDPartition]
+    val partitionList = pairedPartition.partitionValues.par.map { f =>
       val iterator1 = rdds(f._1).iterator(f._2, context)
       val block = iterator1.next()
       iterator1.hasNext
       block
     }.toArray
-
-    val shareVector =
-      partitioner.get.asInstanceOf[PairPartitioner].getCoordinate(split.index)
-
-    Iterator(MultiTableIndexedBlock(output, shareVector, blockList))
+    val coordinate = pairedPartition.hyperCubeCoordinate
+    Iterator(PairedPartition(output, partitionList, Some(coordinate), None))
   }
 
 }

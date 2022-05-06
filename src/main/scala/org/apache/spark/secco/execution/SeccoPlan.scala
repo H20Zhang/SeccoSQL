@@ -1,17 +1,21 @@
 package org.apache.spark.secco.execution
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.catalog.CachedDataManager
-import org.apache.spark.secco.execution.plan.computation.LocalPlaceHolderExec
+import org.apache.spark.secco.catalog.TempViewManager
 import org.apache.spark.secco.execution.plan.computation.utils.Alg
-import org.apache.spark.secco.execution.plan.communication.utils.PairPartitioner
-import org.apache.spark.secco.execution.statsComputation.{
-  FullCardinalityStatisticComputer,
-  StatisticKeeper
-}
+import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.communication.HyperCubePartitioner
+import org.apache.spark.secco.execution.storage.{
+  InternalPartition,
+  PairedPartition
+}
+import org.apache.spark.secco.execution.storage.row.{
+  GenericInternalRow,
+  InternalRow
+}
 import org.apache.spark.storage.StorageLevel
 
 /** The base class for physical operators.
@@ -24,18 +28,24 @@ abstract class SeccoPlan
     with Serializable {
 
   @transient lazy val statisticKeeper = StatisticKeeper(this)
-  @transient var cachedExecuteResult: Option[RDD[InternalBlock]] = None
+  @transient var cachedExecuteResult: Option[RDD[InternalPartition]] = None
   @transient val dataManager =
-    SeccoSession.currentSession.sessionState.cachedDataManager
+    SeccoSession.currentSession.sessionState.tempViewManager
 
-  def taskPartitioner(): PairPartitioner = {
+  /** The hypercube partitioner for partitioning the relation.
+    *
+    * For a hypercube partitioner, it partitions the relation based attribute by attribute.
+    *
+    * TODO: gives a example how relation is partitioned
+    */
+  def hyperCubePartitioner(): HyperCubePartitioner = {
     throw new Exception(s"taskPartition not avaiable for ${this.getClass}")
   }
 
   def cacheOutput(): Unit = {
     if (cachedExecuteResult.isEmpty) {
       val result =
-        execute().persist(dlSession.sessionState.conf.rddCacheLevel)
+        execute().persist(seccoSession.sessionState.conf.rddCacheLevel)
       val time1 = System.currentTimeMillis()
       result.count()
       val time2 = System.currentTimeMillis()
@@ -49,35 +59,46 @@ abstract class SeccoPlan
   protected def sparkContext = sc
 
   override def verboseString: String =
-    simpleString + s"-> (${outputOld.mkString(",")})"
+    simpleString + s"-> (${output.mkString(",")})"
 
-  /** Collect the results as [[Seq[InternalRow]]] */
-  def collectSeq(): Seq[OldInternalRow] = {
-    val internalBlockRDD = execute()
+  /** Collect the results as [[Seq[InternalRow]]]
+    *
+    * By default the InternalRow are converted to generic row for better results illustrations.
+    */
+  def collectRows(
+      isConvert2GenericRow: Boolean = true
+  ): Seq[InternalRow] = {
+    val partitionRDD = execute()
 
     val time1 = System.currentTimeMillis()
-    val rows = internalBlockRDD
-      .flatMap { block =>
-        if (block.isInstanceOf[RowBlock]) {
-          val rowBlock = block.asInstanceOf[RowBlock]
-          rowBlock.blockContent.content
-        } else {
+    val rows = partitionRDD
+      .flatMap { partition =>
+        if (partition.isInstanceOf[PairedPartition]) {
           throw new Exception(
-            s"${this} should subclass toSeq as its block is not of type RowBlock."
+            s"PairedPartition cannot be serialized into Seq[InternalRow]."
           )
+        } else {
+          partition.data.head.iterator
         }
       }
       .collect()
     val time2 = System.currentTimeMillis()
     logInfo(
-      s"execute `collectSeq` of ${this.verboseString} in ${time2 - time1}ms"
+      s"execute `collectRows` of ${this.verboseString} in ${time2 - time1}ms"
     )
 
-    val attributeOrder = outputOld.sorted
-
-    Alg.reorder(attributeOrder, outputOld, rows)
-
-    rows.toSeq.map(_.toArray)
+    if (isConvert2GenericRow) {
+      if (rows.forall(_.isInstanceOf[GenericInternalRow])) {
+        rows
+      } else {
+        rows.map { f =>
+          val rowArray = f.toSeq(output.map(_.dataType)).toArray
+          new GenericInternalRow(rowArray)
+        }
+      }
+    } else {
+      rows
+    }
   }
 
   /** Returns the numbers of tuples */
@@ -107,7 +128,7 @@ abstract class SeccoPlan
     *
     * Concrete implementations of SparkPlan should override `doExecute`.
     */
-  final def execute(): RDD[InternalBlock] = {
+  final def execute(): RDD[InternalPartition] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
@@ -131,15 +152,15 @@ abstract class SeccoPlan
     *
     * Concrete implementations of SparkPlan should override `doRDD`.
     */
-  final def rdd(): RDD[OldInternalRow] = {
+  final def rdd(): RDD[InternalRow] = {
 
     //by pass execution if cachedExecuteResults exists
     cachedExecuteResult match {
       case Some(rdd) =>
         rdd.flatMap {
-          case r: RowBlock => r.blockContent.content
-          case t: InternalBlock =>
+          case t: PairedPartition =>
             throw new Exception(s"${t.getClass} not supported.")
+          case partition: InternalPartition => partition.data.head.iterator
         }
       case None =>
         //prepare
@@ -170,19 +191,18 @@ abstract class SeccoPlan
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doExecute(): RDD[InternalBlock]
+  protected def doExecute(): RDD[InternalPartition]
 
   /** Perform the computation for computing the result of the query as an `RDD[InternalRow]`,
     * which allows very large result to be output in iterator form
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  protected def doRDD(): RDD[OldInternalRow] = {
+  protected def doRDD(): RDD[InternalRow] = {
     doExecute().flatMap {
-      case r: RowBlock            => r.blockContent.content.iterator
-      case c: ConsecutiveRowBlock => c.blockContent.content.iterator
-      case b: InternalBlock =>
+      case b: PairedPartition =>
         throw new Exception(s"${b.getClass} not supported.")
+      case partition: InternalPartition => partition.data.head.iterator
     }
   }
 

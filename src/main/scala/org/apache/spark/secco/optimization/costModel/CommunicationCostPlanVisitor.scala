@@ -1,13 +1,14 @@
 package org.apache.spark.secco.optimization.costModel
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.plan.communication.utils.EnumShareComputer
+import org.apache.spark.secco.execution.plan.communication.EnumShareComputer
 import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 import org.apache.spark.secco.optimization.plan.{
   Aggregate,
   Filter,
   Join,
-  LocalStage,
+  PairThenCompute,
+  MultiwayJoin,
   Partition,
   Project,
   Union
@@ -18,8 +19,7 @@ import org.apache.spark.secco.optimization.statsEstimation.{
 }
 import org.apache.spark.secco.optimization.statsEstimation.histogram.HistogramBasedStatsPlanVisitor
 
-/**
-  * An [[LogicalPlanVisitor]] that estimate the communication cost of the plan.
+/** An [[LogicalPlanVisitor]] that estimate the communication cost of the plan.
   */
 object CommunicationCostPlanVisitor extends LogicalPlanVisitor[Double] {
 
@@ -40,7 +40,9 @@ object CommunicationCostPlanVisitor extends LogicalPlanVisitor[Double] {
 
   override def visitFilter(p: Filter): Double = 0
 
-  override def visitJoin(p: Join): Double = fallback(p)
+  override def visitJoin(p: Join): Double = fallback(
+    p.asInstanceOf[LogicalPlan]
+  )
 
   override def visitProject(p: Project): Double = fallback(p)
 
@@ -48,7 +50,7 @@ object CommunicationCostPlanVisitor extends LogicalPlanVisitor[Double] {
 
   override def visitPartition(p: Partition): Double = fallback(p)
 
-  override def visitLocalStage(p: LocalStage): Double = {
+  override def visitLocalStage(p: PairThenCompute): Double = {
     LocalStageCostModel.communicationCost(p)
   }
 }

@@ -1,9 +1,11 @@
 package org.apache.spark.secco.parsing
 import org.apache.spark.secco.catalog.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.secco.optimization.LogicalPlan
+import org.apache.spark.secco.types.{DataType, StructType}
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.trees.Origin
 
+import scala.collection.mutable.ArrayBuffer
 import scala.util.parsing.combinator.Parsers
 import scala.util.parsing.input.Position
 
@@ -13,6 +15,8 @@ object SQLParser extends Parsers with ParserInterface {
   override type Elem = Token
 
   //----------------------------------------------functions to build the parser----------------------------------------------
+
+  /* Literal and Identifier */
   def identifier: Parser[Identifier] =
     positioned {
       accept("identifier", { case d: Identifier => d })
@@ -26,6 +30,7 @@ object SQLParser extends Parsers with ParserInterface {
       accept("int literal", { case d: IntLit => d })
     }
 
+  /* Expression */
   //TODO handle case when then else
   def star: Parser[Star] =
     positioned {
@@ -36,8 +41,8 @@ object SQLParser extends Parsers with ParserInterface {
       identifier ~ (Lp ~> repsep(expression | star, Com) <~ Rp) ^^ {
         case fun ~ args => AppExpr(fun, args)
       } |
-        opt(identifier <~ Dot) ~ identifier ^^ {
-          case qualifier ~ name => ColumnRef(qualifier, name)
+        opt(identifier <~ Dot) ~ identifier ^^ { case qualifier ~ name =>
+          ColumnRef(qualifier, name)
         } |
         literal ^^ { case literal => LiteralExpr(literal) } |
         Lp ~> expression <~ Rp ^^ { case expr => expr } |
@@ -57,15 +62,14 @@ object SQLParser extends Parsers with ParserInterface {
     }
   def expr_3 =
     positioned {
-      (rep(Add | Sub) ~ expr_2 ^^ {
-        case lst ~ expr =>
-          lst.foldRight(expr) { (op: Token, expr: Expr) =>
-            op match {
-              case Add => PosExpr(expr)
-              case Sub => NegExpr(expr)
-              case _   => throw new Exception("unreachable")
-            }
+      (rep(Add | Sub) ~ expr_2 ^^ { case lst ~ expr =>
+        lst.foldRight(expr) { (op: Token, expr: Expr) =>
+          op match {
+            case Add => PosExpr(expr)
+            case Sub => NegExpr(expr)
+            case _   => throw new Exception("unreachable")
           }
+        }
       }) * (Add ^^^ { (lhs: Expr, rhs: Expr) =>
         AddExpr(lhs, rhs)
       } |
@@ -121,25 +125,126 @@ object SQLParser extends Parsers with ParserInterface {
         OrExpr(lhs, rhs)
       })
     }
+
+  /* Pattern Expression */
+
+  //TODO: here is an bug
+
+  /*
+
+     (LCb ~> rep1sep(
+      (identifier <~ Col) ~ literal,
+      Com
+    ) <~ RCb)
+
+   should be annotated with an opt
+
+   */
+
+  def nodeExpr = positioned {
+    Lp ~> opt(identifier) ~ rep(Col ~> identifier) ~ opt(
+      LCb ~> rep1sep(
+        (identifier <~ Col) ~ literal,
+        Com
+      ) <~ RCb
+    ) <~ Rp ^^ { case name ~ labels ~ properties =>
+      Node(
+        name,
+        labels,
+        properties
+          .getOrElse(Seq())
+          .map { case key ~ value => (key, value) }
+          .toMap
+      )
+    }
+  }
+
+  def edgeExpr = positioned {
+    LSb ~> opt(identifier) ~ rep(Col ~> identifier) ~ opt(
+      LCb ~> rep1sep(
+        (identifier <~ Col) ~ literal,
+        Com
+      ) <~ RCb
+    ) <~ RSb ^^ { case name ~ labels ~ properties =>
+      Edge(
+        name,
+        labels,
+        properties
+          .getOrElse(Seq())
+          .map { case key ~ value => (key, value) }
+          .toMap
+      )
+    }
+  }
+
+  def edgeDirection = positioned {
+    Sub | LeftArrow | RightArrow ^^ { case f =>
+      f
+    }
+  }
+
+  def pathExpr = positioned {
+    nodeExpr ~ rep(
+      edgeDirection ~ edgeExpr ~ edgeDirection ~ nodeExpr
+    ) ^^ { case node1 ~ remainingNodes =>
+      val edgeList = ArrayBuffer[(Node, Edge, Node, EdgeDirection)]()
+      val nodeList = ArrayBuffer[Node](node1)
+
+      remainingNodes.foldLeft(node1) {
+        case (node1, arrow1 ~ edge ~ arrow2 ~ node2) =>
+          val edgeDirection = (arrow1, arrow2) match {
+            case (Sub, Sub)        => BiDirection
+            case (Sub, RightArrow) => Left2Right
+            case (LeftArrow, Sub)  => Right2Left
+            case _ =>
+              throw new Exception(
+                s"direction:${(arrow1, arrow2)} is not allowed in path query."
+              )
+          }
+
+          edgeList += ((node1, edge, node2, edgeDirection))
+          nodeList += (node2)
+
+          node2
+      }
+
+      Path(nodeList, edgeList)
+    }
+  }
+
+  def patternExpression = positioned {
+    repsep(pathExpr, Sim) ^^ { case paths =>
+      Pattern(paths)
+    }
+  }
+
   def expression: Parser[Expr] = positioned { expr_7 }
 
   def tableRef: Parser[TableRef] = positioned { join }
   def tablePrimary: Parser[TableRef] =
     positioned {
-      table | derivedTable | Lp ~> join <~ Rp
+      table | derivedTable | Lp ~> join <~ Rp | graphTable
     }
   def table =
     positioned {
-      (identifier <~ opt(As)) ~ opt(identifier) ^^ {
-        case name ~ alias => Table(name, alias)
+      (identifier <~ opt(As)) ~ opt(identifier) ^^ { case name ~ alias =>
+        StoredTable(name, alias)
       }
     }
   def derivedTable =
     positioned {
-      ((Lp ~> query <~ Rp) <~ opt(As)) ~ identifier ^^ {
-        case query ~ alias => DerivedTable(query, alias)
+      ((Lp ~> query <~ Rp) <~ opt(As)) ~ identifier ^^ { case query ~ alias =>
+        DerivedTable(query, alias)
       }
     }
+  def graphTable =
+    positioned {
+      (Match ~> Lp ~> tablePrimary) ~ (Com ~> patternExpression <~ Rp) ^^ {
+        case graph ~ pattern =>
+          GraphTable(graph, pattern)
+      }
+    }
+
   def join =
     positioned {
       tablePrimary ~ rep(
@@ -147,14 +252,13 @@ object SQLParser extends Parsers with ParserInterface {
           case joinType ~ query ~ joinCondition =>
             (joinType, query, joinCondition)
         }
-      ) ^^ {
-        case x ~ xs =>
-          xs.foldLeft(x) { (x, y) =>
-            y match {
-              case (joinType, query, joinCondition) =>
-                JoinedTable(x, query, joinType, joinCondition)
-            }
+      ) ^^ { case x ~ xs =>
+        xs.foldLeft(x) { (x, y) =>
+          y match {
+            case (joinType, query, joinCondition) =>
+              JoinedTable(x, query, joinType, joinCondition)
           }
+        }
       }
     }
   def joinType =
@@ -169,14 +273,14 @@ object SQLParser extends Parsers with ParserInterface {
   def joinCondition =
     positioned {
       On ~> expression ^^ { case cond => JoinOn(cond) } |
-        Using ~> Lp ~> rep1sep(identifier, Com) <~ Rp ^^ {
-          case col => JoinUsing(col)
+        Using ~> Lp ~> rep1sep(identifier, Com) <~ Rp ^^ { case col =>
+          JoinUsing(col)
         }
     }
 
   def query: Parser[Query] =
     positioned {
-      selectStmt | unionByUpdateStmt | unionStmt | withStmt
+      selectStmt | exceptStmt | intersectStmt | unionByUpdateStmt | unionStmt | withStmt
     }
   def selectStmt =
     positioned {
@@ -186,8 +290,8 @@ object SQLParser extends Parsers with ParserInterface {
         opt(Where ~> expression) ~
         opt(
           GroupBy ~> repsep(
-            opt(identifier <~ Dot) ~ identifier ^^ {
-              case qualifier ~ name => ColumnRef(qualifier, name)
+            opt(identifier <~ Dot) ~ identifier ^^ { case qualifier ~ name =>
+              ColumnRef(qualifier, name)
             },
             Com
           )
@@ -207,27 +311,27 @@ object SQLParser extends Parsers with ParserInterface {
           )
         ) ~
         opt(Limit ~> intLit) ^^ {
-        case distinct ~ projections ~ from ~ where ~ groupBy ~ having ~ orderBy ~ limit => {
-          SelectStmt(
-            distinct.isDefined,
-            projections,
-            from,
-            where,
-            groupBy,
-            having,
-            orderBy,
-            limit.map(_.d)
-          )
+          case distinct ~ projections ~ from ~ where ~ groupBy ~ having ~ orderBy ~ limit => {
+            SelectStmt(
+              distinct.isDefined,
+              projections,
+              from,
+              where,
+              groupBy,
+              having,
+              orderBy,
+              limit.map(_.d)
+            )
+          }
         }
-      }
     }
   def unionByUpdateStmt =
     positioned {
       ((Lp ~> query <~ Rp) <~ Union <~ ByUpdate) ~ rep1sep(
         identifier,
         Com
-      ) ~ (Lp ~> query <~ Rp) ^^ {
-        case lhs ~ columns ~ rhs => UnionByUpdateStmt(lhs, rhs, columns)
+      ) ~ (Lp ~> query <~ Rp) ^^ { case lhs ~ columns ~ rhs =>
+        UnionByUpdateStmt(lhs, rhs, columns)
       }
     }
   def unionStmt =
@@ -238,11 +342,26 @@ object SQLParser extends Parsers with ParserInterface {
         }
       })
     }
+
+  def exceptStmt = positioned {
+    (((Lp ~> query <~ Rp) <~ Except) ~ (Lp ~> query <~ Rp)) ^^ {
+      case lhs ~ rhs =>
+        ExceptStmt(lhs, rhs)
+    }
+  }
+
+  def intersectStmt = positioned {
+    ((Lp ~> query <~ Rp) <~ Intersect) ~ (Lp ~> query <~ Rp) ^^ {
+      case lhs ~ rhs =>
+        IntersectStmt(lhs, rhs)
+    }
+  }
+
   def withElem =
     (identifier ~ opt(
       Lp ~> rep1sep(identifier, Com) <~ Rp
-    ) <~ As) ~ (Lp ~> query <~ Rp) ^^ {
-      case name ~ columns ~ query => WithElem(name, columns, query)
+    ) <~ As) ~ (Lp ~> query <~ Rp) ^^ { case name ~ columns ~ query =>
+      WithElem(name, columns, query)
     }
   def withStmt: Parser[Query] =
     positioned {
@@ -258,8 +377,8 @@ object SQLParser extends Parsers with ParserInterface {
   def projection =
     positioned {
       star ^^ { case expression => Projection(expression, None) } |
-        expression ~ opt(As ~> identifier) ^^ {
-          case expression ~ alias => Projection(expression, alias)
+        expression ~ opt(As ~> identifier) ^^ { case expression ~ alias =>
+          Projection(expression, alias)
         }
     }
 
@@ -328,7 +447,36 @@ object SQLParser extends Parsers with ParserInterface {
           Origin(Some(next.pos.line), Some(next.pos.column)),
           Origin(None, None)
         )
-      case Success(result, _) => LogicalPlanBuilder.fromExpression(result)
+      case Success(result, _) =>
+        LogicalPlanBuilder.fromExpression(result)
+    }
+  }
+
+  override def parsePatternExpression(sqlText: String) = {
+    phrase(patternExpression)(TokenReader(tokens(sqlText))) match {
+      case NoSuccess(msg, next) =>
+        throw new ParseException(
+          Some(sqlText),
+          msg + "\n" + next.pos.longString,
+          Origin(Some(next.pos.line), Some(next.pos.column)),
+          Origin(None, None)
+        )
+      case Success(result, _) =>
+        LogicalPlanBuilder.fromExpression(result)
+    }
+  }
+
+  override def parseNamedExpression(sqlText: String) = {
+    phrase(projection)(TokenReader(tokens(sqlText))) match {
+      case NoSuccess(msg, next) =>
+        throw new ParseException(
+          Some(sqlText),
+          msg + "\n" + next.pos.longString,
+          Origin(Some(next.pos.line), Some(next.pos.column)),
+          Origin(None, None)
+        )
+      case Success(result, _) =>
+        LogicalPlanBuilder.fromNamedExpression(result)
     }
   }
 
@@ -348,4 +496,8 @@ object SQLParser extends Parsers with ParserInterface {
 
   override def parseFunctionIdentifier(sqlText: String): FunctionIdentifier =
     ???
+
+  override def parseTableSchema(sqlText: String): StructType = ???
+
+  override def parseDataType(sqlText: String): DataType = ???
 }

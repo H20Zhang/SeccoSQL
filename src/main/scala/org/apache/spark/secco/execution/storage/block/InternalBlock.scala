@@ -1,7 +1,10 @@
 package org.apache.spark.secco.execution.storage.block
 
 import org.apache.spark.Partitioner
-import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.execution.storage.row.{
+  GenericInternalRow,
+  InternalRow
+}
 import org.apache.spark.secco.types.StructType
 
 import scala.reflect.ClassTag
@@ -15,13 +18,15 @@ trait IndexLike extends InternalBlockProperty {}
 /** The trait for supporting Map like capability for [[InternalBlock]]. */
 trait MapLike extends IndexLike {
   def contains(key: InternalRow): Boolean
-  def get(key: InternalRow): InternalRow
+  def get(key: InternalRow): Array[InternalRow]
 }
 
 /** The trait for supporting Trie like capability for [[InternalBlock]] */
 trait TrieLike extends IndexLike {
   def containPrefix(prefix: InternalRow): Boolean
-  def get[T: ClassTag](key: InternalRow): Array[T]
+  //  def get[T: ClassTag](key: InternalRow): Array[T]
+  def get(key: InternalRow): Array[Any]
+  def getRows(key: InternalRow): Array[InternalRow]
 }
 
 /** The trait for supporting Set like capability for [[InternalBlock]]. */
@@ -37,7 +42,7 @@ trait RowLike extends InternalBlock {
 /** The trait for supporting accessing [[InternalBlock]] by column. */
 trait ColumnLike extends InternalBlock {
   def getColumnByOrdinal[T: ClassTag](i: Int): Array[T]
-  def getColumn[T](columnName: String): Array[T]
+  def getColumn[T: ClassTag](columnName: String): Array[T]
 }
 
 /** The base class for InternalBlock */
@@ -95,4 +100,41 @@ abstract class InternalBlock {
 
   /** Convert the InternalBlock to array of [[InternalRow]] */
   def toArray(): Array[InternalRow]
+
+  /** Convert to human readable string */
+  def verboseString(isHumanReadable: Boolean = true): String = {
+
+    if (isHumanReadable) {
+      toArray()
+        .map(f => new GenericInternalRow(f.toSeq(schema).toArray))
+        .mkString("{", ",", "}")
+    } else {
+      toArray().map(_.toString).mkString("[", ";\n", "]")
+    }
+
+  }
+
+  override def toString: String = verboseString()
+
+}
+
+object InternalBlock {
+
+  /** This method can be used to construct a [[InternalBlock]] with rows and the schema given .
+    */
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = TrieInternalBlock(rows, schema)
+  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock =
+    ColumnarInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = GenericInternalBlock(rows, schema)
+  // edited by lgh
+
+  /** This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
+    */
+  def fromSeq(rows: Seq[InternalRow], schema: StructType): InternalBlock =
+    UnsafeInternalRowBlock(rows.toArray, schema)
+
+  /** Returns an empty [[InternalRow]]. */
+  val empty = apply(Array.empty[InternalRow], new StructType)
+
 }

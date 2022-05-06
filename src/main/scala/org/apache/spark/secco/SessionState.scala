@@ -2,7 +2,7 @@ package org.apache.spark.secco
 import org.apache.spark.SparkContext
 import org.apache.spark.secco.analysis.Analyzer
 import org.apache.spark.secco.catalog.{
-  CachedDataManager,
+  TempViewManager,
   Catalog,
   FunctionRegistry
 }
@@ -13,8 +13,7 @@ import org.apache.spark.secco.parsing.{ParserInterface, SQLParser}
 import org.apache.spark.secco.util.counter.CounterManager
 import org.apache.spark.secco.util.misc.SparkSingle
 
-/**
-  * A class that holds all session-specific state in a given [[SeccoSession]].
+/** A class that holds all session-specific state in a given [[SeccoSession]].
   *
   * @param sc: The context of Spark.
   * @param conf SQL-specific key-value configurations.
@@ -35,7 +34,7 @@ class SessionState(
     val analyzer: Analyzer,
     val optimizer: SeccoOptimizer,
     val planner: SeccoPlanner,
-    val cachedDataManager: CachedDataManager,
+    val tempViewManager: TempViewManager,
     val counterManager: CounterManager
 ) {}
 
@@ -55,7 +54,7 @@ object SessionState {
       new Analyzer(catalog, conf, functionRegistry, conf.maxIteration)
     val optimizer = new SeccoOptimizer(conf)
     val planner = new SeccoPlanner(sc, conf)
-    val cachedDataManager = CachedDataManager.newDefaultDataManager
+    val cachedDataManager = TempViewManager.newDefaultDataManager
     val counterManager = CounterManager.newDefaultCounterManager
 
     new SessionState(
@@ -73,8 +72,7 @@ object SessionState {
     )
   }
 
-  /**
-    * Create a new SessionState with given configuration.
+  /** Create a new SessionState with given configuration.
     * @param conf user provided configuration
     * @return new SessionState initialized with given configuration
     */
@@ -88,7 +86,7 @@ object SessionState {
       new Analyzer(catalog, conf, functionRegistry, conf.maxIteration)
     val optimizer = new SeccoOptimizer(conf)
     val planner = new SeccoPlanner(sc, conf)
-    val cachedDataManager = CachedDataManager.newDefaultDataManager
+    val cachedDataManager = TempViewManager.newDefaultDataManager
     val counterManager = CounterManager.newDefaultCounterManager
 
     new SessionState(

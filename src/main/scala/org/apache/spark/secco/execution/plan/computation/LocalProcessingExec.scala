@@ -2,43 +2,71 @@ package org.apache.spark.secco.execution.plan.computation
 
 import org.apache.spark.secco.optimization.plan.JoinType._
 import org.apache.spark.secco.execution.{SeccoPlan, _}
-import org.apache.spark.secco.execution.plan.computation.iter.{
-  SeccoIterator,
-  IteratorFactory
-}
-import org.apache.spark.secco.execution.plan.support.FuncGenSupport
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.plan.computation.newIter.{
+  AggregateIterator,
+  BuildHashMap,
+  BuildSet,
+  BuildTrie,
+  CartesianProductIterator,
+  DistinctIterator,
+  HashJoinIterator,
+  LeapFrogJoinIterator,
+  ProjectIterator,
+  SeccoIterator,
+  SelectIterator,
+  SortIterator,
+  TableIterator,
+  UnionIterator
+}
+import org.apache.spark.secco.execution.storage.{
+  InternalPartition,
+  PairedPartition
+}
+import org.apache.spark.secco.execution.storage.block.{
+  HashMapInternalBlock,
+  InternalBlock
+}
+import org.apache.spark.secco.expression.aggregate.AggregateFunction
+import org.apache.spark.secco.expression.codegen.GeneratePredicate
+import org.apache.spark.secco.expression.{
+  Attribute,
+  BindReferences,
+  Expression,
+  NamedExpression
+}
+import org.apache.spark.secco.optimization.plan.JoinType
+import org.apache.spark.secco.optimization.util.{AttributeOrder, EquiAttributes}
 
 import scala.collection.mutable
 
-/**
-  * A local computation physical operator.
+/** A local computation physical operator.
   */
 abstract class LocalProcessingExec extends SeccoPlan {
 
-  /** shared parameter--- attribute order */
-  def sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
+  /** The local computation stage in which this local computation is executed. */
+  def localStage: LocalStageExec
 
-  /** The global attribute order */
-  def attributeOrder: mutable.ArrayBuffer[String] = sharedAttributeOrder.res
-
-  /** The local attribute order */
-  def localAttributeOrder: Seq[String] =
-    attributeOrder.filter(outputOld.contains)
+  /** Whether the output is sorted.
+    *
+    * By default, isSorted is false.
+    */
+  def isSorted: Boolean = false
 
   /** The output iterator */
   def iterator(): SeccoIterator
 
   /** The materialized result of [[iterator()]] */
-  def result(): InternalBlock = {
+  def result(): InternalBlock = iterator().results()
 
-    val result = iterator().result()
-    RowBlock(localAttributeOrder, RowBlockContent(result))
-
+  /** Generate the code for local computation. */
+  //TODO: implement this.
+  def codegen(): Unit = {
+    throw new NotImplementedError()
   }
 
   /** LocalExec cannot doExecute, as it is a global operation */
-  override protected def doExecute(): RDD[InternalBlock] = {
+  override protected def doExecute(): RDD[InternalPartition] = {
     throw new Exception(
       "LocalExec does not support doExecute, which is a global operation, and Local Exec " +
         "is performed per InternalBlock. Try use result() instead."
@@ -46,379 +74,312 @@ abstract class LocalProcessingExec extends SeccoPlan {
   }
 }
 
-/** An operator that filters row using [[selectionExprs]] */
-case class LocalSelectExec(
-    child: LocalProcessingExec,
-    selectionExprs: Seq[(String, String, String)],
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
-) extends LocalProcessingExec {
-
-  override def outputOld: Seq[String] = child.outputOld
-
-  /** The output iterator */
-  override def iterator(): SeccoIterator =
-    IteratorFactory.makeSelectIter(
-      child.iterator(),
-      selectionExprs,
-      localAttributeOrder.toArray
-    )
-
-  override def children: Seq[SeccoPlan] = Seq(child)
-
-  override def relationalSymbol: String =
-    s"𝜎[${selectionExprs.map(f => s"${f._1}${f._2}${f._3}").mkString("&&")}]"
-}
-
-case class LocalProjectExec(
-    child: LocalProcessingExec,
-    projectionList: Seq[String],
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
-) extends LocalProcessingExec
-    with FuncGenSupport {
-
-  /** The output iterator */
-  override def iterator(): SeccoIterator =
-    IteratorFactory.makeProjectIter(
-      child.iterator(),
-      projectionList,
-      localAttributeOrder.toArray
-    )
-
-  override def children: Seq[SeccoPlan] = Seq(child)
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    if (attributeOrder.nonEmpty) {
-      attributeOrder.filter(projectionList.contains)
-    } else {
-      projectionList
-    }
-  }
-
-  override def relationalSymbol: String =
-    s"∏[${projectionList.mkString(",")}]"
-}
-
-case class LocalSemiringAggregateExec(
-    child: LocalProcessingExec,
-    groupingList: Seq[String],
-    producedAttribute: String,
-    semiringList: (String, String),
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
-) extends LocalProcessingExec {
-
-  /** The output iterator */
-  override def iterator(): SeccoIterator = {
-    IteratorFactory.makeAggregateIter(
-      child.iterator(),
-      groupingList,
-      semiringList,
-      localAttributeOrder.toArray
-    )
-  }
-
-  override def children: Seq[SeccoPlan] = Seq(child)
-
-  override def outputOld: Seq[String] = {
-    val attributes = groupingList :+ producedAttribute
-    if (attributeOrder.nonEmpty) {
-      attributeOrder.filter(attributes.contains)
-    } else {
-      attributes
-    }
-  }
-
-  override def relationalSymbol: String =
-    s"[${groupingList.mkString(",")}]𝝪[${s"${semiringList._1}(${semiringList._2})"}]"
-
-}
-
 /** An operator that loads block at specific position */
-case class LocalPlaceHolderExec(
+case class LocalInputExec(
+    localStage: LocalStageExec,
     pos: Int,
-    outputOld: Seq[String],
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
+    output: Seq[Attribute]
 ) extends LocalProcessingExec {
 
-  private var optionBlock: Option[InternalBlock] = None
+  private var localPartition: Option[InternalPartition] = None
 
   private lazy val block = result()
 
-  def setInternalBlock(block: InternalBlock) = {
-    this.optionBlock = Some(block)
+  def setLocalPartition(partition: InternalPartition) = {
+    this.localPartition = Some(partition)
   }
 
-  /** The output iterator */
-  override def iterator(): SeccoIterator = {
-    block match {
-      case r: RowBlock =>
-        IteratorFactory.makeArrayTableIter(
-          r.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case r: RowIndexedBlock =>
-        IteratorFactory.makeArrayTableIter(
-          r.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case r: ConsecutiveRowBlock =>
-        IteratorFactory.makeConsecutiveRowArrayTableIter(
-          r.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case r: ConsecutiveRowIndexedBlock =>
-        IteratorFactory.makeConsecutiveRowArrayTableIter(
-          r.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case t: TrieIndexedBlock =>
-        IteratorFactory.makeTrieTableIter(
-          t.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case t: TrieBlock =>
-        IteratorFactory.makeTrieTableIter(
-          t.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case h: HashMapBlock =>
-        IteratorFactory.makeHashMapTableIter(
-          h.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case h: HashMapIndexedBlock =>
-        IteratorFactory.makeHashMapTableIter(
-          h.blockContent.content,
-          localAttributeOrder.toArray
-        )
-      case b: InternalBlock =>
-        throw new Exception(s"${b.getClass} not support iterator()")
-    }
+  //TODO: add `isSorted` field to InternalBlock.
+  override def isSorted: Boolean = false
 
-  }
+  //TODO: add `isSorted` field to InternalBlock.
+  override def iterator(): SeccoIterator =
+    TableIterator(block, output.toArray, false)
 
-  /** The materialized result of [[iterator()]] */
   override def result(): InternalBlock = {
-    optionBlock match {
-      case Some(internalBlock) =>
-        internalBlock match {
-          case MultiTableIndexedBlock(output, shareVector, indexedBlocks) =>
-            indexedBlocks(pos)
-          case rb @ RowBlock(output, blockContent) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            rb
-          case rhb @ RowIndexedBlock(output, shareVector, blockContent) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            rhb
-          case cb @ ConsecutiveRowBlock(output, blockContent) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            cb
-          case crb @ ConsecutiveRowIndexedBlock(
-                output,
-                shareVector,
-                blockContent
-              ) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            crb
-          case thb @ TrieBlock(output, blockContent) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            thb
-          case hhb @ HashMapBlock(output, blockContent) =>
-            assert(pos == 0, s"pos:${pos} out of range")
-            hhb
-          case _ =>
-            throw new Exception(
-              s"${internalBlock.getClass} is not supported by ${getClass}"
-            )
-        }
-      case None =>
-        throw new Exception("optionBlock must be set")
+    assert(
+      localPartition.nonEmpty,
+      "LocalInputExec has not been initialized by setting local partitions."
+    )
+
+    localPartition.get match {
+      case p: PairedPartition => p.pairedPartitions(pos).headBlock
+      case p: InternalPartition =>
+        assert(pos == 0, s"Cannot retrieve pos:${pos} from p:${p}")
+        p.headBlock
     }
+
   }
 
   override def children: Seq[SeccoPlan] = Nil
 
-  override def relationalSymbol: String = s"[${pos.toString}]"
+  override def relationalSymbol: String = s"P[${pos.toString}]"
 }
 
-case class LocalCartesianProductExec(
-    children: Seq[LocalProcessingExec],
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
+/** An operator that filters row using [[condition]] */
+case class LocalSelectExec(
+    child: LocalProcessingExec,
+    condition: Expression
 ) extends LocalProcessingExec {
 
-//  lazy val baseOp = {
-//    val l = children(0)
-//    val r = children(1)
-//    if (
-//      localAttributeOrder.containsSlice(
-//        l.localAttributeOrder
-//      ) && localAttributeOrder(0) == l.localAttributeOrder(0)
-//    ) {
-//      l
-//    } else {
-//      r
-//    }
-//  }
-//
-//  lazy val indexOp = {
-//    children.diff(Seq(baseOp)).head
-//  }
-
-  lazy val baseOp = children(0)
-  lazy val indexOp = children(1)
-
-  /** The output iterator */
   override def iterator(): SeccoIterator =
-    IteratorFactory.makeCartesianProductIter(
-      baseOp.iterator(),
-      indexOp.iterator(),
-      localAttributeOrder.toArray
-    )
+    SelectIterator(child.iterator(), condition)
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    val attributes = children.flatMap(_.outputOld).distinct
+  override def children: Seq[SeccoPlan] = Seq(child)
 
-    if (attributeOrder.nonEmpty) {
-      attributeOrder.filter(attributes.contains)
-    } else {
-      attributes
-    }
+  override def relationalSymbol: String =
+    s"𝜎[${condition.sql}]"
 
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = child.isSorted
+
+  override def output: Seq[Attribute] = child.output
+}
+
+/** An operator that performs projection. */
+case class LocalProjectExec(
+    child: LocalProcessingExec,
+    projectionList: Seq[NamedExpression]
+) extends LocalProcessingExec {
+
+  override def iterator(): SeccoIterator =
+    ProjectIterator(child.iterator(), projectionList.toArray)
+
+  override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String =
+    s"∏[${projectionList.map(_.sql).mkString(",")}]"
+
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = child.isSorted
+
+  override def output: Seq[Attribute] = projectionList.map(_.toAttribute)
+}
+
+/** An operator that performs distinct */
+case class LocalDistinctExec(child: LocalProcessingExec)
+    extends LocalProcessingExec {
+
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = child.isSorted
+
+  override def iterator(): SeccoIterator = DistinctIterator(child.iterator())
+
+  override def output: Seq[Attribute] = child.output
+
+  override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String = {
+    s"Distinct"
   }
+
+}
+
+/** An operator that performs sort.
+  *
+  * Note: sortOrder must include all attributes.
+  * TODO: change sortOrder to include only part of the attributes.
+  */
+case class LocalSortExec(
+    child: LocalProcessingExec,
+    sortOrder: Seq[Attribute],
+    sortDirection: Seq[Boolean]
+) extends LocalProcessingExec {
+
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = true
+
+  override def iterator(): SeccoIterator =
+    SortIterator(child.iterator(), sortOrder.toArray, sortDirection.toArray)
+
+  override def output: Seq[Attribute] = child.output
+
+  override def children: Seq[SeccoPlan] = Seq(child)
+}
+
+trait IndexType
+case object TrieIndex extends IndexType
+case object HashMapIndex extends IndexType
+case object HashSetIndex extends IndexType
+
+/** An operator that build index
+  * @param child child local operator
+  * @param indexType the index to build, which is selected from [[TrieIndex]], [[HashMapIndex]], [[HashSetIndex]]
+  * @param indexedAttributes the attributes to be indexed
+  */
+case class LocalBuildIndexExec(
+    child: LocalProcessingExec,
+    indexType: IndexType,
+    indexedAttributes: Seq[Attribute]
+) extends LocalProcessingExec {
+
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = child.isSorted
+
+  override def iterator(): SeccoIterator = indexType match {
+    case TrieIndex => BuildTrie(child.iterator(), indexedAttributes.toArray)
+    case HashMapIndex =>
+      BuildHashMap(child.iterator(), indexedAttributes.toArray)
+    case HashSetIndex => BuildSet(child.iterator(), indexedAttributes.toArray)
+  }
+
+  override def output: Seq[Attribute] = child.output
+
+  override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String = s"${indexType.toString}"
+}
+
+/** An operator that perform aggregation
+  * @param child child local operator
+  * @param groupingExpressions expressions to group tuples
+  * @param aggregateExpressions expressions to perform aggregation per group
+  */
+case class LocalAggregateExec(
+    child: LocalProcessingExec,
+    output: Seq[Attribute],
+    groupingExpressions: Seq[NamedExpression],
+    aggregateExpressions: Seq[AggregateFunction]
+) extends LocalProcessingExec {
+
+  override def localStage: LocalStageExec = child.localStage
+
+  override def isSorted: Boolean = false
+
+  override def iterator(): SeccoIterator = AggregateIterator(
+    child.iterator(),
+    groupingExpressions.toArray,
+    aggregateExpressions.toArray
+  )
+
+//  override def output: Seq[Attribute] = groupingExpressions.map(
+//    _.toAttribute
+//  ) ++ aggregateExpressions.flatMap(_.aggBufferAttributes)
+
+  override def children: Seq[SeccoPlan] = Seq(child)
+
+  override def relationalSymbol: String =
+    s"Agg[${groupingExpressions
+      .map(_.sql)
+      .mkString(",")}, ${aggregateExpressions.map(_.sql(false)).mkString(",")}]"
+}
+
+/** An operator that performs union. */
+case class LocalUnionExec(left: LocalProcessingExec, right: LocalProcessingExec)
+    extends LocalProcessingExec {
+
+  override def localStage: LocalStageExec = {
+    assert(left.localStage.equals(right.localStage))
+    left.localStage
+  }
+
+  override def isSorted: Boolean = left.isSorted && right.isSorted
+
+  override def iterator(): SeccoIterator =
+    UnionIterator(left.iterator(), right.iterator())
+
+  override def output: Seq[Attribute] = {
+    assert(left.output.size == right.output.size)
+    assert(left.output.zip(right.output).forall { case (a1, a2) =>
+      a1.dataType == a2.dataType
+    })
+
+    left.output
+  }
+
+  override def children: Seq[SeccoPlan] = Seq(left, right)
+}
+
+/** An operator that performs CartesianProduct */
+case class LocalCartesianProductExec(
+    lop: LocalProcessingExec,
+    rop: LocalProcessingExec
+) extends LocalProcessingExec {
 
   override def relationalSymbol: String = s"⨉"
+
+  override def localStage: LocalStageExec = {
+    assert(lop.localStage.equals(rop.localStage))
+    lop.localStage
+  }
+
+  override def isSorted: Boolean = false
+
+  override def iterator(): SeccoIterator =
+    CartesianProductIterator(lop.iterator(), rop.iterator())
+
+  override def output: Seq[Attribute] = lop.output ++ rop.output
+
+  override def children: Seq[SeccoPlan] = Seq(lop, rop)
 }
 
-case class LocalJoinExec(
-    children: Seq[LocalProcessingExec],
+/** An operator that performs BinaryJoin */
+//TODO: TBD, some problem in BuildHashMap, and HashJoinIterator
+case class LocalHashJoinExec(
+    left: LocalProcessingExec,
+    right: LocalBuildIndexExec,
+    leftKeys: Seq[Expression],
     joinType: JoinType,
-    sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]]
+    joinCondition: Expression
 ) extends LocalProcessingExec {
 
-//  lazy val baseOp = {
-//    val l = children(0)
-//    val r = children(1)
-//    if (
-//      localAttributeOrder.containsSlice(
-//        l.localAttributeOrder
-//      ) && localAttributeOrder(0) == l.localAttributeOrder(0)
-//    ) {
-//      l
-//    } else {
-//      r
-//    }
-//  }
-//
-//  lazy val indexOp = {
-//    children.diff(Seq(baseOp)).head
-//  }
+  override def relationalSymbol: String = s"⋈"
 
-  lazy val baseOp = children(0)
-  lazy val indexOp = children(1)
+  override def localStage: LocalStageExec = {
+    assert(left.localStage.eq(right.localStage))
 
-  /** The output iterator */
+    left.localStage
+  }
+
+  override def isSorted: Boolean = false
+
   override def iterator(): SeccoIterator = {
-    joinType match {
-      case GHD     => genGHDJoinIter()
-      case FKFK    => genBinaryJoinIter()
-      case GHDFKFK => genBinaryJoinIter()
-      case PKFK    => genBinaryJoinIter()
-      case _       => throw new Exception("not supported join type")
-    }
-  }
-
-  private def genGHDJoinIter() = {
-    val tries = children
-      .map(_.result())
-      .map { block =>
-        block match {
-          case TrieIndexedBlock(output, shareVector, blockContent) =>
-            blockContent.content
-          case _ =>
-            throw new Exception(
-              s"result() of children of ${getClass} should be of ${TrieIndexedBlock.getClass}, current class is ${block.getClass}"
-            )
-        }
-      }
-      .toArray
-
-    IteratorFactory.makeLeapFrogJoinIter(
-      tries,
-      children.map(_.localAttributeOrder),
-      localAttributeOrder.toArray
-    )
-  }
-
-  private def genBinaryJoinIter() = {
-    IteratorFactory.makeBinaryJoinIter(
-      baseOp.iterator(),
-      indexOp.iterator(),
-      localAttributeOrder.toArray
+    HashJoinIterator(
+      left.iterator(),
+      right.iterator().asInstanceOf[BuildHashMap],
+      leftKeys,
+      joinCondition
     )
   }
 
   /** The output attributes */
-  override def outputOld: Seq[String] = {
-    val attributes = children.flatMap(_.outputOld).distinct
+  override def output: Seq[Attribute] = left.output ++ right.output
 
-    if (attributeOrder.nonEmpty) {
-      attributeOrder.filter(attributes.contains)
-    } else {
-      attributes
-    }
-  }
-
-  override def relationalSymbol: String = s"⋈"
+  override def children: Seq[SeccoPlan] = Seq(left, right)
 }
 
-///** An operator that rename the output attributes */
-//case class LocalRenameExec(
-//                            child: LocalExec,
-//                            isRoot: Boolean,
-//                            sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]],
-//                            attrRenameMap: Map[String, String],
-//                            preferredOrder: Seq[String] = Nil
-//                          ) extends LocalExec {
-//
-//  /** The output iterator */
-//  override def iterator(): Iterator[InternalRow] = child.iterator()
-//
-//  /** The output iterator with prefix given */
-//  override def indexIterator(prefix: InternalRow): Iterator[InternalRow] =
-//    child.indexIterator(prefix)
-//
-//  /** The materialized result of [[iterator()]] */
-//  override def result(): InternalBlock = child.result()
-//
-//  override def children: Seq[SeccoPlan] = Seq(child)
-//
-//  /** The actual attribute order of this class */
-//  override def localAttributeOrder: Seq[String] =
-//    child.localAttributeOrder.map(attrRenameMap)
-//
-//  override def output: Seq[String] = child.output.map(attrRenameMap)
-//}
+/** An operator that performs LeapFrog join. */
+case class LocalLeapFrogJoinExec(
+    children: Seq[LocalProcessingExec],
+    conds: Seq[Expression],
+    attributeOrder: Seq[Attribute]
+) extends LocalProcessingExec {
 
-//case class LocalDiffExec(
-//                          left: SeccoPlan,
-//                          right: SeccoPlan,
-//                          isRoot: Boolean,
-//                          sharedAttributeOrder: SharedParameter[mutable.ArrayBuffer[String]],
-//                          preferredOrder: Seq[String] = Nil
-//                        ) extends LocalExec {
-//
-//  /** The output iterator */
-//  override def iterator(): Iterator[InternalRow] = ???
-//
-//  /** The output iterator with prefix given */
-//  override def indexIterator(prefix: InternalRow): Iterator[InternalRow] = ???
-//
-//  /** The materialized result of [[iterator()]] */
-//  override def result(): InternalBlock = ???
-//
-//  override def children: Seq[SeccoPlan] = Seq(left, right)
-//
-//  /** The output attributes */
-//  override def output: Seq[String] = left.output
-//}
+  override def relationalSymbol: String = s"⋈"
+
+  override def localStage: LocalStageExec = {
+    assert(children.nonEmpty)
+    val headLocalStage = children.head.localStage;
+    assert(children.forall(_.localStage == headLocalStage))
+
+    headLocalStage
+  }
+
+  override def isSorted: Boolean = true
+
+  override def iterator(): SeccoIterator = {
+
+    val equiAttrs = EquiAttributes.fromConditions(output, conds)
+    val attrOrder = AttributeOrder(equiAttrs, attributeOrder.toArray)
+
+    LeapFrogJoinIterator(children.map(_.iterator()), attrOrder)
+  }
+
+  override def output: Seq[Attribute] = attributeOrder
+
+}

@@ -6,7 +6,8 @@ import org.apache.spark.secco.optimization.plan.{
   Filter,
   Join,
   LeafNode,
-  LocalStage,
+  PairThenCompute,
+  MultiwayJoin,
   Partition,
   Project,
   Relation,
@@ -19,8 +20,7 @@ class NoExactCardinalityException(
     @transient val plan: LogicalPlan
 ) extends Exception(s"There is no exact cardinality for ${plan}")
 
-/**
-  * An estimator that returns the exact cardinality of the estimated operator.
+/** An estimator that returns the exact cardinality of the estimated operator.
   *
   * Ideally, it should support two modes to returns the exact cardinality estimation.
   *
@@ -58,7 +58,9 @@ object ExactStatsPlanVisitor
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))
 
-  override def visitJoin(p: Join): Statistics = default(p)
+  override def visitJoin(p: Join): Statistics = default(
+    p.asInstanceOf[LogicalPlan]
+  )
 //    ExactJoinEstimation
 //      .estimate(p)
 //      .getOrElse(throw new NoExactCardinalityException(p))
@@ -72,7 +74,7 @@ object ExactStatsPlanVisitor
 
   override def visitPartition(p: Partition): Statistics = visit(p.child)
 
-  override def visitLocalStage(p: LocalStage): Statistics = {
+  override def visitLocalStage(p: PairThenCompute): Statistics = {
     visit(p.recoupledPlan())
   }
 

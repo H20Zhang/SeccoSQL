@@ -1,96 +1,82 @@
 package unit.optimization
 
 import org.apache.spark.secco.optimization.SeccoOptimizer
-import org.apache.spark.secco.optimization.plan.LocalStage
-import org.apache.spark.secco.optimization.rules.MarkDelay.dlSession
 import util.{SeccoFunSuite, UnitTestTag}
 
 import scala.util.Try
 
 class SeccoOptimizerSuite extends SeccoFunSuite {
 
-  test("check_initialization", UnitTestTag) {
-    //initialize optimizer
-    val optimizer = new SeccoOptimizer()
-  }
-
-  test("check_optimizer_execute", UnitTestTag) {
-    import org.apache.spark.secco.analysis.RelationAlgebraWithAnalysis._
-
-    val optimizer = new SeccoOptimizer()
-    val expr = select("A<B", join("R1(A, B, C)", "R2(A, B)", "R3(B, C)"))
-    val optimizedExpr = optimizer.execute(expr)
-
-    assert(optimizedExpr.isInstanceOf[LocalStage])
-  }
-
   test("check_disable_and_enable_rules", UnitTestTag) {
 
-    val optimizer = dlSession.sessionState.optimizer
+    val optimizer = seccoSession.sessionState.optimizer
     val allBatchName = optimizer.activeBatches.map(_.name)
 
-    //disable all batch
+    println(allBatchName)
+
+    // Disable all batches.
     optimizer.setAllBatchDisabled()
     assert(optimizer.activeBatches.isEmpty)
 
-    //enable batch
+    // Enable two batch.
     optimizer.setBatchesEnabled(
-      "Push Down Predicates",
-      "PartitionPushDown"
+      "Operator Optimization",
+      "Optimize PrimaryKey-ForeignKey Join"
     )
 
+    // Check te current enabled batches.
     assert(
       optimizer.activeBatches
         .map(_.name) == Seq(
-        "Push Down Predicates",
-        "PartitionPushDown"
+        "Operator Optimization",
+        "Optimize PrimaryKey-ForeignKey Join"
       )
     )
 
     assert(Try(optimizer.setBatchesEnabled("NotExistBatch")).isFailure)
 
-    //disable batch
-    optimizer.setBatchesDisabled("Push Down Predicates")
+    // Disable batch.
+    optimizer.setBatchesDisabled("Operator Optimization")
 
     assert(
       optimizer.activeBatches
         .map(_.name) == Seq(
-        "PartitionPushDown"
+        "Optimize PrimaryKey-ForeignKey Join"
       )
     )
 
     assert(Try(optimizer.setBatchesDisabled("NotExistBatch")).isFailure)
 
-    //enable all batch
+    // Enable all batches.
     optimizer.setAllBatchEnabled()
-    println(optimizer.activeBatches.map(_.name) == allBatchName)
+    assert(optimizer.activeBatches.map(_.name) == allBatchName)
 
   }
 
-  test(
-    "enable_only_decouple_optimization",
-    UnitTestTag
-  ) {
-    val conf = dlSession.sessionState.conf
-    conf.setEnableOnlyDecoupleOptimization(true)
-
-    val ruleBeforeDecouple = Seq(
-      "Clean up",
-      "Remove Redundant Operators",
-      "Push Down Predicates",
-      "GHD-Based Join Reorder",
-      "Aggregation Push-Down",
-      "Projection Push-Down",
-      "Projection Cleaning",
-      "Optimize GHD Node"
-    )
-
-    val optimizer = dlSession.sessionState.optimizer
-
-    assert(
-      optimizer.activeBatches.map(_.name).intersect(ruleBeforeDecouple).isEmpty
-    )
-
-  }
+//  test(
+//    "enable_only_decouple_optimization",
+//    UnitTestTag
+//  ) {
+//    val conf = seccoSession.sessionState.conf
+//    conf.setEnableOnlyDecoupleOptimization(true)
+//
+//    val ruleBeforeDecouple = Seq(
+//      "Clean up",
+//      "Remove Redundant Operators",
+//      "Push Down Predicates",
+//      "GHD-Based Join Reorder",
+//      "Aggregation Push-Down",
+//      "Projection Push-Down",
+//      "Projection Cleaning",
+//      "Optimize GHD Node"
+//    )
+//
+//    val optimizer = dlSession.sessionState.optimizer
+//
+//    assert(
+//      optimizer.activeBatches.map(_.name).intersect(ruleBeforeDecouple).isEmpty
+//    )
+//
+//  }
 
 }

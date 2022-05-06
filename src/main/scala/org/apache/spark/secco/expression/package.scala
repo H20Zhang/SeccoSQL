@@ -2,6 +2,7 @@ package org.apache.spark.secco
 
 import java.util.Locale
 import com.google.common.collect.Maps
+import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.types.{
   DataType,
   NullType,
@@ -11,8 +12,11 @@ import org.apache.spark.secco.types.{
 
 package object expression {
 
-  /**
-    * A place holder expressions used in code-gen, it does not change the corresponding value
+  /** Used as input into expressions whose output does not depend on any input value.
+    */
+  val EmptyRow: InternalRow = null
+
+  /** A place holder expressions used in code-gen, it does not change the corresponding value
     * in the row.
     */
   case object NoOp extends Expression with Unevaluable {
@@ -21,8 +25,7 @@ package object expression {
     override def children: Seq[Expression] = Nil
   }
 
-  /**
-    * Helper functions for working with `Seq[Attribute]`.
+  /** Helper functions for working with `Seq[Attribute]`.
     */
   implicit class AttributeSeq(val attrs: Seq[Attribute]) extends Serializable {
 
@@ -49,13 +52,11 @@ package object expression {
       map
     }
 
-    /**
-      * Returns the attribute at the given index.
+    /** Returns the attribute at the given index.
       */
     def apply(ordinal: Int): Attribute = attrsArray(ordinal)
 
-    /**
-      * Returns the index of first attribute with a matching expression id, or -1 if no match exists.
+    /** Returns the index of first attribute with a matching expression id, or -1 if no match exists.
       */
     def indexOf(exprId: ExprId): Int = {
       Option(exprIdToOrdinal.get(exprId)).getOrElse(-1)

@@ -5,26 +5,52 @@ import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan, Rule}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.support.AnalyzeOutputSupport
-import org.apache.spark.secco.execution.SharedParameter
-import org.apache.spark.secco.optimization.ExecMode.ExecMode
+import org.apache.spark.secco.execution.SharedContext
+import org.apache.spark.secco.execution.plan.communication.{
+  ShareConstraint,
+  ShareConstraintContext
+}
+import org.apache.spark.secco.expression.{And, Attribute}
+import org.apache.spark.secco.expression.utils.{AttributeMap, AttributeSet}
+import org.apache.spark.secco.optimization.ExecMode.{
+  Computation,
+  DelayComputation,
+  ExecMode
+}
 import org.apache.spark.secco.optimization.statsEstimation.StatsPlanVisitor
+import org.apache.spark.secco.optimization.util.EquiAttributes
 import org.apache.spark.secco.trees.RuleExecutor
 
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
+/*---------------------------------------------------------------------------------------------------------------------
+ *  This files defines a set of rules for separating communication from computation.
+ *
+ *  0. MarkDelay: mark the logical operators whose computation should be delayed.
+ *  1. DecoupleOperators: separate communication from computation for a single logical operator.
+ *  2. PackLocalComputationIntoLocalStage: pack separated local computation logical operator into LocalStage operator.
+ *  3. UnpackLocalStage: unpack local computation from LocalStage operator.
+ *  4. MergeLocalStage: merge consecutive LocalStage operator.
+ *  5. SelectivelyPushCommunicationThroughComputation: selectively push communication past computation (i.e., delay
+ *  computation).
+ *---------------------------------------------------------------------------------------------------------------------
+ */
+
 object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
-  def dlSession = SeccoSession.currentSession
+  def seccoSession = SeccoSession.currentSession
 
-  private def newPlanWithMode(plan: LogicalPlan, newMode: ExecMode) =
+  def newPlanWithMode(plan: LogicalPlan, newMode: ExecMode) =
     plan match {
+      case s: Sort             => s.copy(mode = newMode)
+      case d: Distinct         => d.copy(mode = newMode)
       case p: Project          => p.copy(mode = newMode)
       case a: Aggregate        => a.copy(mode = newMode)
-      case d: Diff             => d.copy(mode = newMode)
-      case pk: PKFKJoin        => pk.copy(mode = newMode)
+      case d: Except           => d.copy(mode = newMode)
+      case b: BinaryJoin       => b.copy(mode = newMode)
       case u: Union            => u.copy(mode = newMode)
-      case j: Join             => j.copy(mode = newMode)
+      case j: MultiwayJoin     => j.copy(mode = newMode)
       case c: CartesianProduct => c.copy(mode = newMode)
       case f: Filter           => f.copy(mode = newMode)
       case _ =>
@@ -36,17 +62,19 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   /* There exists six different delay strategy: noDelay, allDelay, joinDelay, heuristicDelay, greedyDelay, DPDelay*/
 
   /** Not delaying any computation */
-  def noDelay(rootPlan: LogicalPlan): LogicalPlan =
-    rootPlan transform {
-      case j: Join => j.copy(joinType = JoinType.GHDFKFK)
-    }
+  def noDelay(rootPlan: LogicalPlan): LogicalPlan = {
+    rootPlan
+//    rootPlan transform { case j: MultiwayJoin =>
+//      j.copy(joinType = JoinType.GHDFKFK)
+//    }
+  }
 
   /** Delaying all computation */
   def allDelay(rootPlan: LogicalPlan): LogicalPlan =
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
       case plan: LogicalPlan =>
-        Try(newPlanWithMode(plan, ExecMode.CoupledWithComputationDelay)) match {
+        Try(newPlanWithMode(plan, ExecMode.MarkedDelay)) match {
           case Failure(exception) => plan
           case Success(newPlan)   => newPlan
         }
@@ -56,14 +84,10 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   def joinDelay(rootPlan: LogicalPlan): LogicalPlan =
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
-      case pkfk: PKFKJoin =>
-        Join(
-          Seq(pkfk.left, pkfk.right),
-          JoinType.GHD,
-          ExecMode.CoupledWithComputationDelay
-        )
-      case j: Join =>
-        newPlanWithMode(j, ExecMode.CoupledWithComputationDelay)
+      case bj: BinaryJoin =>
+        newPlanWithMode(bj, ExecMode.MarkedDelay)
+      case j: MultiwayJoin =>
+        newPlanWithMode(j, ExecMode.MarkedDelay)
     }
 
   /** Find optimal plan for delaying the computation using heuristic approach */
@@ -71,14 +95,14 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
       case plan: LogicalPlan if !isMaterializable(plan) =>
-        newPlanWithMode(plan, ExecMode.CoupledWithComputationDelay)
+        newPlanWithMode(plan, ExecMode.MarkedDelay)
     }
 
   /** Find optimal plan for delaying the computation by heuristic approach by judging the difference between input size and output size */
   def heuristicSizeDelay(rootPlan: LogicalPlan): LogicalPlan =
     rootPlan transform {
       case plan: LogicalPlan if plan.fastEquals(rootPlan) => plan
-      case j @ Join(children, _, _, _) =>
+      case j @ MultiwayJoin(children, _, _, _) =>
         val inputSize = children
           .map(f => StatsPlanVisitor.visit(f).rowCount)
           .sum
@@ -87,10 +111,10 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
         if (inputSize >= outputSize) {
           j
         } else {
-          newPlanWithMode(j, ExecMode.CoupledWithComputationDelay)
+          newPlanWithMode(j, ExecMode.MarkedDelay)
         }
       case plan: LogicalPlan if !isMaterializable(plan) =>
-        newPlanWithMode(plan, ExecMode.CoupledWithComputationDelay)
+        newPlanWithMode(plan, ExecMode.MarkedDelay)
     }
 
   /** Find optimal plan for delaying the computation using greedy approach */
@@ -98,7 +122,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     //set the optimizer to enable only decoupled related batches
     val decoupleOptimizer =
-      dlSession.sessionState.optimizer
+      seccoSession.sessionState.optimizer
         .setAllBatchDisabled()
         .setBatchesEnabled(
           "Decouple Operators",
@@ -123,10 +147,9 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
     //find the optimal plan and cost greedily
     Range(0, nodesWithDecision.size).foreach { i =>
-      val newNodesWithDecision = nodesWithDecision.map {
-        case (decision, idx) =>
-          if (idx == i) ((decision._1, !decision._2), idx)
-          else (decision, idx)
+      val newNodesWithDecision = nodesWithDecision.map { case (decision, idx) =>
+        if (idx == i) ((decision._1, !decision._2), idx)
+        else (decision, idx)
       }
       val decisions = newNodesWithDecision
         .map(_._1)
@@ -134,7 +157,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
           if (f._2) {
             (f._1, ExecMode.Coupled)
           } else {
-            (f._1, ExecMode.CoupledWithComputationDelay)
+            (f._1, ExecMode.MarkedDelay)
           }
         }
         .toMap
@@ -170,7 +193,7 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   def DynamicProgrammingDelay(rootPlan: LogicalPlan): LogicalPlan = {
     //set the optimizer to enable only decoupled related batches
     val decoupleOptimizer =
-      dlSession.sessionState.optimizer
+      seccoSession.sessionState.optimizer
         .setAllBatchDisabled()
         .setBatchesEnabled(
           "Decouple Operators",
@@ -208,40 +231,39 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
       }
 
       val optimalRootWithChildren = subtrees
-        .map {
-          case subtree =>
-            val subtreeWithoutRelation = subtree.diff(relationNodes)
+        .map { case subtree =>
+          val subtreeWithoutRelation = subtree.diff(relationNodes)
 
-            //find root of the childrenTree
-            val remainingNodes = intermediateNodes.diff(subtreeWithoutRelation)
-            val childrenRoots = remainingNodes.filter { childRoot =>
-              remainingNodes
-                .diff(Seq(childRoot))
-                .forall(child => child.find(f => f == childRoot).isEmpty)
-            }
+          //find root of the childrenTree
+          val remainingNodes = intermediateNodes.diff(subtreeWithoutRelation)
+          val childrenRoots = remainingNodes.filter { childRoot =>
+            remainingNodes
+              .diff(Seq(childRoot))
+              .forall(child => child.find(f => f == childRoot).isEmpty)
+          }
 
-            //calculate communication cost of the root
-            val setDelay =
-              subtreeWithoutRelation.filter(node => node != root).toSet
-            val newRoot = root transform {
-              case p: LogicalPlan if setDelay(p) =>
-                newPlanWithMode(p, ExecMode.CoupledWithComputationDelay)
-            }
+          //calculate communication cost of the root
+          val setDelay =
+            subtreeWithoutRelation.filter(node => node != root).toSet
+          val newRoot = root transform {
+            case p: LogicalPlan if setDelay(p) =>
+              newPlanWithMode(p, ExecMode.MarkedDelay)
+          }
 
-            val localStage = decoupleOptimizer.execute(newRoot)
-            val selfCost = localStage.communicationCost()
-            logTrace(s"localStage:${localStage} with cost:${selfCost}")
+          val localStage = decoupleOptimizer.execute(newRoot)
+          val selfCost = localStage.communicationCost()
+          logTrace(s"localStage:${localStage} with cost:${selfCost}")
 
-            //find the optimal communication cost of the children's root
-            val childrenOptimalPlanAndCost = childrenRoots.map(childRoot =>
-              (childRoot, optimalPlanAndCost(childRoot))
-            )
+          //find the optimal communication cost of the children's root
+          val childrenOptimalPlanAndCost = childrenRoots.map(childRoot =>
+            (childRoot, optimalPlanAndCost(childRoot))
+          )
 
-            //sum the communication cost
-            val cost =
-              selfCost + childrenOptimalPlanAndCost.map(f => f._2._2).sum
+          //sum the communication cost
+          val cost =
+            selfCost + childrenOptimalPlanAndCost.map(f => f._2._2).sum
 
-            (newRoot, childrenOptimalPlanAndCost, cost)
+          (newRoot, childrenOptimalPlanAndCost, cost)
         }
         .minBy(_._3)
 
@@ -276,287 +298,352 @@ object MarkDelay extends Rule[LogicalPlan] with AnalyzeOutputSupport {
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case RootNode(child, _) =>
-//        pprint.pprintln(
-//          s"[debug]: dlSession.sessionState.conf.DELAY_STRATEGY:${dlSession.sessionState.conf.delayStrategy}"
-//        )
-
-        dlSession.sessionState.conf.delayStrategy match {
-          case "Heuristic"     => heuristicDelay(child)
-          case "HeuristicSize" => heuristicSizeDelay(child)
-          case "Greedy"        => greedyDelay(child)
-          case "DP"            => DynamicProgrammingDelay(child)
-          case "NoDelay"       => noDelay(child)
-          case "AllDelay"      => allDelay(child)
-          case "JoinDelay"     => joinDelay(child)
-          case x: String =>
-            throw new Exception(s"Not supported delay strategy:${x}")
-        }
+    plan transform { case RootNode(child, _) =>
+      seccoSession.sessionState.conf.delayStrategy match {
+        case "Heuristic"     => heuristicDelay(child)
+        case "HeuristicSize" => heuristicSizeDelay(child)
+        case "Greedy"        => greedyDelay(child)
+        case "DP"            => DynamicProgrammingDelay(child)
+        case "NoDelay"       => noDelay(child)
+        case "AllDelay"      => allDelay(child)
+        case "JoinDelay"     => joinDelay(child)
+        case x: String =>
+          throw new Exception(s"Not supported delay strategy:${x}")
+      }
     }
 }
 
 /** A rule that decouples communication and computation for operators */
 object DecoupleOperators extends Rule[LogicalPlan] with AnalyzeOutputSupport {
 
-  private def handleProject(p: Project): LogicalPlan = {
-    val conf = SeccoSession.currentSession.sessionState.conf
-
-    //no delay
-    if (p.mode == ExecMode.Coupled) {
-
-      if (conf.enableEarlyAggregationOptimization) { //perform early aggregation
-        val localProject =
-          Project(p.child, p.projectionListOld, ExecMode.Computation)
-        val restriction =
-          mutable.HashMap(
-            localProject.outputOld
-              .diff(p.projectionListOld)
-              .map(f => (f, 1)): _*
-          )
-
-        val sharedRestriction = SharedParameter(restriction)
-        val partition = Partition(localProject, sharedRestriction)
-        Project(partition, p.projectionListOld, ExecMode.Computation)
-      } else { //not perform early aggregation
-        val restriction =
-          mutable.HashMap(
-            p.child.outputOld.diff(p.projectionListOld).map(f => (f, 1)): _*
-          )
-        val sharedRestriction = SharedParameter(restriction)
-
-        val partition = Partition(p.child, sharedRestriction)
-        Project(partition, p.projectionListOld, ExecMode.Computation)
-      }
-
-    } else { //delay
-
-      val restriction =
-        mutable.HashMap(
-          p.child.outputOld.diff(p.projectionListOld).map(f => (f, 1)): _*
-        )
-      val sharedRestriction = SharedParameter(restriction)
-
-      val partition = Partition(p.child, sharedRestriction)
-      Project(partition, p.projectionListOld, ExecMode.DelayComputation)
+  private def decouplePureLocalUnaryOperator(plan: LogicalPlan): LogicalPlan = {
+    plan.mode match {
+      case ExecMode.Coupled =>
+        MarkDelay.newPlanWithMode(plan, ExecMode.Computation)
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(plan, ExecMode.DelayComputation)
     }
   }
 
-  private def handleAggregate(a: Aggregate) = {
+  private def decoupleFilter(f: Filter) = decouplePureLocalUnaryOperator(f)
 
-    val conf = SeccoSession.currentSession.sessionState.conf
+  private def decoupleProject(p: Project): LogicalPlan =
+    decouplePureLocalUnaryOperator(p)
 
-    //no delay
-    if (a.mode == ExecMode.Coupled) {
-      if (conf.enableEarlyAggregationOptimization) { //perform early aggregation optimization
-        val localAggregation =
-          Aggregate(
-            a.child,
-            a.groupingListOld,
-            a.semiringListOld,
-            Seq(),
-            ExecMode.Computation
-          )
+  //TODO: implement sort
+  private def decoupleSort(s: Sort) = ???
 
-        val restriction =
-          mutable.HashMap[String, Int](
-            localAggregation.outputOld
-              .diff(a.groupingListOld)
-              .map(f => (f, 1)): _*
-          )
-        val partition =
-          Partition(localAggregation, SharedParameter(restriction))
-        Aggregate(
-          partition,
-          a.groupingListOld,
-          (a.semiringListOld._1, localAggregation.producedOutput.head),
-          a.producedOutput,
-          ExecMode.Computation
-        )
-      } else { //early aggregation optimization not enabled
-        val restriction =
-          mutable.HashMap[String, Int](
-            a.child.outputOld.diff(a.groupingListOld).map(f => (f, 1)): _*
-          )
+  private def decoupleDistinct(d: Distinct) = {
 
-        val partition = Partition(a.child, SharedParameter(restriction))
-        Aggregate(
-          partition,
-          a.groupingListOld,
-          a.semiringListOld,
-          a.producedOutput,
-          ExecMode.Computation
-        )
-      }
-    } else { //delay
+    val constraintedAttributes = (AttributeSet(
+      d.child.children.flatMap(_.outputSet)
+    ) -- d.child.outputSet).toSeq
 
-      val restriction =
-        mutable.HashMap[String, Int](
-          a.child.outputOld.diff(a.groupingListOld).map(f => (f, 1)): _*
-        )
+    val rawConstraint = AttributeMap(constraintedAttributes.map(f => (f, 1)))
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(d.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstriantContext = ShareConstraintContext(shareConstraint)
 
-      val partition = Partition(a.child, SharedParameter(restriction))
-      Aggregate(
-        partition,
-        a.groupingListOld,
-        a.semiringListOld,
-        a.producedOutput,
-        ExecMode.DelayComputation
-      )
-    }
-  }
-
-  private def handleDiff(d: Diff) = {
-    val l = d.left
-    val r = d.right
-    val restriction = mutable.HashMap[String, Int]()
-    val sharedRestriction = SharedParameter(restriction)
-
-    val lPartition = Partition(l, sharedRestriction)
-    val rPartition = Partition(r, sharedRestriction)
+    val partition = Partition(d.child, shareConstriantContext)
 
     d.mode match {
       case ExecMode.Coupled =>
-        Diff(lPartition, rPartition, ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        Diff(lPartition, rPartition, ExecMode.DelayComputation)
+        MarkDelay.newPlanWithMode(
+          d.withNewChildren(partition :: Nil),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          d.withNewChildren(partition :: Nil),
+          ExecMode.DelayComputation
+        )
     }
   }
 
-  private def handlePKFKJoin(pk: PKFKJoin) = {
-    val l = pk.left
-    val r = pk.right
-    val restriction = mutable.HashMap[String, Int]()
-    val sharedRestriction = SharedParameter(restriction)
-    val lPartition = Partition(l, sharedRestriction)
-    val rPartition = Partition(r, sharedRestriction)
+  //TODO: implement early aggregation optimization
+  private def decoupleAggregate(a: Aggregate) = {
 
-    pk.mode match {
+//    val conf = SeccoSession.currentSession.sessionState.conf
+//
+//    if (conf.enableEarlyAggregationOptimization && a.mode == ExecMode.Coupled) {
+//
+//      val partialAggregateExpressions = a.aggregateExpressions
+//
+//    } else {
+
+//    println(
+//      s"[debug]: constraint for aggregate:${(a.child.outputSet -- AttributeSet(a.groupingExpressions)).toSeq}"
+//    )
+
+    val constraintedAttributes =
+      (a.child.outputSet -- AttributeSet(a.groupingExpressions)).toSeq
+
+    val rawConstraint = AttributeMap(constraintedAttributes.map(f => (f, 1)))
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(a.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstriantContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstriantContext =
+//      ShareConstraintContext(
+//        ShareConstraint.fromRawConstraint(
+//          AttributeMap(
+//            constraintedAttributes.map(f => (f, 1))
+//          )
+//        )
+//      )
+
+    val partition = Partition(a.child, shareConstriantContext)
+
+    val decoupledOps = a.mode match {
       case ExecMode.Coupled =>
-        PKFKJoin(lPartition, rPartition, pk.joinType, ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        PKFKJoin(lPartition, rPartition, pk.joinType, ExecMode.DelayComputation)
+        MarkDelay.newPlanWithMode(
+          a.withNewChildren(partition :: Nil),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          a.withNewChildren(partition :: Nil),
+          ExecMode.DelayComputation
+        )
     }
 
+    println(decoupledOps)
+
+    decoupledOps
+//    }
+
+//
+//    //no delay
+//    if (a.mode == ExecMode.Coupled) {
+//      if (conf.enableEarlyAggregationOptimization) { //perform early aggregation optimization
+//        val localAggregation =
+//          Aggregate(
+//            a.child,
+//            a.groupingListOld,
+//            a.semiringListOld,
+//            Seq(),
+//            ExecMode.Computation
+//          )
+//
+//        val shareConstriantContext =
+//          mutable.HashMap[String, Int](
+//            localAggregation.outputOld
+//              .diff(a.groupingListOld)
+//              .map(f => (f, 1)): _*
+//          )
+//        val partition =
+//          Partition(localAggregation, SharedParameter(shareConstriantContext))
+//        Aggregate(
+//          partition,
+//          a.groupingListOld,
+//          (a.semiringListOld._1, localAggregation.producedOutputOld.head),
+//          a.producedOutputOld,
+//          ExecMode.Computation
+//        )
+//      } else { //early aggregation optimization not enabled
+//        val shareConstriantContext =
+//          mutable.HashMap[String, Int](
+//            a.child.outputOld.diff(a.groupingListOld).map(f => (f, 1)): _*
+//          )
+//
+//        val partition = Partition(a.child, SharedParameter(shareConstriantContext))
+//        Aggregate(
+//          partition,
+//          a.groupingListOld,
+//          a.semiringListOld,
+//          a.producedOutputOld,
+//          ExecMode.Computation
+//        )
+//      }
+//    } else { //delay
+//
+//      val shareConstriantContext =
+//        mutable.HashMap[String, Int](
+//          a.child.outputOld.diff(a.groupingListOld).map(f => (f, 1)): _*
+//        )
+//
+//      val partition = Partition(a.child, SharedParameter(shareConstriantContext))
+//      Aggregate(
+//        partition,
+//        a.groupingListOld,
+//        a.semiringListOld,
+//        a.producedOutputOld,
+//        ExecMode.DelayComputation
+//      )
+//    }
   }
 
-  private def handleUnion(u: Union) = {
+  private def decoupleBinaryJoin(u: BinaryJoin) = {
+
+    assert(
+      u.condition.nonEmpty,
+      "Join Condition of Binary Join should not be empty, otherwise it should be a CartesianProduct."
+    )
+
     val children = u.children
-    val restriction = mutable.HashMap[String, Int]()
-    val sharedRestriction = SharedParameter(restriction)
+
+    val equiAttrs = EquiAttributes.fromCondition(u.output, u.condition.get)
+    val shareConstraint = ShareConstraint(AttributeMap(Seq()), equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
     val childrenPartitions =
-      children.map(child => Partition(child, sharedRestriction))
+      children.map(child => Partition(child, shareConstraintContext))
 
     u.mode match {
-      case ExecMode.Coupled => Union(childrenPartitions, ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        Union(childrenPartitions, ExecMode.DelayComputation)
+      case ExecMode.Coupled =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.DelayComputation
+        )
     }
   }
 
-  private def handleCartesianProduct(c: CartesianProduct) = {
-    val children = c.children
-    val restriction = mutable.HashMap[String, Int]()
-    val sharedRestriction = SharedParameter(restriction)
+  private def decoupleMultiwayJoin(u: MultiwayJoin) = {
+
+    val children = u.children
+
+    val equiAttrs =
+      EquiAttributes.fromCondition(u.output, u.conditions.reduce(And))
+    val shareConstraint = ShareConstraint(AttributeMap(Seq()), equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(
+//      ShareConstraint.fromRawConstraintAndCond(
+//        AttributeMap(Seq()),
+//        u.conditions.reduce(And)
+//      )
+//    )
     val childrenPartitions =
-      children.map(child => Partition(child, sharedRestriction))
+      children.map(child => Partition(child, shareConstraintContext))
+
+    u.mode match {
+      case ExecMode.Coupled =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.DelayComputation
+        )
+    }
+  }
+
+  private def decoupleUnion(u: Union) = {
+    val children = u.children
+
+    val rawConstraint = AttributeMap[Int](Seq())
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(u.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(
+//      ShareConstraint.fromRawConstraint()
+//    )
+    val childrenPartitions =
+      children.map(child => Partition(child, shareConstraintContext))
+
+    u.mode match {
+      case ExecMode.Coupled =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          u.withNewChildren(childrenPartitions),
+          ExecMode.DelayComputation
+        )
+    }
+  }
+
+  private def decoupleCartesianProduct(c: CartesianProduct) = {
+    val children = c.children
+
+    val rawConstraint = AttributeMap[Int](Seq())
+    val equiAttrs = EquiAttributes.fromNaiveEquiAttributes(c.output)
+    val shareConstraint =
+      ShareConstraint.fromRawConstraint(rawConstraint, equiAttrs)
+    val shareConstraintContext = ShareConstraintContext(shareConstraint)
+
+//    val shareConstraintContext = ShareConstraintContext(ShareConstraint.fromRawConstraint(AttributeMap(Seq())))
+    val childrenPartitions =
+      children.map(child => Partition(child, shareConstraintContext))
 
     c.mode match {
       case ExecMode.Coupled =>
-        CartesianProduct(childrenPartitions, ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        CartesianProduct(childrenPartitions, ExecMode.DelayComputation)
+        MarkDelay.newPlanWithMode(
+          c.withNewChildren(childrenPartitions),
+          ExecMode.Computation
+        )
+      case ExecMode.MarkedDelay =>
+        MarkDelay.newPlanWithMode(
+          c.withNewChildren(childrenPartitions),
+          ExecMode.DelayComputation
+        )
     }
   }
 
-  private def handleJoin(j: Join) = {
-    val children = j.children
-    val restriction = mutable.HashMap[String, Int]()
-    val sharedRestriction = SharedParameter(restriction)
-    val childrenPartitions =
-      children.map(child => Partition(child, sharedRestriction))
-
-    j.mode match {
-      case ExecMode.Coupled =>
-        Join(childrenPartitions, j.joinType, ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        Join(childrenPartitions, j.joinType, ExecMode.DelayComputation)
-    }
-  }
-
-  private def handleFilter(f: Filter) = {
-    f.mode match {
-      case ExecMode.Coupled => f.copy(mode = ExecMode.Computation)
-      case ExecMode.CoupledWithComputationDelay =>
-        f.copy(mode = ExecMode.DelayComputation)
-    }
+  /** Check if the operator can be decoupled. */
+  def isSeparable(plan: LogicalPlan): Boolean = {
+    plan.mode == ExecMode.Coupled || plan.mode == ExecMode.MarkedDelay
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
-      case p: Project
-          if p.mode == ExecMode.Coupled || p.mode == ExecMode.CoupledWithComputationDelay =>
-        handleProject(p)
-      case a: Aggregate
-          if a.mode == ExecMode.Coupled || a.mode == ExecMode.CoupledWithComputationDelay =>
-        handleAggregate(a)
-      case d: Diff
-          if d.mode == ExecMode.Coupled || d.mode == ExecMode.CoupledWithComputationDelay =>
-        handleDiff(d)
-      case pk: PKFKJoin
-          if pk.mode == ExecMode.Coupled || pk.mode == ExecMode.CoupledWithComputationDelay =>
-        handlePKFKJoin(pk)
-      case u: Union
-          if u.mode == ExecMode.Coupled || u.mode == ExecMode.CoupledWithComputationDelay =>
-        handleUnion(u)
-      case j: Join
-          if j.mode == ExecMode.Coupled || j.mode == ExecMode.CoupledWithComputationDelay =>
-        handleJoin(j)
-      case c: CartesianProduct
-          if c.mode == ExecMode.Coupled || c.mode == ExecMode.CoupledWithComputationDelay =>
-        handleCartesianProduct(c)
-      case f: Filter
-          if f.mode == ExecMode.Coupled || f.mode == ExecMode.CoupledWithComputationDelay =>
-        handleFilter(f)
+      case f: Filter if isSeparable(f) => decoupleFilter(f)
+//      case s: Sort if isSeparable(s)             => decoupleSort(s)
+      case p: Project if isSeparable(p)          => decoupleProject(p)
+      case d: Distinct if isSeparable(d)         => decoupleDistinct(d)
+      case a: Aggregate if isSeparable(a)        => decoupleAggregate(a)
+      case u: Union if isSeparable(u)            => decoupleUnion(u)
+      case c: CartesianProduct if isSeparable(c) => decoupleCartesianProduct(c)
+      case bj: BinaryJoin if isSeparable(bj)     => decoupleBinaryJoin(bj)
+      case mj: MultiwayJoin if isSeparable(mj)   => decoupleMultiwayJoin(mj)
     }
 }
 
 /** A rule that packs local operator into LocalStage */
 object PackLocalComputationIntoLocalStage extends Rule[LogicalPlan] {
+
+  def checkIfComputation(plan: LogicalPlan) =
+    plan.mode == ExecMode.Computation || plan.mode == ExecMode.DelayComputation
+
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transformUp {
-      case p: Project
-          if p.mode == ExecMode.Computation || p.mode == ExecMode.DelayComputation =>
-        LocalStage.box(p.children, p)
-      case j: Filter
-          if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
-        LocalStage.box(j.children, j)
-      case a: Aggregate
-          if a.mode == ExecMode.Computation || a.mode == ExecMode.DelayComputation =>
-        LocalStage.box(a.children, a)
-      case pk: PKFKJoin
-          if pk.mode == ExecMode.Computation || pk.mode == ExecMode.DelayComputation =>
-        LocalStage.box(pk.children, pk)
-      case d: Diff
-          if d.mode == ExecMode.Computation || d.mode == ExecMode.DelayComputation =>
-        LocalStage.box(d.children, d)
-      case u: Union
-          if u.mode == ExecMode.Computation || u.mode == ExecMode.DelayComputation =>
-        LocalStage.box(u.children, u)
-      case j: Join
-          if j.mode == ExecMode.Computation || j.mode == ExecMode.DelayComputation =>
-        LocalStage.box(j.children, j)
-      case c: CartesianProduct
-          if c.mode == ExecMode.Computation || c.mode == ExecMode.DelayComputation =>
-        LocalStage.box(c.children, c)
+      case j: Filter if checkIfComputation(j) =>
+        PairThenCompute.box(j.children, j)
+      case p: Project if checkIfComputation(p) =>
+        PairThenCompute.box(p.children, p)
+      case d: Distinct if checkIfComputation(d) =>
+        PairThenCompute.box(d.children, d)
+      case a: Aggregate if checkIfComputation(a) =>
+        PairThenCompute.box(a.children, a)
+      case bj: BinaryJoin if checkIfComputation(bj) =>
+        PairThenCompute.box(bj.children, bj)
+      case u: Union if checkIfComputation(u) =>
+        PairThenCompute.box(u.children, u)
+      case c: CartesianProduct if checkIfComputation(c) =>
+        PairThenCompute.box(c.children, c)
+      case mj: MultiwayJoin if checkIfComputation(mj) =>
+        PairThenCompute.box(mj.children, mj)
     }
 }
 
 /** A rule that unpacks LocalStage into local computation operators */
 object UnPackLocalStage extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
-    plan transform {
-      case l: LocalStage => l.unboxedPlan()
+    plan transform { case l: PairThenCompute =>
+      l.unboxedPlan()
     }
 }
 
@@ -564,7 +651,8 @@ object UnPackLocalStage extends Rule[LogicalPlan] {
 object MergeLocalStage extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan transform {
-      case l: LocalStage if l.children.exists(_.isInstanceOf[LocalStage]) =>
+      case l: PairThenCompute
+          if l.children.exists(_.isInstanceOf[PairThenCompute]) =>
         l.mergeConsecutiveLocalStage()
     }
 }
@@ -573,13 +661,50 @@ object MergeLocalStage extends Rule[LogicalPlan] {
 object SelectivelyPushCommunicationThroughComputation
     extends Rule[LogicalPlan] {
 
-  // we should check if with the new restrictions, there is chance to produce non-all 1 shares.
+  /** Push down the partition to delay the computation below the partition.
+    *
+    * Note: It is usually effective to delay the computation that generate large amount of intermediate results.
+    */
+  private def pushDownOnePartition(p: Partition): LogicalPlan = {
+
+    val pairThenCompute = p.child.asInstanceOf[PairThenCompute]
+    val partitions = pairThenCompute.children.map(_.asInstanceOf[Partition])
+
+    // We merge the shareConstraint of partitions below PairThenCompute to `p`.
+    if (partitions.nonEmpty) {
+      val headOfPartitions = partitions.head
+      assert(
+        partitions.forall(
+          _.shareConstraintContext.shareConstraint == headOfPartitions.shareConstraintContext.shareConstraint
+        ),
+        "All partitions under that same PairThenoCompute operator should have the same shareConstraint."
+      )
+      p.shareConstraintContext.shareConstraint.addNewConstraints(
+        headOfPartitions.shareConstraintContext.shareConstraint
+      )
+    }
+
+    // We replace the shareConstraint of partitions below PairThenCompute by p's shareConstraint.
+    val newPartitions = partitions.map { gChild =>
+      val newGChild =
+        gChild.copy(
+          shareConstraintContext = p.shareConstraintContext
+        )
+      newGChild
+    }
+
+    pairThenCompute.withNewChildren(newPartitions)
+  }
+
+  // Check if all attributes are in constraint. If all attributes are in constraint, we should not push down the
+  // partition, as it will result in non-partitioned input (i.e., numbers of partition is 1).
   private def isPushDownValid(p: Partition): Boolean = {
 
-    val restrictionAttributes = p.sharedRestriction.res.keys.toSeq
+    val restrictionAttributes =
+      p.shareConstraintContext.shareConstraint.rawConstraint.keys.toSeq
 
     val childrenRestrictionAttributes = {
-      val localStage = p.child.asInstanceOf[LocalStage]
+      val localStage = p.child.asInstanceOf[PairThenCompute]
       val partitions = localStage.children.map(_.asInstanceOf[Partition])
 
       if (partitions.nonEmpty) {
@@ -589,286 +714,21 @@ object SelectivelyPushCommunicationThroughComputation
       }
     }
 
-    (restrictionAttributes ++ childrenRestrictionAttributes).distinct.toSet != p.outputOld
+    AttributeSet(
+      restrictionAttributes ++ childrenRestrictionAttributes
+    ) != p.outputSet
   }
 
-  private def pushDownOnePartition(p: Partition): LogicalPlan = {
-
-    val localStage = p.child.asInstanceOf[LocalStage]
-    val partitions = localStage.children.map(_.asInstanceOf[Partition])
-
-    if (partitions.nonEmpty) {
-      val headOfPartitions = partitions.head
-      assert(
-        partitions.forall(
-          _.sharedRestriction == headOfPartitions.sharedRestriction
-        )
-      )
-      p.sharedRestriction.res ++= headOfPartitions.sharedRestriction.res
-    }
-
-    // create and update restriction of newPartitions
-    val newPartitions = partitions.map { gChild =>
-      val newGChild =
-        gChild.copy(
-          sharedRestriction = p.sharedRestriction
-        )
-      newGChild
-    }
-
-    localStage.withNewChildren(newPartitions)
+  private def isPushDown(p: Partition): Boolean = {
+    p.child.mode == DelayComputation && p.child.children.forall(
+      _.isInstanceOf[Partition]
+    ) && isPushDownValid(p)
   }
 
-  override def apply(plan: LogicalPlan): LogicalPlan =
+  override def apply(plan: LogicalPlan): LogicalPlan = {
     plan transformUp {
-      case p @ Partition(child, _, _) if child.mode == ExecMode.Computation => p
-      case p @ Partition(child, _, _)
-          if child.mode == ExecMode.DelayComputation
-            && child.children.forall(
-              _.isInstanceOf[Partition]
-            ) && isPushDownValid(p) =>
+      case p: Partition if isPushDown(p) =>
         pushDownOnePartition(p)
     }
+  }
 }
-
-////TODO: More testings are still needed, small bugs may exist somewhere.
-///** A rule that selectively push communication operator (Partition) past LocalStage */
-//object SelectivelyPushCommunicationThroughComputation
-//    extends Rule[LogicalPlan]
-//    with AnalyzeOutputSupport {
-//
-//  //TODO: we should check if with the restrictions, there is
-//  //      chance to produce good shares.
-//  private def isRestrictionValid(partition: Partition): Boolean = {
-//    true
-//  }
-//
-//  private def pushDownOnePartition(p: Partition): LogicalPlan = {
-//
-//    val lOp = p.child.asInstanceOf[LocalStage]
-//    val gChildren = lOp.children.map(_.asInstanceOf[Partition])
-//
-//    if (gChildren.nonEmpty) {
-//      val gHead = gChildren.head
-//      assert(gChildren.forall(_.sharedRestriction == gHead.sharedRestriction))
-//      p.sharedRestriction.res ++= gHead.sharedRestriction.res
-//    }
-//
-//    // create and update restriction of newGChildren
-//    val newGChildren = gChildren.map { gChild =>
-//      val newGChild =
-//        gChild.copy(
-//          sharedRestriction = p.sharedRestriction
-//        )
-//      newGChild
-//    }
-//
-//    lOp.withNewChildren(newGChildren)
-//  }
-//
-//  override def apply(plan: LogicalPlan): LogicalPlan =
-//    plan transformUp {
-//      case l @ LocalStage(_, _) if l.children.forall(_.isInstanceOf[Partition])=>
-//        val newl = l
-//          .mapChildren { child =>
-//            val partition = child.asInstanceOf[Partition]
-//            if (partition.child.mode == ExecMode.Computation) {
-//              partition
-//            } else {
-//              pushDownOnePartition(child.asInstanceOf[Partition])
-//            }
-//          }
-//          .asInstanceOf[LocalStage]
-//
-//        val LOpChilren = newl.children.filter(_.isInstanceOf[LocalStage])
-//
-//        if (LOpChilren.nonEmpty && newl != l) {
-//          val outputPlan = LOpChilren.foldLeft(newl)((lop, childLOp) =>
-//            lop.merge(childLOp.asInstanceOf[LocalStage])
-//          )
-//          outputPlan
-//        } else {
-//          newl
-//        }
-//    }
-//}
-
-///** A operator that unpack LOP, if its root plan is scan */
-//object UnPackScanOp extends Rule[LogicalPlan] {
-//  override def apply(plan: LogicalPlan): LogicalPlan =
-//    plan transform {
-//      case l @ LOp(_, _, _) if l.rootPlan.isInstanceOf[Scan] =>
-//        l.rootPlan
-//    }
-//}
-
-///** A rule that decouples communication and computation for unary operators */
-//object DecoupleUnaryOperator
-//  extends Rule[LogicalPlan]
-//    with AnalyzeOutputSupport {
-//
-//  private def handleProject(p: Project): LogicalPlan = {
-//    if (isMaterializable(p)) {
-//      val localProject =
-//        Project(p.child, p.projectionListOld, ExecMode.Computation)
-//      val restriction =
-//        mutable.HashMap(
-//          localProject.outputOld.diff(p.projectionListOld).map(f => (f, 1)): _*
-//        )
-//
-//      val sharedRestriction = SharedParameter(restriction)
-//      val partition = Partition(localProject, sharedRestriction)
-//      Project(partition, p.projectionListOld, ExecMode.Computation)
-//    } else {
-//
-//      val restriction =
-//        mutable.HashMap(
-//          p.child.outputOld.diff(p.projectionListOld).map(f => (f, 1)): _*
-//        )
-//      val sharedRestriction = SharedParameter(restriction)
-//
-//      val partition = Partition(p.child, sharedRestriction)
-//      Project(partition, p.projectionListOld, ExecMode.Computation)
-//    }
-//  }
-//
-//  private def handleAggregate(a: Aggregate) = {
-//
-//    if (isMaterializable(a) || a.groupingListOld.isEmpty) {
-//      val localAggregation =
-//        Aggregate(
-//          a.child,
-//          a.groupingListOld,
-//          a.semiringListOld,
-//          Seq(),
-//          ExecMode.Computation
-//        )
-//
-//      val restriction =
-//        mutable.HashMap[String, Int](
-//          localAggregation.outputOld
-//            .diff(a.groupingListOld)
-//            .map(f => (f, 1)): _*
-//        )
-//      val partition = Partition(localAggregation, SharedParameter(restriction))
-//      Aggregate(
-//        partition,
-//        a.groupingListOld,
-//        (a.semiringListOld._1, localAggregation.producedOutput.head),
-//        a.producedOutput,
-//        ExecMode.Computation
-//      )
-//    } else {
-//
-//      val restriction =
-//        mutable.HashMap[String, Int](
-//          a.child.outputOld.diff(a.groupingListOld).map(f => (f, 1)): _*
-//        )
-//
-//      val partition = Partition(a.child, SharedParameter(restriction))
-//      Aggregate(
-//        partition,
-//        a.groupingListOld,
-//        a.semiringListOld,
-//        a.producedOutput,
-//        ExecMode.Computation
-//      )
-//    }
-//  }
-//
-//  override def apply(plan: LogicalPlan): LogicalPlan =
-//    plan transform {
-//      case p @ Project(child, projectionList, ExecMode.Coupled, _) =>
-//        handleProject(p)
-//      case a @ Aggregate(
-//      child,
-//      groupingList,
-//      semiringList,
-//      _,
-//      ExecMode.Coupled,
-//      _,
-//      _
-//      ) =>
-//        handleAggregate(a)
-//    }
-//}
-//
-///** A rule that decouples communication and computation for binary operators */
-//object DecoupleBinaryOperator
-//  extends Rule[LogicalPlan]
-//    with AnalyzeOutputSupport {
-//
-//  private def handleDiff(d: Diff) = {
-//    val l = d.left
-//    val r = d.right
-//    val restriction = mutable.HashMap[String, Int]()
-//    val sharedRestriction = SharedParameter(restriction)
-//
-//    val lgOp = Partition(l, sharedRestriction)
-//    val rgOp = Partition(r, sharedRestriction)
-//
-//    Diff(lgOp, rgOp, ExecMode.Computation)
-//  }
-//
-//  private def handlePKFKJoin(pk: PKFKJoin) = {
-//    val l = pk.left
-//    val r = pk.right
-//    val restriction = mutable.HashMap[String, Int]()
-//    val sharedRestriction = SharedParameter(restriction)
-//    val lgOp = Partition(l, sharedRestriction)
-//    val rgOp = Partition(r, sharedRestriction)
-//
-//    PKFKJoin(lgOp, rgOp, pk.joinType, ExecMode.Computation)
-//  }
-//
-//  override def apply(plan: LogicalPlan): LogicalPlan =
-//    plan transform {
-//      case d @ Diff(l, r, ExecMode.Coupled) => handleDiff(d)
-//      case pk @ PKFKJoin(l, r, joinType, ExecMode.Coupled, _) =>
-//        handlePKFKJoin(pk)
-//    }
-//}
-//
-///** A rule that decouples communication and computation for multiway operators */
-//object DecoupleMultiOperator
-//  extends Rule[LogicalPlan]
-//    with AnalyzeOutputSupport {
-//
-//  private def handleUnion(u: Union) = {
-//    val children = u.children
-//    val restriction = mutable.HashMap[String, Int]()
-//    val sharedRestriction = SharedParameter(restriction)
-//    val childrenGOp =
-//      children.map(child => Partition(child, sharedRestriction))
-//
-//    Union(childrenGOp, ExecMode.Computation)
-//  }
-//
-//  private def handleCartesianProduct(c: CartesianProduct) = {
-//    val children = c.children
-//    val restriction = mutable.HashMap[String, Int]()
-//    val sharedRestriction = SharedParameter(restriction)
-//    val childrenGOp =
-//      children.map(child => Partition(child, sharedRestriction))
-//
-//    CartesianProduct(childrenGOp, ExecMode.Computation)
-//  }
-//
-//  private def handleJoin(j: Join) = {
-//    val children = j.children
-//    val restriction = mutable.HashMap[String, Int]()
-//    val sharedRestriction = SharedParameter(restriction)
-//    val childrenGOp =
-//      children.map(child => Partition(child, sharedRestriction))
-//
-//    Join(childrenGOp, j.joinType, ExecMode.Computation)
-//  }
-//
-//  override def apply(plan: LogicalPlan): LogicalPlan =
-//    plan transform {
-//      case u @ Union(children, ExecMode.Coupled)             => handleUnion(u)
-//      case j @ Join(children, joinType, ExecMode.Coupled, _) => handleJoin(j)
-//      case c @ CartesianProduct(children, ExecMode.Coupled) =>
-//        handleCartesianProduct(c)
-//    }
-//}

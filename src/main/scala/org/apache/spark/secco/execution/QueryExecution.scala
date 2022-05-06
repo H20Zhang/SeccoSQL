@@ -4,6 +4,7 @@ import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.optimization.LogicalPlan
 import org.apache.spark.secco.optimization.plan.RootNode
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.execution.storage.row.InternalRow
 
 /** The primary workflow for executing relational queries using Spark.  Designed to allow easy
   * access to the intermediate phases of query execution for developers.
@@ -15,6 +16,10 @@ class QueryExecution(
     val seccoSession: SeccoSession,
     val logical: LogicalPlan
 ) {
+
+  lazy val rawPlan: LogicalPlan = {
+    logical
+  }
 
   lazy val analyzedPlan: LogicalPlan = {
     seccoSession.sessionState.analyzer.execute(logical)
@@ -29,7 +34,7 @@ class QueryExecution(
     seccoSession.sessionState.planner.plan(optimizedPlan).next()
   }
 
-  lazy val toRdd: RDD[OldInternalRow] = executionPlan.rdd()
+  lazy val toRdd: RDD[InternalRow] = executionPlan.rdd()
 
   protected def stringOrError[A](f: => A): String =
     try f.toString

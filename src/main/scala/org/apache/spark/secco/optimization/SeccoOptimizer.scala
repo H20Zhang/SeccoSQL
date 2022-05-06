@@ -1,13 +1,11 @@
 package org.apache.spark.secco.optimization
 
-import javax.swing.plaf.basic.BasicTableHeaderUI
 import org.apache.spark.secco.SeccoSession
 import org.apache.spark.secco.config.SeccoConfiguration
 import org.apache.spark.secco.optimization.rules._
 import org.apache.spark.secco.trees.RuleExecutor
 
-/**
-  * The optimizer of the Secco, which accepts a series of [[org.apache.spark.secco.optimization.Rule]]
+/** The optimizer of the Secco, which accepts a series of [[org.apache.spark.secco.optimization.Rule]]
   * and apply the rules to transform the plan
   *
   * @param conf current session's configuration
@@ -21,8 +19,7 @@ class SeccoOptimizer(
   def containsBatch(batchName: String): Boolean =
     validBatches.filter(_._1.name == batchName).nonEmpty
 
-  /**
-    * disable batches with `batchNames`
+  /** disable batches with `batchNames`
     * @param batchNames name of batches to disable
     * @return self
     */
@@ -31,7 +28,7 @@ class SeccoOptimizer(
 
     assert(
       batchNames.forall(containsBatch),
-      s"batches with name:${batchNames} is not contained in optimizer"
+      s"batches with names:${batchNames.toSeq} is not contained in optimizer"
     )
 
     validBatches = validBatches.map { f =>
@@ -45,8 +42,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * enable batches with `batchNames`
+  /** enable batches with `batchNames`
     * @param batchNames name of batches to enable
     * @return self
     */
@@ -69,8 +65,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * Disable all batches.
+  /** Disable all batches.
     * @return self
     */
   def setAllBatchDisabled(): SeccoOptimizer = {
@@ -78,8 +73,7 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * Enable all batches.
+  /** Enable all batches.
     * @return self
     */
   def setAllBatchEnabled(): SeccoOptimizer = {
@@ -87,99 +81,102 @@ class SeccoOptimizer(
     this
   }
 
-  /**
-    * The batches of rules that are enabled
+  /** The batches of rules that are enabled
     * @return self
     */
   private var validBatches = defaultBatches.map(f => (f, true)).toMap
 
   /** The default batches of rules */
   private def defaultBatches = {
-    val basicRules = Seq(
-      Batch("Clean up", Once, PushRenameToLeaf),
+
+    //TODO: order the optimization rules.
+
+    val operatorOptimizationRules = Seq(
       Batch(
-        "Remove Redundant Operators",
+        "Operator Optimization",
         fixedPoint,
-        MergeAllJoin,
+        // Operator push down
+        PushDownSelection,
+        PushSelectionIntoJoin,
+        PushSelectionThroughJoin,
+        PushDownProjection,
+        // Operator Combine
         MergeUnion,
         MergeProjection,
         MergeSelection,
-        RemoveRedundantSelection
-      ),
-      Batch(
-        "Push Down Predicates",
-        fixedPoint,
-        PushSelectionThroughJoin,
-        PushSelectionThroughJoin,
-        PushSelectionThroughUnion,
-        PushProjectionThroughUnion
+        MergeLimit,
+        // Remove unnecessary operator
+        RemoveRedundantSelection,
+        RemoveRedundantProjection,
+        // Optimize expression via constant folding
+        ConstantPropagation,
+        ConstantFolding,
+        ReorderAssociativeOperator,
+        BooleanSimplification,
+        SimplifyBinaryComparison,
+        RemoveDispensableExpressions
       )
     )
 
-    val advanceRules = Seq(
-      Batch("ExtractPKFKJoin", fixedPoint, ExtractPKFKJoin),
+    val joinOptimizationRules = Seq(
       Batch(
-        "GHD-Based Join Reorder",
-        fixedPoint,
-        GHDBasedJoinReorder,
-        ExpandGHDNode
-      ),
-      Batch(
-        "Aggregation Push-Down",
+        "Optimize PrimaryKey-ForeignKey Join",
         Once,
-        PushSemiringAggregationAlongGHDTree
+        MarkJoinPredicateProperty,
+        MarkJoinIntegrityConstraintProperty,
+        OptimizePKFKJoin
       ),
       Batch(
-        "Projection Push-Down",
+        "Optimize ForeignKey-ForeignKey Join",
         Once,
-        PushProjectionThroughJoin
-      ),
-      Batch(
-        "Projection Cleaning",
-        fixedPoint,
-        MergeProjection,
-        RemoveRedundantProjection
-      ),
-      Batch("Optimize GHD Node", fixedPoint, ConsecutiveJoinReorder)
+        MarkJoinCyclicityProperty,
+        MarkJoinPredicateProperty,
+        MarkJoinIntegrityConstraintProperty,
+        // Combine consecutive cyclic FKFK-Join into multiway join.
+        ReplaceBinaryJoinWithMultiwayJoin,
+        // Optimize multiway join by GHD
+        OptimizeMultiwayJoin,
+        // Optimize the join tree produced by GHD
+        OptimizeJoinTree
+      )
     )
 
-    val decouplingRules = Seq(
-      Batch("Mark Delay", Once, MarkDelay),
-      Batch("Merge Join", fixedPoint, MergeDelayedJoin),
+    val decoupleOptimizationRules = Seq(
       Batch(
-        "Decouple Operators",
+        "Mark Delay and Decouple Communication from Computation",
         Once,
+        MarkDelay,
         DecoupleOperators
       ),
       Batch(
-        "Pack Local Computations",
+        "Pack Local Computations into Local Stage",
         fixedPoint,
         PackLocalComputationIntoLocalStage,
         MergeLocalStage
       ),
       Batch(
-        "PartitionPushDown",
+        "Selective PartitionPushDown",
         fixedPoint,
         SelectivelyPushCommunicationThroughComputation,
         MergeLocalStage
       )
     )
 
-    val iterativeProcessingRules = Seq(
+    val iterativeComputationOptimizationRules = Seq(
       Batch(
         "AddCache",
         Once,
-        AddCache,
+//        AddCache,
         RemoveRedundantCache
       )
     )
 
-    val cleanRules = Seq(Batch("Cleanning", Once, CleanRoot))
+    val cleanRules = Seq(Batch("Cleaning", Once, CleanRoot))
 
     if (conf.enableOnlyDecoupleOptimization) {
-      decouplingRules ++ iterativeProcessingRules ++ cleanRules
+      decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     } else {
-      basicRules ++ advanceRules ++ decouplingRules ++ iterativeProcessingRules ++ cleanRules
+      operatorOptimizationRules ++ joinOptimizationRules ++ operatorOptimizationRules ++ decoupleOptimizationRules ++ iterativeComputationOptimizationRules ++ cleanRules
     }
   }
 
@@ -188,6 +185,6 @@ class SeccoOptimizer(
     defaultBatches.filter(batch => validBatches(batch))
   }
 
-  /** Currently, active batches. */
+  /** Current active batches. */
   def activeBatches: Seq[Batch] = batches
 }

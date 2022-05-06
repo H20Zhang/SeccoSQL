@@ -5,9 +5,20 @@ import org.apache.spark.secco.expression.{Attribute, Star}
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.plan.LeafNode
+import org.apache.spark.secco.optimization.plan.{
+  GraphRelation,
+  LeafNode,
+  UnaryNode
+}
 import org.apache.spark.secco.execution.storage.row
 import org.apache.spark.secco.execution.storage.row.InternalRow
+import org.apache.spark.secco.expression.utils.AttributeMap
+import org.apache.spark.secco.parsing.{
+  BiDirection,
+  EdgeDirection,
+  Left2Right,
+  Right2Left
+}
 import org.apache.spark.secco.trees.{TreeNode, TreeNodeException}
 import org.apache.spark.secco.types.{DataType, IntegerType}
 
@@ -64,6 +75,8 @@ case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
       ctx: CodegenContext,
       ev: ExprCode
   ): ExprCode = ???
+
+  override def withExprId(newExprId: ExprId): Attribute = this
 }
 
 case class UnresolvedAlias(
@@ -133,8 +146,11 @@ case class UnresolvedFunction(
 
   override def dataType: DataType =
     throw new UnresolvedException(this, "dataType")
-  override def foldable: Boolean =
-    throw new UnresolvedException(this, "foldable")
+
+//  // commented by lgh, "method foldable cannot override final member"
+//  override def foldable: Boolean =
+//    throw new UnresolvedException(this, "foldable")
+
   override def nullable: Boolean =
     throw new UnresolvedException(this, "nullable")
   override lazy val resolved = false
@@ -147,5 +163,69 @@ case class UnresolvedRelation(
     tableName: String,
     mode: ExecMode = ExecMode.Coupled
 ) extends LeafNode {
-  def outputOld = Nil
+
+  override def output: Seq[Attribute] = Seq()
+
+}
+
+case class UnresolvedEdge(
+    id: Attribute,
+    src: UnresolvedNode,
+    dst: UnresolvedNode,
+    edgeLabels: Seq[Literal],
+    edgeCondition: Option[Expression],
+    edgeDirection: EdgeDirection
+) {
+  override def toString: String = {
+
+    val edge = edgeLabels.isEmpty match {
+      case true  => s"[${id}]"
+      case false => s"[${id}:${edgeLabels.mkString(":")}]"
+    }
+
+    edgeDirection match {
+      case Left2Right  => s"${src}-${edge}->${dst}"
+      case Right2Left  => s"${src}<-${edge}-${dst}"
+      case BiDirection => s"${src}-${edge}-${dst}"
+    }
+  }
+}
+
+case class UnresolvedNode(
+    id: Attribute,
+    nodeLabels: Seq[Literal],
+    nodeCondition: Option[Expression]
+) {
+  override def toString: String = {
+    nodeLabels.isEmpty match {
+      case true  => s"(${id})"
+      case false => s"(${id}:${nodeLabels.mkString(":")})"
+    }
+  }
+}
+
+case class UnresolvedPattern(
+    edges: Seq[UnresolvedEdge],
+    projectionList: Seq[Attribute]
+) extends Expression
+    with Unevaluable {
+
+  override def nullable: Boolean =
+    throw new UnresolvedException(this, "nullable")
+
+  override def dataType: DataType =
+    throw new UnresolvedException(this, "dataType")
+
+  override def children: Seq[Expression] = Nil
+}
+
+case class UnresolvedSubgraphQuery(
+    graph: GraphRelation,
+    pattern: UnresolvedPattern,
+    mode: ExecMode = ExecMode.Coupled
+) extends UnaryNode {
+
+  override def output: Seq[Attribute] = Seq()
+
+  override def child: LogicalPlan = graph
 }

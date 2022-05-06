@@ -36,13 +36,13 @@ class SeccoConfiguration extends Configuration {
   private val SMALL_CHANGE_KEY = "secco.local.small_change"
   private val RDD_Cache_Level_KEY = "secco.local.rdd.cache_level"
 
-//  private val SHOW_LOP_CONTENT_KEY = "secco.debug.show_LOp_Content"
-
   private val ENABLE_LOCAL_PREPROCESSING_OPTIMIZATION_KEY =
     "secco.planner.local_preprocessing_optimization"
 //  private val PLANNER_STATS_COMPUTER_KEY = "secco.planner.stats_computer"
 
   private val RECURSION_NUMRUN_KEY = "secco.recursion.numRun"
+
+  private val VERBOSE_OUTPUT_KEY = "secco.debug.plan.verboseOutput"
 
   /* == Temporary Keys == */
   private val LANDMARK_KEY = "LANDMARK"
@@ -159,6 +159,10 @@ class SeccoConfiguration extends Configuration {
 //  def showLOPContent = getBoolean(SHOW_LOP_CONTENT_KEY)
 //  def setShowLOPContent(value: Boolean) =
 //    setBoolean(SHOW_LOP_CONTENT_KEY, value)
+
+  /* == Debug Related Parameters */
+  def verboseOuptut = getBoolean(VERBOSE_OUTPUT_KEY)
+  def setVerboseOutput(value: Boolean) = setBoolean(VERBOSE_OUTPUT_KEY, value)
 
   //todo: replace following temporary solution by a more user friendly one.
   /* Graph Algorithm Parameter */

@@ -20,8 +20,7 @@ object RuleExecutor {
 
 abstract class RuleExecutor[TreeType <: TreeNode[_]] extends LogAble {
 
-  /**
-    * An execution strategy for rules that indicates the maximum number of executions. If the
+  /** An execution strategy for rules that indicates the maximum number of executions. If the
     * execution reaches fix point (i.e. converge) before maxIterations, it will stop.
     */
   abstract class Strategy { def maxIterations: Int }
@@ -42,16 +41,14 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends LogAble {
   /** Defines a sequence of rule batches, to be overridden by the implementation. */
   protected def batches: Seq[Batch]
 
-  /**
-    * Defines a check function that checks for structural integrity of the plan after the execution
+  /** Defines a check function that checks for structural integrity of the plan after the execution
     * of each rule. For example, we can check whether a plan is still resolved after each rule in
     * `Optimizer`, so we can catch rules that return invalid plans. The check function returns
     * `false` if the given plan doesn't pass the structural integrity check.
     */
   protected def isPlanIntegral(plan: TreeType): Boolean = true
 
-  /**
-    * Executes the batches of rules defined by the subclass. The batches are executed serially
+  /** Executes the batches of rules defined by the subclass. The batches are executed serially
     * using the defined execution strategy. Within each batch, rules are also executed serially.
     */
   def execute(plan: TreeType): TreeType = {
@@ -64,39 +61,46 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends LogAble {
       var lastPlan = curPlan
       var continue = true
 
+      // Reset optimizable variable of the batchStartPlan
+      batchStartPlan.foreach { node =>
+        node match {
+          case s: TreeNode[_] => s.optimizable = true
+          case _              =>
+        }
+      }
+
       // Run until fix point (or the max number of iterations as specified in the strategy.
       while (continue) {
-        curPlan = batch.rules.foldLeft(curPlan) {
-          case (plan, rule) =>
-            val startTime = System.nanoTime()
-            val result = rule(plan)
-            val runTime = System.nanoTime() - startTime
+        curPlan = batch.rules.foldLeft(curPlan) { case (plan, rule) =>
+          val startTime = System.nanoTime()
+          val result = rule(plan)
+          val runTime = System.nanoTime() - startTime
 
-            if (!result.fastEquals(plan)) {
-              queryExecutionMetrics.incNumEffectiveExecution(rule.ruleName)
-              queryExecutionMetrics.incTimeEffectiveExecutionBy(
-                rule.ruleName,
-                runTime
-              )
-              logTrace(s"""
+          if (!result.fastEquals(plan)) {
+            queryExecutionMetrics.incNumEffectiveExecution(rule.ruleName)
+            queryExecutionMetrics.incTimeEffectiveExecutionBy(
+              rule.ruleName,
+              runTime
+            )
+            logTrace(s"""
                    |=== Applying Rule ${rule.ruleName} ===
                    |${sideBySide(plan.treeString, result.treeString).mkString(
-                "\n"
-              )}
+              "\n"
+            )}
                 """.stripMargin)
-            }
-            queryExecutionMetrics.incExecutionTimeBy(rule.ruleName, runTime)
-            queryExecutionMetrics.incNumExecution(rule.ruleName)
+          }
+          queryExecutionMetrics.incExecutionTimeBy(rule.ruleName, runTime)
+          queryExecutionMetrics.incNumExecution(rule.ruleName)
 
-            // Run the structural integrity checker against the plan after each rule.
-            if (!isPlanIntegral(result)) {
-              val message =
-                s"After applying rule ${rule.ruleName} in batch ${batch.name}, " +
-                  "the structural integrity of the plan is broken."
-              throw new TreeNodeException(result, message, null)
-            }
+          // Run the structural integrity checker against the plan after each rule.
+          if (!isPlanIntegral(result)) {
+            val message =
+              s"After applying rule ${rule.ruleName} in batch ${batch.name}, " +
+                "the structural integrity of the plan is broken."
+            throw new TreeNodeException(result, message, null)
+          }
 
-            result
+          result
         }
         iteration += 1
         if (iteration > batch.strategy.maxIterations) {

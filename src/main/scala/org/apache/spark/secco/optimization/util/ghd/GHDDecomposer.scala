@@ -1,308 +1,407 @@
 package org.apache.spark.secco.optimization.util.ghd
 
-import org.apache.spark.secco.catalog.AbstractCatalogTable
+import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.optimization.util.{Edge, Graph, HasID, Node}
 
+import java.util.concurrent.ConcurrentLinkedQueue
+import org.apache.spark.secco.util.`extension`.SeqExtension
+
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-class GHDDecomposer {
-  def decomposeTree(
-      schemas: Seq[AbstractCatalogTable]
-  ): IndexedSeq[RelationGHDTree] = {
+// Relation Graph.
+// We assume RelationGraph is undirected graph, thus the nodes in edges won't distinguish directions.
 
-    //filter the schemas that are contained inside another schema
-    val excludedSchemas = schemas.filter { s1 =>
-      schemas
-        .diff(Seq(s1))
-        .exists(s2 => s1.attributeNames.diff(s2.attributeNames).isEmpty)
+/** A node in the [[GHDHyperGraph]], which actually represents an attribute.
+  *
+  * @param id id of the node
+  * @param attr attributes of the node
+  */
+case class GHDHyperGraphNode(id: Int, attr: Attribute) extends Node
+
+object GHDHyperGraphNode {
+
+  private var counter = 0
+  private val attrToId = scala.collection.mutable.HashMap[Attribute, Int]()
+
+  def apply(attr: Attribute): GHDHyperGraphNode = {
+    attrToId.get(attr) match {
+      case Some(id) => GHDHyperGraphNode(id, attr)
+      case None =>
+        counter += 1; attrToId(attr) = counter;
+        GHDHyperGraphNode(counter, attr)
     }
-    val schemasForGHD = schemas.diff(excludedSchemas)
-
-    //find the GHD Decomposition for the schemasForGHD
-    val graph = RelationGraph(schemasForGHD.toArray)
-    val ghds = HyperTreeDecomposer.genAllGHDs(graph)
-
-    //construct RelationGHD
-    ghds
-      .map { t =>
-        val edgeToSchema =
-          schemasForGHD.map(f => (f.attributeNames.toSet, f)).toMap
-        val bags =
-          t.nodes
-            .map(f => (f.id, f.g.edges.map(edge => edgeToSchema(edge.attrs))))
-            .map {
-              case (idx, bag) =>
-                //add previously filtered schemas to the bags that contained it.
-                val fullBag = bag ++ bag
-                  .flatMap(schema1 =>
-                    excludedSchemas.filter(schema2 =>
-                      schema2.attributeNames
-                        .diff(schema1.attributeNames)
-                        .isEmpty
-                    )
-                  )
-                  .distinct
-
-                (idx, fullBag)
-            }
-        val connections = t.edges.map(e => (e.src.id, e.dst.id))
-
-        RelationGHDTree(
-          bags.toSeq.map(f => (f._1, f._2.toSeq)),
-          connections.toSeq,
-          t.fractionalHyperNodeWidth
-        )
-      }
-      .sortBy(relationGHD =>
-        (
-          relationGHD.fhtw,
-          -relationGHD.edges.size,
-          relationGHD.edges
-            .map(f =>
-              relationGHD
-                .idToGHDNode(f._1)
-                .flatMap(f => f.attributeNames)
-                .distinct
-                .intersect(
-                  relationGHD
-                    .idToGHDNode(f._2)
-                    .flatMap(f => f.attributeNames)
-                    .distinct
-                )
-                .size
-            )
-            .sum
-        )
-      )
   }
 }
 
-object GHDDecomposer {
-  lazy val defaultDecomposer = new GHDDecomposer
+/** A edge in the [[GHDHyperGraph]], which actually represents a relation.
+  *
+  * @param attrs schemas of the relation.
+  */
+case class GHDHyperGraphEdge(attrs: Set[Attribute])
+    extends Edge[GHDHyperGraphNode] {
+  override val nodes: Array[GHDHyperGraphNode] =
+    attrs.map(attr => GHDHyperGraphNode(attr)).toArray
 }
 
-case class RelationGHDTree(
-    nodes: Seq[(Int, Seq[AbstractCatalogTable])],
-    edges: Seq[(Int, Int)],
-    fhtw: Double
-) {
+/** A graph that represents a join query, where each node is an attribute and each edge is an relation.
+  * @param id id of the graph
+  * @param nodes nodes of the graph
+  * @param edges edges of the graph
+  */
+case class GHDHyperGraph(
+    id: Int,
+    override val nodes: Array[GHDHyperGraphNode],
+    override val edges: Array[GHDHyperGraphEdge]
+) extends Graph(nodes, edges)
+    with HasID {
 
-  val idToGHDNode = nodes.toMap
-  val schemas = nodes.flatMap(_._2).distinct
-
-  def getSchemas(nodeId: Int) = {
-    idToGHDNode(nodeId)
-  }
-
-  //enumerate all the possible traversal orders of the ghd
-  def allTraversalOrder: Seq[Seq[Int]] = {
-
-    val fullDirE = edges.flatMap(f => Seq(f, f.swap))
-    val ids = nodes.map(_._1)
-
-    //all traversalOrders
-    var traversalOrders = ids.permutations.toSeq
-
-    //only retain connected traversalOrders
-    traversalOrders = traversalOrders.filter { order =>
-      var valid = true
-      var i = 1
-      while (i < order.size) {
-        val subPath = order.slice(0, i)
-        if (!subPath.exists(j => fullDirE.contains(j, order(i)))) {
-          valid = false
-        }
-        i += 1
-      }
-      valid
-    }
-
-    traversalOrders
-  }
-
-  //  find the compatible attribute orders for an given traversal order
-  //  TODO: the meaning of function below is unknown,
-  //    might be a special class for determining leapfrog aggregate order
-  def compatibleAttrOrder(traversalOrder: Seq[Int]): Seq[Array[String]] = {
-
-    if (traversalOrder.isEmpty) {
-      return Seq()
-    }
-
-    val firstAttrs =
-      idToGHDNode(traversalOrder.head).flatMap(_.attributeNames).distinct.toSeq
-    var attrOrders = firstAttrs.permutations.toSeq
-
-    var remainingTraversalOrder = traversalOrder.drop(1)
-    val assignedAttrIds = ArrayBuffer[String]()
-    assignedAttrIds ++= firstAttrs
-
-    while (remainingTraversalOrder.nonEmpty) {
-      val nextAttrIds = idToGHDNode(remainingTraversalOrder.head)
-        .flatMap(_.attributeNames)
-        .distinct
-        .diff(assignedAttrIds)
-      val nextAttrOrders = nextAttrIds.permutations.toSeq
-      attrOrders = attrOrders.flatMap { attrOrder =>
-        nextAttrOrders.map(nextOrder => attrOrder ++ nextOrder)
-      }
-
-      remainingTraversalOrder = remainingTraversalOrder.drop(1)
-      assignedAttrIds ++= nextAttrIds
-    }
-
-    attrOrders.map(_.toArray)
+  override def nodeInducedSubgraph(
+      nodes: Array[GHDHyperGraphNode]
+  ): GHDHyperGraph = {
+    val g = super.nodeInducedSubgraph(nodes)
+    GHDHyperGraph(g.nodes, g.edges)
   }
 
   override def toString: String = {
-    s"""
-       |node:${nodes
-      .map(f =>
-        (
-          f._1,
-          f._2.map(g => g.attributeNames.mkString("(", ",", ")")).mkString(",")
-        )
-      )
-      .mkString("(", ",", ")")}
-       |edge:${edges.mkString("(", ",", ")")}
-       |fhtw:${fhtw}
-       |""".stripMargin
+    s"id:${id}\n" + super.toString
   }
 }
 
-//case class RelationGHDStar(
-//    core: Seq[Schema],
-//    leaves: Seq[Seq[Schema]],
-//    fhsw: Double
-//) {
-//
-//  val coreAttrIds = core.flatMap(_.attributes).distinct
-//
-//  def isSingleAttrLeafStar(): Boolean = {
-//    leaves.forall { schemas =>
-//      val leafAttrIds = schemas.flatMap(_.attributes).distinct
-//      leafAttrIds.diff(coreAttrIds).size == 1
-//    }
-//  }
-//
-//  def factorizeSingleAttrOrder(): (Seq[String], Int) = {
-//    if (isSingleAttrLeafStar()) {
-//      val leaveIds = leaves.map { schemas =>
-//        val leafAttrIds = schemas.flatMap(_.attributes).distinct
-//        leafAttrIds.diff(coreAttrIds)(0)
-//      }
-//
-//      (coreAttrIds ++ leaveIds, coreAttrIds.size - 1)
-//    } else {
-//      throw new Exception("Star does not exists factorizeSingleAttrOrder")
-//    }
-//  }
-//
-//  override def toString: String = {
-//    s"""
-//       |core:${core}
-//       |
-//       |leaves:${leaves}
-//       |
-//       |fhsw:${fhsw}
-//       |""".stripMargin
-//  }
-//
-//}
+object GHDHyperGraph {
+  private var counter = 999
+  def apply(
+      nodes: Array[GHDHyperGraphNode],
+      edges: Array[GHDHyperGraphEdge]
+  ): GHDHyperGraph = {
+    counter += 1
+    val graph = new GHDHyperGraph(counter, nodes, edges)
+    graph
+  }
 
-//def decomposeStar(
-//isSingleAttrFactorization: Boolean = true
-//): IndexedSeq[RelationGHDStar] = {
-//  //filter the schemas that are contained inside another schema
-//  val containedSchemas = schemas.filter { s1 =>
-//  schemas
-//  .diff(Seq(s1))
-//  .exists(s2 => s1.attributes.diff(s2.attributes).isEmpty)
-//}
-//  val notContainedSchemas = schemas.diff(containedSchemas)
-//
-//  //find the GHD Decomposition for the notContainedSchemas
-//  val E =
-//  notContainedSchemas.map(f => RelationEdge(f.attributes.toSet)).toArray
-//  val V = E.flatMap(_.attrs).distinct.toArray
-//  val graph = RelationGraph(V, E)
-//  val ghds = HyperTreeDecomposer.genAllGHDs(graph)
-//
-//  //filter out the HyperStar and construct RelationGHD
-//  val stars = ghds.par
-//  .filter { t =>
-//  val adjList = t.edges
-//  .map(edge => (edge.u.id, edge.v.id))
-//  .flatMap(edge => Iterator(edge, edge.swap))
-//  .groupBy(_._1)
-//  .map(g => (g._1, g._2.map(_._2)))
-//  .toMap
-//
-//  val numOfNodes = t.nodes.size
-//
-//  if (numOfNodes == 1) {
-//  false
-//} else {
-//  t.nodes.exists { n =>
-//  adjList(n.id).size == (numOfNodes - 1)
-//}
-//}
-//}
-//  .map { t =>
-//  val edgeToSchema =
-//  notContainedSchemas.map(f => (f.attributes.toSet, f)).toMap
-//  val bagMaps =
-//  t.nodes
-//  .map(f => (f.id, f.g.E().map(edge => edgeToSchema(edge.attrs))))
-//  .map {
-//  case (idx, bag) =>
-//  //add previously filtered schemas to the bagMaps that contained it.
-//  val fullBag = bag ++ bag
-//  .flatMap(schema1 =>
-//  containedSchemas.filter(schema2 =>
-//  schema2.attributes.diff(schema1.attributes).isEmpty
-//  )
-//  )
-//  .distinct
-//
-//  (idx, fullBag)
-//}
-//  .toMap
-//
-//  val adjList = t.edges
-//  .map(edge => (edge.u.id, edge.v.id))
-//  .flatMap(edge => Iterator(edge, edge.swap))
-//  .groupBy(_._1)
-//  .map(g => (g._1, g._2.map(_._2)))
-//  .toMap
-//
-//  val numOfNodes = t.nodes.size
-//  val rootId = t.nodes
-//  .filter { n =>
-//  adjList(n.id).size == (numOfNodes - 1)
-//}
-//  .head
-//  .id
-//  val root = bagMaps(rootId)
-//  val leaves = bagMaps.keys.toSeq.diff(Seq(rootId)).map(bagMaps)
-//
-//  RelationGHDStar(
-//  root,
-//  leaves.map(_.toSeq),
-//  t.fractionHyperStarWidth(rootId)
-//  )
-//}
-//  .toArray
-//
-//  if (isSingleAttrFactorization) {
-//  stars
-//  .filter(_.isSingleAttrLeafStar())
-//  .sortBy(relationGHDStar =>
-//  (relationGHDStar.fhsw, -relationGHDStar.leaves.size)
-//  )
-//} else {
-//  stars.sortBy(relationGHDStar =>
-//  (relationGHDStar.fhsw, -relationGHDStar.leaves.size)
-//  )
-//}
-//
-//}
+  def apply(schemas: Array[Array[Attribute]]): GHDHyperGraph = {
+    val nodes = schemas.flatten.distinct.map(GHDHyperGraphNode(_))
+    val edges = schemas.map(f => GHDHyperGraphEdge(f.toSet))
+    GHDHyperGraph(nodes, edges)
+  }
+}
+
+//  HyperNodes that are isomoprhic are given the same id
+
+/** A hypernode of the [[GHDHyperTree]], where contains join query represented in [[GHDHyperGraph]].
+  *
+  * @param g the join graph
+  */
+case class GHDHyperTreeNode(g: GHDHyperGraph) extends Node {
+
+  val id = g.id
+
+  /** Construct induced hyper-node according to the nodeset of current hypernode */
+  def toInducedHyperNode(supG: GHDHyperGraph): GHDHyperTreeNode = {
+    GHDHyperTreeNode(supG.nodeInducedSubgraph(g.nodes))
+  }
+
+  override def toString: String = {
+    s"${g.id}[${g.nodes.mkString("[", ",", "]")},${g.edges.mkString("[", ",", "]")}]"
+  }
+}
+
+/** A hyperedge of the [[GHDHyperTree]].
+  *
+  * @param src source node
+  * @param dst destination node
+  */
+case class GHDHyperTreeEdge(src: GHDHyperTreeNode, dst: GHDHyperTreeNode)
+    extends Edge[GHDHyperTreeNode] {
+  override def nodes: Array[GHDHyperTreeNode] = Array(src, dst)
+}
+
+// We regard GHD as a special kinds of hypertree
+
+/** A hypertree
+  * @param nodes hypernodes
+  * @param edges hyperedges
+  */
+case class GHDHyperTree(
+    override val nodes: Array[GHDHyperTreeNode],
+    override val edges: Array[GHDHyperTreeEdge]
+) extends Graph(nodes, edges) {
+
+  /** fractional tree width */
+  lazy val fractionalHyperNodeWidth = nodes.map(_.g.width).max
+
+  /** By adding one hypernode to existing hypertree with one edge connected,
+    * we ensure the result graph is always a hypertree.
+    *
+    * @param newNode new hypernode to be added to the tree.
+    * @return possible new [[GHDHyperTree]] with the given newNode added, if no such [[GHDHyperTree]] exists,
+    *         an empty array is returned.
+    */
+  def addHyperNode(newNode: GHDHyperTreeNode): Array[GHDHyperTree] = {
+    if (isEmpty()) {
+      return Array(GHDHyperTree(nodes :+ newNode, edges))
+    }
+
+    var i = 0
+    val end = nodes.size
+    val hypertreeBuffer = ArrayBuffer[GHDHyperTree]()
+    while (i < end) {
+      val node = nodes(i)
+      if (node.g.containAnyNodes(newNode.g.nodes)) {
+        val newEdge = GHDHyperTreeEdge(node, newNode)
+        val newTree = GHDHyperTree(nodes :+ newNode, edges :+ newEdge)
+        if (newTree.isGHD()) {
+          hypertreeBuffer += newTree
+        }
+      }
+      i += 1
+    }
+
+    hypertreeBuffer.toArray
+  }
+
+  /** Determine whether current GHD satisfies running path property.
+    *
+    * Note that: We assume all tree are constructed using function `addHyperTreeNode`, which means
+    * tree condition is automatically satisfied
+    */
+  def isGHD(): Boolean = {
+
+    //  return the subgraph of the hypertree based on the running path induced subgraph
+    def runningPathSubGraph(relationNode: GHDHyperGraphNode) = {
+      val relevantHyperNodes = nodes.filter { hypernode =>
+        hypernode.g.containNode(relationNode)
+      }
+
+      val g = nodeInducedSubgraph(relevantHyperNodes)
+      g
+    }
+
+    val nodeSet = nodes.flatMap(hypernode => hypernode.g.nodes).distinct
+
+    nodeSet.forall { nodeId =>
+      runningPathSubGraph(nodeId).isWeaklyConnected()
+    }
+  }
+
+}
+
+/** A hypertree decomposer that decomposes a [[GHDHyperGraph]] into [[GHDHyperTree]] */
+object GHDDecomposer {
+
+  /** Find all GHD of a [[GHDHyperGraph]]
+    *
+    * @param g the relation graph
+    * @return an [[Array]] of [[GHDHyperTree]]
+    */
+  def genAllGHDs(g: GHDHyperGraph): Array[GHDHyperTree] = {
+    //    if (g.E().size > (g.V().size + 2)) {
+    genAllGHDsByEnumeratingNode(g)
+    //    } else {
+    //      genAllGHDsByEnumeratingEdge(g)
+    //    }
+  }
+
+  /** Find all GHD by enumerating nodes of [[GHDHyperTree]].
+    *
+    * @param g the relation graph
+    * @return an [[Array]] of [[GHDHyperTree]]
+    */
+  private def genAllGHDsByEnumeratingNode(g: GHDHyperGraph) = {
+
+    val numEdges = g.edges.size
+    val numNodes = g.nodes.size
+    val potentialConnectedInducedSubgraphs =
+      computeConnectedNodeInducedSubgraphs(g)
+
+    var extendableTree = new Array[(GHDHyperTree, Array[GHDHyperGraphNode])](1)
+    val GHDs = new ConcurrentLinkedQueue[GHDHyperTree]()
+    extendableTree(0) = ((GHDHyperTree(Array(), Array()), Array()))
+
+    while (!extendableTree.isEmpty) {
+
+      val newExtendableTree =
+        new ConcurrentLinkedQueue[(GHDHyperTree, Array[GHDHyperGraphNode])]()
+      extendableTree
+        .filter { case (hypertree, coveredNodes) =>
+          if (coveredNodes.size == numNodes) {
+
+            val coveredEdgeSets = mutable.HashSet[GHDHyperGraphEdge]()
+            hypertree.nodes.foreach { hv =>
+              val E = hv.g.edges
+              E.foreach(e => coveredEdgeSets.add(e))
+            }
+
+            if (coveredEdgeSets.size == numEdges) {
+              GHDs.add(hypertree)
+            }
+
+            false
+          } else {
+            true
+          }
+        }
+        .foreach { case (hypertree, coveredNodes) =>
+          val newNodes =
+            genPotentialHyperNodesByEnumeratingNode(
+              g,
+              hypertree,
+              coveredNodes,
+              potentialConnectedInducedSubgraphs
+            )
+
+          newNodes.foreach { case (hyperNode, coveredNodes) =>
+            val hypertrees = hypertree.addHyperNode(hyperNode)
+            hypertrees.foreach { hypertree =>
+              newExtendableTree.add((hypertree, coveredNodes))
+            }
+          }
+        }
+
+      newExtendableTree.toArray
+      val it = newExtendableTree.iterator()
+      val buffer = ArrayBuffer[(GHDHyperTree, Array[GHDHyperGraphNode])]()
+      while (it.hasNext) {
+        buffer += it.next()
+      }
+      extendableTree = buffer.toArray
+
+    }
+
+    val it = GHDs.iterator()
+    val buffer = ArrayBuffer[GHDHyperTree]()
+    while (it.hasNext) {
+      buffer += it.next()
+    }
+    buffer.toArray
+  }
+
+  //  Find the hyper-nodes, the graph inside a hyper-node must be connected and node induced graph
+  private def genPotentialHyperNodesByEnumeratingNode(
+      basedGraph: GHDHyperGraph,
+      hypertree: GHDHyperTree,
+      coveredNodes: Array[GHDHyperGraphNode],
+      connectedNodeInducedSubgraphs: Array[GHDHyperGraph]
+  ): Array[(GHDHyperTreeNode, Array[GHDHyperGraphNode])] = {
+
+    var potentialGraphs = connectedNodeInducedSubgraphs
+
+    if (coveredNodes.isEmpty) {
+      potentialGraphs = potentialGraphs.filter { g =>
+        g.nodes.contains(basedGraph.nodes.head)
+      }
+    }
+
+    potentialGraphs = potentialGraphs
+      .filter { g =>
+        hypertree.nodes
+          .forall(n =>
+            g.nodes.diff(n.g.nodes).nonEmpty && n.g.nodes.diff(g.nodes).nonEmpty
+          )
+      }
+
+    potentialGraphs
+      .map { g =>
+        val newCoveredNodes = (coveredNodes ++ g.nodes).distinct
+        (GHDHyperTreeNode(g), newCoveredNodes)
+      }
+  }
+
+  private def computeConnectedNodeInducedSubgraphs(
+      basedGraph: GHDHyperGraph
+  ) = {
+    val potentialNodeSets: Array[Array[GHDHyperGraphNode]] =
+      SeqExtension.subset(basedGraph.nodes).map(_.toArray).toArray
+
+    val potentialGraphs = potentialNodeSets
+      .map(nodeSet => basedGraph.nodeInducedSubgraph(nodeSet))
+      .filter { g =>
+        g.isWeaklyConnected()
+      }
+
+    potentialGraphs
+  }
+
+  //  //  Find all GHD decomposition
+  //  def genAllGHDsByEnumeratingEdge(g: RelationGraph) = {
+  //
+  //    var extendableTree = ArrayBuffer[(HyperTree, Array[RelationEdge])]()
+  //    val GHDs = ArrayBuffer[HyperTree]()
+  //    extendableTree += ((HyperTree(Array(), Array()), g.edges))
+  //    var counter = 0
+  //
+  //    while (!extendableTree.isEmpty) {
+  //
+  //      counter += 1
+  //
+  //      val (hypertree, remainingEdges) = extendableTree.last
+  //      extendableTree = extendableTree.dropRight(1)
+  //
+  //      if (remainingEdges.isEmpty) {
+  //        GHDs += hypertree
+  //      } else {
+  //        val newNodes =
+  //          genPotentialHyperNodesByEnumeratingEdge(g, hypertree, remainingEdges)
+  //        var i = 0
+  //        val end = newNodes.size
+  //        while (i < end) {
+  //          val (hyperNode, remainingEdges) = newNodes(i)
+  //          val hypertrees = hypertree.addHyperNode(hyperNode)
+  //          hypertrees.foreach { hypertree =>
+  //            extendableTree += ((hypertree, remainingEdges))
+  //          }
+  //          i += 1
+  //        }
+  //      }
+  //    }
+  //    GHDs.toArray
+  //  }
+
+  //  //  Find the hyper-nodes, the graph inside a hyper-node must be connected and node induced graph
+  //  private def genPotentialHyperNodesByEnumeratingEdge(
+  //      basedGraph: RelationGraph,
+  //      hypertree: HyperTree,
+  //      remainEdges: Array[RelationEdge]
+  //  ): Array[(HyperNode, Array[RelationEdge])] = {
+  //
+  //    var potentialEdgeSets: Array[Array[RelationEdge]] = null
+  //    if (remainEdges.size == basedGraph.edges.size) {
+  //      potentialEdgeSets = SeqUtil.subset(remainEdges).map(_.toArray).toArray
+  //      potentialEdgeSets =
+  //        potentialEdgeSets.filter(arr => arr.contains(basedGraph.edges.head))
+  //    } else {
+  //      potentialEdgeSets = SeqUtil.subset(remainEdges).map(_.toArray).toArray
+  //    }
+  //
+  //    var potentialGraphs = potentialEdgeSets.par
+  //      .map(edgeSet =>
+  //        RelationGraph(edgeSet.flatMap(f => f.attrs).distinct, edgeSet)
+  //      )
+  //
+  //    //    hypernodes must be connected and
+  //    //    previous node in hypertree must not contain new node as subgraph
+  //    potentialGraphs = potentialGraphs
+  //      .filter { g =>
+  //        val inducedG = g.toInducedGraph(basedGraph)
+  //        g.isConnected() && hypertree.nodes
+  //          .forall(n =>
+  //            !inducedG.containSubgraph(n.g) && !n.g
+  //              .containSubgraph(inducedG)
+  //          )
+  //      }
+  //
+  //    potentialGraphs
+  //      .map { g =>
+  //        val inducedG = g.toInducedGraph(basedGraph)
+  //        val inducedEdges = inducedG.E()
+  //        val remainingEdges = remainEdges.diff(g.E())
+  //        (
+  //          HyperNode(
+  //            RelationGraph(inducedEdges.flatMap(_.attrs).distinct, inducedEdges)
+  //          ),
+  //          remainingEdges
+  //        )
+  //      }
+  //  }.toArray
+
+}

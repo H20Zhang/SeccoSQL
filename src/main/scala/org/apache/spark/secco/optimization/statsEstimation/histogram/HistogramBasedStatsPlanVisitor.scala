@@ -25,7 +25,9 @@ object HistogramBasedStatsPlanVisitor
   }
 
   override def visitJoin(p: Join): Statistics = {
-    val stats = HistogramJoinEstimation.estimate(p).getOrElse(fallback(p))
+    val stats = HistogramJoinEstimation
+      .estimate(p)
+      .getOrElse(fallback(p.asInstanceOf[LogicalPlan]))
 
     logTrace(
       s"rowCount:${stats.rowCount.toString()} of operator:\n${p.toString}"
@@ -42,6 +44,6 @@ object HistogramBasedStatsPlanVisitor
 
   override def visitPartition(p: Partition): Statistics = visit(p.child)
 
-  override def visitLocalStage(p: LocalStage): Statistics =
+  override def visitLocalStage(p: PairThenCompute): Statistics =
     visit(p.unboxedPlan())
 }

@@ -52,9 +52,13 @@ class GeneratePredicateSuite extends FunSuite {
 
     //generate test data
     val rows =
-      Range(0, 10000000).map(f =>
+      Range(0, 5).map(f =>
         InternalRow(Random.nextInt(), Random.nextInt())
       )
+//    val rows =
+//      Range(0, 10000000).map(f =>
+//        InternalRow(Random.nextInt(), Random.nextInt())
+//      )
 
     //compare time of the code generated PredicateFuncs and the interpreted ones.
     val time1 = System.currentTimeMillis()
@@ -63,6 +67,10 @@ class GeneratePredicateSuite extends FunSuite {
         predicate.eval(row)
       }
     }
+
+    println()
+    println("_____________________________________")
+    println()
 
     val time2 = System.currentTimeMillis()
     for ((predicate, boundedExpr) <- predicates.zip(boundedExprs)) {
@@ -75,8 +83,8 @@ class GeneratePredicateSuite extends FunSuite {
     println(s"""
          |== Time Comparison Between Codegen and Interpretation execution ==
          |Codegen: ${time2 - time1} ms
-         |Interpretation: ${time3 - time1} ms
-         |""".stripMargin)
+         |Interpretation: ${time3 - time2} ms
+         |""".stripMargin) // lgh: "Interpretation: ${time3 - time1} ms" -> "Interpretation: ${time3 - time2} ms"
 
     //validate if the code generated PredicateFuncs return same results as the interpreted ones.
     for ((predicate, boundedExpr) <- predicates.zip(boundedExprs)) {

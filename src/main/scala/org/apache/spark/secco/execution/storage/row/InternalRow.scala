@@ -70,6 +70,11 @@ object InternalRow {
   def apply(values: Any*): InternalRow = new GenericInternalRow(values.toArray)
 
   /**
+    * This method can be used to construct a [[InternalRow]] with the given values.
+    */
+  def apply(values: Array[Any]): InternalRow = new GenericInternalRow(values.clone())
+
+  /**
     * This method can be used to construct a [[InternalRow]] from a [[Seq]] of values.
     */
   def fromSeq(values: Seq[Any]): InternalRow =

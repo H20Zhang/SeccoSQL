@@ -22,7 +22,7 @@ import org.apache.spark.secco.util.DebugUtils.printlnDebug
 
 /** Java can not access Projection (in package object)
   */
-abstract class BaseProjection extends Projection {}
+abstract class BaseProjectionFunc extends Projection {}
 
 object GenerateSafeProjection
     extends CodeGenerator[Seq[Expression], Projection] {
@@ -77,7 +77,7 @@ object GenerateSafeProjection
         return new SpecificSafeProjection(references);
       }
 
-      class SpecificSafeProjection extends ${classOf[BaseProjection].getName} {
+      class SpecificSafeProjection extends ${classOf[BaseProjectionFunc].getName} {
 
         private Object[] references;
         private InternalRow mutableRow;
@@ -106,7 +106,7 @@ object GenerateSafeProjection
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments())
     )
-    printlnDebug(
+    logDebug(
       s"code for ${expressions.mkString(",")}:\n${CodeFormatter.format(code)}"
     )
 

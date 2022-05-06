@@ -13,10 +13,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
   self: PlanType =>
 
   /** The output attributes */
-  def outputOld: Seq[String]
-
-  /** The output attributes */
-  def output: Seq[Attribute] = Seq()
+  def output: Seq[Attribute]
 
   /** Returns the set of attributes that are output by this node.
     */

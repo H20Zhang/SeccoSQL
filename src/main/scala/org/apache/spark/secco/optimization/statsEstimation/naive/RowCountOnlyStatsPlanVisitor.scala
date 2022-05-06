@@ -4,13 +4,11 @@ import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.optimization.statsEstimation.Statistics
 import org.apache.spark.secco.optimization.{LogicalPlan, LogicalPlanVisitor}
 
-/**
-  * An [[LogicalPlanVisitor]] that computes a single dimension for plan stats: size in bytes.
+/** An [[LogicalPlanVisitor]] that computes a single dimension for plan stats: size in bytes.
   */
 object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
 
-  /**
-    * A default, commonly used estimation for unary nodes. We assume the input row number is the
+  /** A default, commonly used estimation for unary nodes. We assume the input row number is the
     * same as the output row number, and compute sizes based on the column types.
     */
   private def visitUnaryNode(p: UnaryNode): Statistics = {
@@ -28,8 +26,7 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
     Statistics(rowCount = rowCount)
   }
 
-  /**
-    * For leaf nodes, use its `computeStats`. For other nodes, we assume the row count is the
+  /** For leaf nodes, use its `computeStats`. For other nodes, we assume the row count is the
     * product of all of the children's `computeStats`.
     */
   override def default(p: LogicalPlan): Statistics =
@@ -40,9 +37,6 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
     }
 
   override def visitAggregate(p: Aggregate): Statistics = {
-    if (p.groupingListOld.isEmpty) {
-      Statistics(rowCount = 1)
-    }
     if (p.groupingExpressions.isEmpty) {
       Statistics(rowCount = 1)
     } else {
@@ -53,13 +47,8 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
   override def visitFilter(p: Filter): Statistics = visitUnaryNode(p)
 
   override def visitJoin(p: Join): Statistics = {
-    p.joinType match {
-      case _ =>
-        // Make sure we don't propagate isBroadcastable in other joins, because
-        // they could explode the size.
-        val stats = default(p)
-        stats
-    }
+    val stats = default(p.asInstanceOf[LogicalPlan])
+    stats
   }
 
   override def visitProject(p: Project): Statistics = visitUnaryNode(p)
@@ -72,7 +61,7 @@ object RowCountOnlyStatsPlanVisitor extends LogicalPlanVisitor[Statistics] {
     p.child.stats
   }
 
-  override def visitLocalStage(p: LocalStage): Statistics = {
+  override def visitLocalStage(p: PairThenCompute): Statistics = {
 
     val concreteRootPlan = p.unboxedPlan()
 

@@ -1,27 +1,25 @@
 package util
 
-import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.execution.sources.DataLoader
+import org.apache.spark.secco.{SeccoDataFrame}
+import org.apache.spark.secco.util.misc.SparkSingle
 
 object TestData {
 
   val prefix = "./datasets"
 
   def loadUndirectedGraphEdge(input: String) = {
-    val loader = new DataLoader()
-    val edge = loader
-      .csv(input, "\\s")
-      .filter(f => f != null)
-      .map(f => (f(0), f(1)))
-      .filter(f => f._1 != f._2)
-      .flatMap(f => Iterator(f, f.swap))
-      .distinct()
-      .map(f => Array(f._1, f._2))
-      .persist(SeccoSession.currentSession.sessionState.conf.rddCacheLevel)
 
-    edge.count()
+    val spark = SparkSingle.getSparkSession()
+    val df = spark.read.csv(input, "\\s")
+    assert(df.schema.fields.length == 2, "graph should only have two columns.")
 
-    edge
+    val diGraph = df.toDF("src", "dst")
+    val undirectedGraph =
+      diGraph.union(df.select("dst", "src")).filter("src != dst").cache()
+
+    val seccoDf = SeccoDataFrame.fromSparkSQL(undirectedGraph)
+
+    seccoDf
   }
 
   def data(dataName: String) =

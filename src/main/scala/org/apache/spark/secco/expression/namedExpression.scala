@@ -1,6 +1,9 @@
 package org.apache.spark.secco.expression
 
-import org.apache.spark.secco.analysis.UnresolvedException
+import org.apache.spark.secco.analysis.{
+  UnresolvedAttribute,
+  UnresolvedException
+}
 import org.apache.spark.secco.types.{DataType, LongType}
 
 import java.util.{Objects, UUID}
@@ -153,11 +156,12 @@ case class Alias(child: Expression, name: String)(
 }
 
 abstract class Attribute extends LeafExpression with NamedExpression {
-  override def references: AttributeSet = AttributeSet(Set(this))
+  override def references: AttributeSet = AttributeSet(this)
 
   def withNullability(newNullability: Boolean): Attribute
   def withQualifier(newQualifier: Option[String]): Attribute
   def withName(newName: String): Attribute
+  def withExprId(newExprId: ExprId): Attribute
 
   override def toAttribute: Attribute = this
   def newInstance(): Attribute
@@ -278,44 +282,46 @@ case class AttributeReference(
   }
 }
 
-case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
-  def name: String =
-    nameParts.map(n => if (n.contains(".")) s"`$n`" else n).mkString(".")
-
-  override def exprId: ExprId = ???
-  override def dataType: DataType = ???
-  override def nullable: Boolean = ???
-  override def qualifier: Option[String] = ???
-  override lazy val resolved = false
-
-  override def newInstance(): UnresolvedAttribute = this
-  override def withNullability(newNullability: Boolean): UnresolvedAttribute =
-    this
-  override def withQualifier(
-      newQualifier: Option[String]
-  ): UnresolvedAttribute = this
-  override def withName(newName: String): UnresolvedAttribute =
-    UnresolvedAttribute(Seq(newName))
-
-  override def toString: String = s"'$name"
-
-  override def sql: String = s"`$name`"
-
-  override def eval(input: InternalRow): Any = ???
-
-  /** Returns Java source code that can be compiled to evaluate this expression.
-    * The default behavior is to call the eval method of the expression. Concrete expression
-    * implementations should override this to do actual code generation.
-    *
-    * @param ctx a [[CodegenContext]]
-    * @param ev  an [[ExprCode]] with unique terms.
-    * @return an [[ExprCode]] containing the Java source code to generate the given expression
-    */
-  override protected def doGenCode(
-      ctx: CodegenContext,
-      ev: ExprCode
-  ): ExprCode = ???
-}
+//case class UnresolvedAttribute(nameParts: Seq[String]) extends Attribute {
+//  def name: String =
+//    nameParts.map(n => if (n.contains(".")) s"`$n`" else n).mkString(".")
+//
+//  override def exprId: ExprId = ???
+//  override def dataType: DataType = ???
+//  override def nullable: Boolean = ???
+//  override def qualifier: Option[String] = ???
+//  override lazy val resolved = false
+//
+//  override def newInstance(): UnresolvedAttribute = this
+//  override def withNullability(newNullability: Boolean): UnresolvedAttribute =
+//    this
+//  override def withQualifier(
+//      newQualifier: Option[String]
+//  ): UnresolvedAttribute = this
+//  override def withName(newName: String): UnresolvedAttribute =
+//    UnresolvedAttribute(Seq(newName))
+//  override def withExprId(newExprId: ExprId): Attribute = this
+//
+//  override def toString: String = s"'$name"
+//
+//  override def sql: String = s"`$name`"
+//
+//  override def eval(input: InternalRow): Any = ???
+//
+//  /** Returns Java source code that can be compiled to evaluate this expression.
+//    * The default behavior is to call the eval method of the expression. Concrete expression
+//    * implementations should override this to do actual code generation.
+//    *
+//    * @param ctx a [[CodegenContext]]
+//    * @param ev  an [[ExprCode]] with unique terms.
+//    * @return an [[ExprCode]] containing the Java source code to generate the given expression
+//    */
+//  override protected def doGenCode(
+//      ctx: CodegenContext,
+//      ev: ExprCode
+//  ): ExprCode = ???
+//
+//}
 
 abstract class Star extends LeafExpression with NamedExpression {
   override def name: String = throw new UnresolvedException(this, "name")

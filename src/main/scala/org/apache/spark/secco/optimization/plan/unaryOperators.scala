@@ -1,53 +1,73 @@
 package org.apache.spark.secco.optimization.plan
 
 import org.apache.spark.secco.SeccoSession
-import org.apache.spark.secco.catalog.{Catalog, CatalogColumn}
-import org.apache.spark.secco.expression.{Expression, NamedExpression}
-import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.catalog.{Catalog, CatalogColumn, TableIdentifier}
+import org.apache.spark.secco.expression.{
+  Attribute,
+  AttributeReference,
+  Expression,
+  NamedExpression
+}
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.plan.Aggregate.counter
-import org.apache.spark.secco.execution.SharedParameter
-import org.apache.spark.secco.util.counter.Counter
+import org.apache.spark.secco.execution.SharedContext
+import org.apache.spark.secco.execution.plan.communication.ShareConstraintContext
+import org.apache.spark.secco.expression.utils.AttributeSet
 
 import scala.collection.mutable
 
+/* ---------------------------------------------------------------------------------------------------------------------
+ * This file contains logical plans with only one child.
+ *
+ * 0.  UnaryNode: base class of logical plan with only one child.
+ * 1.  Cache: cache the child.
+ * 2.  Transform(deprecated): transform the tuples of child by transformation functions.
+ * 3.  RootNode: root node of the logical plan.
+ * 4.  Filter: filter the tuples of child by predicates.
+ * 5.  Project: project the columns of tuples of the child.
+ * 6.  Distinct: prune duplicate tuples of the tuples of the child.
+ * 7.  Limit: return limit numbers of tuples of the child
+ * 8.  Sort: sort the tuples of the child by sorting functions
+ * 9.  Aggregate: aggregate the tuples of the child by aggregate expression and grouping expression
+ * 10. Partition: partition the tuples of the child into partitions.
+ * 11. Assign: assign the tuples of the child to an catalogTable.
+ * 12. Update: update the tuples of a relation by tuples of the child
+ * 13. Rename: rename the attributes name of the child
+ * 14. SubqueryAlias: assign the tuples of the child to an temporary catalogTable
+ * 15. Iterative: iteratively evaluate the child until fixed numbers of round or converge, i.e., output of the child is
+ *     empty. After that returns the tuples of the table specificed by returnTableIdentifier.
+ * ---------------------------------------------------------------------------------------------------------------------
+ */
+
+/** A [[LogicalPlan]] with single child. */
 abstract class UnaryNode extends LogicalPlan {
   def child: LogicalPlan
   override final def children: Seq[LogicalPlan] = child :: Nil
 }
 
-/**
-  * An operator that cache the output of [[child]]
+/** A [[LogicalPlan]] that cache the output of child
   * @param child child logical plan
   */
 case class Cache(child: LogicalPlan, mode: ExecMode = ExecMode.Atomic)
     extends UnaryNode {
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def output: Seq[Attribute] = child.output
 }
 
-/**
-  * An operator that apply a serials of function f of form "Ax+b" to transform the output of [[child]]
+/** An operator that apply a serials of function f of form "Ax+b" to transform the output of [[child]]
   * @param child child logical plan
   */
+@deprecated
 case class Transform(
     child: LogicalPlan,
     f: Seq[String],
-    outputOld: Seq[String],
+    override val output: Seq[Attribute],
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
-  override def primaryKeys: Seq[String] = {
-//    //DEBUG
-//    println(child.primaryKeys)
-//    println(child)
-    child.primaryKeys
-  }
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 }
 
-/**
-  * RootNode of the logical plan
+/** A [[LogicalPlan]] that marks the root node of the operator tree.
   *
   * @param child child logical plan
   * @param mode execution mode
@@ -57,73 +77,56 @@ case class RootNode(
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
 }
 
-/**
-  * An operator that filers the output of [[child]] using [[selectionExprs]]
+/** A [[LogicalPlan]] that filers the output of child by condition
   *
   * @param child child logical plan
-  * @param selectionExprs SelectionExpr is of form "A < B".
+  * @param condition predicates for filtering the tuples.
   * @param mode execution mode
   */
 case class Filter(
     child: LogicalPlan,
-    selectionExprs: Seq[(String, String, String)],
-    mode: ExecMode,
-    condition: Option[Expression] = None
+    condition: Expression,
+    mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
 
-  override def relationalSymbol: String =
-    s"𝜎[${selectionExprs.map(f => s"${f._1}${f._2}${f._3}").mkString("&&")}]"
+  override def relationalSymbol: String = {
+    s"𝜎[${condition}]"
+  }
 }
 
-/**
-  * An operator that project the output of [[child]] to attributes in [[projectionListOld]]
+/** A [[LogicalPlan]] that projects the output of child by projectionList
   *
   * @param child child logical plan
-  * @param projectionListOld attributes to retain
+  * @param projectionList projection functions to be applied on tuples of child.
   * @param mode execution mode
   */
 case class Project(
     child: LogicalPlan,
-    projectionListOld: Seq[String],
-    mode: ExecMode,
-    projectionList: Seq[NamedExpression] = Seq()
+    projectionList: Seq[NamedExpression],
+    mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = {
-    val childPrimaryKeys = child.primaryKeys
-    if (childPrimaryKeys.toSet.subsetOf(outputOld.toSet)) {
-      childPrimaryKeys
-    } else {
-      Seq()
-    }
+  override def primaryKey: Seq[Attribute] = {
+    val childPrimaryKeySet = AttributeSet(child.primaryKey)
+    childPrimaryKeySet.intersect(outputSet).toSeq
   }
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = projectionListOld
 
   override def output: Seq[Attribute] = projectionList.map(_.toAttribute)
 
   override def relationalSymbol: String =
-    s"∏[${projectionListOld.mkString(",")}]"
+    s"∏[${projectionList.mkString(",")}]"
 }
 
-/**
-  * An operator that remove duplicate tuples the output of [[child]]
+/** An operator that remove duplicate tuples the output of [[child]]
   *
   * @param child child logical plan
   * @param mode execution mode
@@ -133,19 +136,15 @@ case class Distinct(
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
 
   override def relationalSymbol: String =
-    s"∏"
+    s"D"
 }
 
-/**
-  * An operator that limit numbers output of [[child]]
+/** An operator that limit numbers output of [[child]]
   *
   * @param child child logical plan
   * @param maxTuples max numbers of tuples to preserve
@@ -157,21 +156,18 @@ case class Limit(
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
 
   override def relationalSymbol: String =
-    s"Limit[${maxTuples}]"
+    s"L[${maxTuples}]"
 }
 
-/**
-  * An operator that sort output of [[child]] according to sort order
+/** An operator that sort output of `child` according to sort order
   *
   * @param child child logical plan
+  * @param sortOrder the order to sort the output of `child`, by default we assume ascending order
   * @param mode execution mode
   */
 case class Sort(
@@ -180,71 +176,39 @@ case class Sort(
     mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
   override def output: Seq[Attribute] = child.output
 
   override def relationalSymbol: String =
-    s"Sort"
+    s"Sort[${sortOrder.mkString(",")}]"
 }
 
-/**
-  * An operator that aggregates output of [[child]]
+/** A [[LogicalPlan]] that aggregates output of [[child]]
   * @param child child logical plan
-  * @param groupingListOld attributes to group
-  * @param semiringListOld semi-ring, supported type: sum, count, min, max, i.e. (sum, A)
-  * @param __producedOutputOld names of produced output, this param will be automatically computed
+  * @param aggregateExpressions expressions used for aggregate the results
+  * @param groupingExpressions attributes used for grouping the results
   * @param mode execution mode
   */
 case class Aggregate(
     child: LogicalPlan,
-    groupingListOld: Seq[String],
-    semiringListOld: (String, String),
-    private var __producedOutputOld: Seq[String] = Seq(),
-    mode: ExecMode,
-    groupingExpressions: Seq[Expression] = Seq(),
-    aggregateExpressions: Seq[NamedExpression] = Seq()
+    aggregateExpressions: Seq[NamedExpression],
+    groupingExpressions: Seq[NamedExpression] = Seq(),
+    mode: ExecMode = ExecMode.Coupled
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = {
-    val childPrimaryKeys = child.primaryKeys
-    if (childPrimaryKeys.toSet.subsetOf(outputOld.toSet)) {
-      childPrimaryKeys
-    } else {
-      Seq()
-    }
-  }
-
-  lazy val _producedOutput = {
-    counter.increment()
-    val id = counter.value
-    s"${semiringListOld._1.head}${id}" :: Nil
-  }
-
-  override def producedOutput: Seq[String] =
-    __producedOutputOld.size == 0 match {
-      case true => {
-        __producedOutputOld = _producedOutput
-        __producedOutputOld
-      }
-      case false => __producedOutputOld
-    }
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    val producedAttribute = producedOutput.head
-    val column = CatalogColumn(producedAttribute)
-    groupingListOld :+ producedAttribute
+  override def primaryKey: Seq[Attribute] = {
+    val childPrimaryKeySet = AttributeSet(child.primaryKey)
+    childPrimaryKeySet.intersect(outputSet).toSeq
   }
 
   override def output: Seq[Attribute] =
-    aggregateExpressions.map(_.toAttribute)
+    groupingExpressions.map(_.toAttribute) ++ aggregateExpressions.map(
+      _.toAttribute
+    )
 
   override def relationalSymbol: String =
-    s"[${groupingListOld.mkString(",")}]𝝪[${s"${semiringListOld._1}(${semiringListOld._2})"}]"
+    s"[${groupingExpressions.mkString(",")}]𝝪[${aggregateExpressions.mkString(",")}]"
 
 }
 
@@ -253,110 +217,78 @@ object Aggregate {
     .getOrCreateCounter("plan", "aggregate")
 }
 
-/**
-  * An operator that partition output of [[child]] with restriction on partition functions
-  * specified by [[restriction]] and [[sibling]]
-  *
-  * Warning: This class should be used with care.
-  * You should always copy "sibling", when you want to make a copy of this class
+////TODO: this class should be refactored
+//case class SharedRestriction(
+//    restriction: SharedContext[mutable.HashMap[Attribute, Int]]
+//) {
+//  def res: mutable.HashMap[Attribute, Int] = restriction.res
+//}
+
+/** A [[LogicalPlan]] that partitions output of [[child]]
   *
   * @param child child plan to partition
+  * @param sharedRestriction shared restrictions of hash functions for partitioning
   * @param mode [[ExecMode.Communication]]
   */
+//TODO: we need to handle cases other than natural join, e.g., equi-join,
+// where current sharedRestriction cannot work properly.
 case class Partition(
     child: LogicalPlan,
-    sharedRestriction: SharedParameter[mutable.HashMap[String, Int]],
+    shareConstraintContext: ShareConstraintContext,
     mode: ExecMode = ExecMode.Communication
 ) extends UnaryNode {
 
-  /** restrictions */
-  def restriction: Map[String, Int] = sharedRestriction.res.toMap
+  /** shared restrictions for hash functions for partitioning */
+  def restriction: Map[Attribute, Int] =
+    shareConstraintContext.shareConstraint.rawConstraint
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def output: Seq[Attribute] = child.output
+
+  override def argString: String = {
+    shareConstraintContext.shareConstraint.toString
+  }
 
 }
 
-/**
-  * An operator that assign table spefieced by [[tableIdentifier]] using output of [[child]]
+/** An [[LogicalPlan]] that updates table specified by tableIdentifier and delta table specified by deltaTableIdentifier.
   *
-  * @param child child logical plan
-  * @param tableIdentifier table to assign
-  * @param mode [[ExecMode.Atomic]]
-  */
-case class Assign(
-    child: LogicalPlan,
-    tableIdentifier: String,
-    mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {
-
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
-}
-
-/**
-  * An operator that updates table specified by [[tableIdentifier]] and delta table specified by [[deltaTableName]].
-  * The output is relation specified by [[deltaTableName]]
+  * The output is a relation specified by deltaTableIdentifier.
   *
   * @param child child logical plan
   * @param tableIdentifier table to update
-  * @param deltaTableName delta table to update
+  * @param deltaTableIdentifier delta table to update
   * @param key key column
   * @param mode [[ExecMode.Atomic]]
   */
 case class Update(
     child: LogicalPlan,
-    tableIdentifier: String,
-    deltaTableName: String,
-    key: Seq[String],
+    tableIdentifier: TableIdentifier,
+    key: Seq[Attribute],
+    updateFunc: Seq[NamedExpression],
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
 
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
+  override def primaryKey: Seq[Attribute] = child.primaryKey
+  override def output: Seq[Attribute] = child.output
 }
 
-/**
-  * An operator that return [[child]] with attributes replaced according to [[attrRenameMap]]
-  *
-  * @param child child logical plan
-  * @param attrRenameMap mapping between attributes of [[child]] and user-defined new attributes
-  * @param mode [[ExecMode.Atomic]]
-  */
-case class Rename(
-    child: LogicalPlan,
-    attrRenameMap: Map[String, String],
-    mode: ExecMode = ExecMode.Atomic
-) extends UnaryNode {
-  override def primaryKeys: Seq[String] = child.primaryKeys
-
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    child.outputOld.map(f => attrRenameMap.get(f).getOrElse(f))
-  }
-}
-
+/** A [[LogicalPlan]] that execute a subquery and assign its results a name `alias` */
 case class SubqueryAlias(
-    alias: String,
     child: LogicalPlan,
+    alias: String,
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
 
-  override def output: Seq[Attribute] =
+  override def primaryKey: Seq[Attribute] = child.primaryKey
+
+  override val output: Seq[Attribute] =
     child.output.map(_.withQualifier(Some(alias)))
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = child.outputOld
 }
 
-/**
-  * An operator that executes [[child]] till fixed point and return table specified by [[returnTableIdentifier]]
+/** An operator that executes [[child]] till fixed point and return table specified by [[returnTableIdentifier]]
   *
   * @param child the child logical plan to execute, usually the child returns a delta relation
   * @param returnTableIdentifier the table identifier of the return of this Operator
@@ -365,17 +297,24 @@ case class SubqueryAlias(
   */
 case class Iterative(
     child: LogicalPlan,
-    returnTableIdentifier: String,
+    returnTableIdentifier: TableIdentifier,
     numRun: Int,
     mode: ExecMode = ExecMode.Atomic
 ) extends UnaryNode {
-  override def primaryKeys: Seq[String] = child.primaryKeys
+  override def primaryKey: Seq[Attribute] = child.primaryKey
 
-  /** The output attributes */
-  override def outputOld: Seq[String] = {
-    val catalog = dlSession.sessionState.catalog
-    catalog.getTable(returnTableIdentifier) match {
-      case Some(table) => table.schema.map(_.columnName)
+  override def output: Seq[Attribute] = {
+    val catalog = seccoSession.sessionState.catalog
+    catalog.getTable(
+      returnTableIdentifier.table,
+      returnTableIdentifier.database
+    ) match {
+      case Some(table) =>
+        table.schema.map(col =>
+          AttributeReference(col.columnName, col.dataType)(qualifier =
+            Some(returnTableIdentifier.table)
+          )
+        )
       case None =>
         throw new Exception(
           s"No such returnTableIdentifier:${returnTableIdentifier}"
@@ -383,3 +322,40 @@ case class Iterative(
     }
   }
 }
+
+///** An operator that assign table specified by tableIdentifier using output of child
+//  *
+//  * @param child child logical plan
+//  * @param tableIdentifier the identifier of the table to assign the results of child
+//  * @param mode execution mode
+//  */
+//case class Assign(
+//                   child: LogicalPlan,
+//                   tableIdentifier: TableIdentifier,
+//                   mode: ExecMode = ExecMode.Atomic
+//                 ) extends UnaryNode {
+//
+//  override def primaryKey: Seq[Attribute] = child.primaryKey
+//
+//  override def output: Seq[Attribute] = child.output
+//
+//}
+
+///** A [[LogicalPlan]] that return child with attributes replaced according to attrRenameMap.
+//  *
+//  * @param child child logical plan
+//  * @param attrRenameMap mapping between attributes of [[child]] and user-defined new attributes
+//  * @param mode [[ExecMode.Atomic]]
+//  */
+//@deprecated
+//case class Rename(
+//                   child: LogicalPlan,
+//                   attrRenameMap: Map[String, String],
+//                   mode: ExecMode = ExecMode.Atomic
+//                 ) extends UnaryNode {
+//  override def primaryKeyOld: Seq[String] = child.primaryKeyOld
+//
+//  override def primaryKey: Seq[Attribute] = child.primaryKey
+//
+//  override def output: Seq[Attribute] = child.output
+//}
