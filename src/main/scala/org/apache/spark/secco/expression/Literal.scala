@@ -1,14 +1,10 @@
 package org.apache.spark.secco.expression
 
 import org.apache.spark.secco.types._
-import java.util.Objects
 
-import org.apache.spark.secco.codegen.{
-  CodeGenerator,
-  CodegenContext,
-  ExprCode,
-  JavaCode
-}
+import java.util.Objects
+import org.apache.spark.secco.codegen.{CodeGenerator, CodegenContext, ExprCode, JavaCode}
+import org.apache.spark.secco.execution.OldInternalDataType
 import org.apache.spark.secco.execution.storage.row.InternalRow
 
 case class Literal(value: Any, dataType: DataType) extends LeafExpression {

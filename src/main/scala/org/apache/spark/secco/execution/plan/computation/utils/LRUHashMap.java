@@ -22,8 +22,8 @@ import java.util.Map;
  */
 public class LRUHashMap<K, V> {
     private static final float hashTableLoadFactor = 0.5f;
-    private LinkedHashMap<K, V> map;
-    private int cacheSize;
+    private final LinkedHashMap<K, V> map;
+    private final int cacheSize;
 
     /**
      * Creates a new LRU cache. 在该方法中，new LinkedHashMap<K,V>(hashTableCapacity,

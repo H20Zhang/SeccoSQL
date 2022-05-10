@@ -103,6 +103,17 @@ case class ColumnStat(
   // Are avgLen and maxLen statistics defined?
   val hasLenStats = avgLen.isDefined && maxLen.isDefined
 
+  def updateCountStats(
+                        oldNumRows: BigInt,
+                        newNumRows: BigInt,
+                        updatedColumnStatOpt: Option[ColumnStat] = None): ColumnStat = {
+    val updatedColumnStat = updatedColumnStatOpt.getOrElse(this)
+    val newDistinctCount = EstimationUtils.updateStat(oldNumRows, newNumRows,
+      distinctCount, updatedColumnStat.distinctCount)
+    val newNullCount = EstimationUtils.updateStat(oldNumRows, newNumRows,
+      nullCount, updatedColumnStat.nullCount)
+    updatedColumnStat.copy(distinctCount = newDistinctCount, nullCount = newNullCount)
+  }
 }
 
 /** This class is an implementation of equi-height histogram.

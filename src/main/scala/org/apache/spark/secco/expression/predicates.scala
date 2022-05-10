@@ -1,24 +1,13 @@
 package org.apache.spark.secco.expression
 
+import org.apache.spark.secco.analysis.TypeCheckResult
 import org.apache.spark.secco.codegen.Block.BlockHelper
-import org.apache.spark.secco.codegen.{
-  CodeGenerator,
-  CodegenContext,
-  ExprCode,
-  FalseLiteralValue
-}
+import org.apache.spark.secco.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteralValue}
 import org.apache.spark.secco.execution.storage.row.InternalRow
 import org.apache.spark.secco.expression.codegen.PredicateFunc
 import org.apache.spark.secco.expression.utils.AttributeMap
-import org.apache.spark.secco.types.{
-  AbstractDataType,
-  AnyDataType,
-  AtomicType,
-  BooleanType,
-  DataType,
-  DoubleType,
-  FloatType
-}
+import org.apache.spark.secco.types.{AbstractDataType, AnyDataType, AtomicType, BooleanType, DataType, DoubleType, FloatType}
+import org.apache.spark.secco.util.TypeUtils
 
 object InterpretedPredicateFunc {
   def create(
@@ -337,7 +326,50 @@ object BinaryComparison {
   def unapply(e: BinaryComparison): Option[(Expression, Expression)] =
     Some((e.left, e.right))
 }
+object Equality {
+  def unapply(e: BinaryComparison): Option[(Expression, Expression)] = e match {
+    case EqualTo(l, r) => Some((l, r))
+    case EqualNullSafe(l, r) => Some((l, r))
+    case _ => None
+  }
+}
+case class EqualNullSafe(left: Expression, right: Expression) extends BinaryComparison {
 
+  override def symbol: String = "<=>"
+
+  override def nullable: Boolean = false
+
+  // +---------+---------+---------+---------+
+  // | <=>     | TRUE    | FALSE   | UNKNOWN |
+  // +---------+---------+---------+---------+
+  // | TRUE    | TRUE    | FALSE   | FALSE   |
+  // | FALSE   | FALSE   | TRUE    | FALSE   |
+  // | UNKNOWN | FALSE   | FALSE   | TRUE    |
+  // +---------+---------+---------+---------+
+  override def eval(input: InternalRow): Any = {
+    val input1 = left.eval(input)
+    val input2 = right.eval(input)
+    if (input1 == null && input2 == null) {
+      true
+    } else if (input1 == null || input2 == null) {
+      false
+    } else {
+      ordering.equiv(input1, input2)
+    }
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val eval1 = left.genCode(ctx)
+    val eval2 = right.genCode(ctx)
+    val equalCode = ctx.genEqual(left.dataType, eval1.value, eval2.value)
+    ev.copy(code = eval1.code + eval2.code + code"""
+        boolean ${ev.value} = (${eval1.isNull} && ${eval2.isNull}) ||
+           (!${eval1.isNull} && !${eval2.isNull} && $equalCode);""", isNull = FalseLiteralValue)
+  }
+
+//  override protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): EqualNullSafe =
+//    copy(left = newLeft, right = newRight)
+}
 case class EqualTo(left: Expression, right: Expression)
     extends BinaryComparison {
   override def symbol: String = "="
@@ -388,3 +420,125 @@ case class LessThanOrEqual(left: Expression, right: Expression)
   protected override def nullSafeEval(input1: Any, input2: Any): Any =
     ordering.lteq(input1, input2)
 }
+
+case class In(value: Expression, list: Seq[Expression]) extends Predicate {
+
+  require(list != null, "list should not be null")
+
+   def checkInputDataTypes(): TypeCheckResult = {
+    val mismatchOpt = list.find(l => !DataType.equalsStructurally(l.dataType, value.dataType,
+      ignoreNullability = true))
+    if (mismatchOpt.isDefined) {
+      TypeCheckResult.TypeCheckFailure(s"Arguments must be same type but were: " +
+        s"${value.dataType.catalogString} != ${mismatchOpt.get.dataType.catalogString}")
+    } else {
+      TypeUtils.checkForOrderingExpr(value.dataType, s"function $prettyName")
+    }
+  }
+
+  override def children: Seq[Expression] = value +: list
+  lazy val inSetConvertible = list.forall(_.isInstanceOf[Literal])
+  private lazy val ordering = TypeUtils.getInterpretedOrdering(value.dataType)
+
+  override def nullable: Boolean = children.exists(_.nullable)
+  override def foldable: Boolean = children.forall(_.foldable)
+
+//  final override val nodePatterns: Seq[TreePattern] = Seq(IN)
+
+  override def toString: String = s"$value IN ${list.mkString("(", ",", ")")}"
+
+  override def eval(input: InternalRow): Any = {
+    val evaluatedValue = value.eval(input)
+    if (evaluatedValue == null) {
+      null
+    } else {
+      var hasNull = false
+      list.foreach { e =>
+        val v = e.eval(input)
+        if (v == null) {
+          hasNull = true
+        } else if (ordering.equiv(v, evaluatedValue)) {
+          return true
+        }
+      }
+      if (hasNull) {
+        null
+      } else {
+        false
+      }
+    }
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val javaDataType = CodeGenerator.javaType(value.dataType)
+    val valueGen = value.genCode(ctx)
+    val listGen = list.map(_.genCode(ctx))
+    // inTmpResult has 3 possible values:
+    // -1 means no matches found and there is at least one value in the list evaluated to null
+    val HAS_NULL = -1
+    // 0 means no matches found and all values in the list are not null
+    val NOT_MATCHED = 0
+    // 1 means one value in the list is matched
+    val MATCHED = 1
+    val tmpResult = ctx.freshName("inTmpResult")
+    val valueArg = ctx.freshName("valueArg")
+    // All the blocks are meant to be inside a do { ... } while (false); loop.
+    // The evaluation of variables can be stopped when we find a matching value.
+    val listCode = listGen.map(x =>
+      s"""
+         |${x.code}
+         |if (${x.isNull}) {
+         |  $tmpResult = $HAS_NULL; // ${ev.isNull} = true;
+         |} else if (${ctx.genEqual(value.dataType, valueArg, x.value)}) {
+         |  $tmpResult = $MATCHED; // ${ev.isNull} = false; ${ev.value} = true;
+         |  continue;
+         |}
+       """.stripMargin)
+
+    val codes = ctx.splitExpressionsWithCurrentInputs(
+      expressions = listCode,
+      funcName = "valueIn",
+      extraArguments = (javaDataType, valueArg) :: (CodeGenerator.JAVA_BYTE, tmpResult) :: Nil,
+      returnType = CodeGenerator.JAVA_BYTE,
+      makeSplitFunction = body =>
+        s"""
+           |do {
+           |  $body
+           |} while (false);
+           |return $tmpResult;
+         """.stripMargin,
+      foldFunctions = _.map { funcCall =>
+        s"""
+           |$tmpResult = $funcCall;
+           |if ($tmpResult == $MATCHED) {
+           |  continue;
+           |}
+         """.stripMargin
+      }.mkString("\n"))
+
+    ev.copy(code =
+      code"""
+            |${valueGen.code}
+            |byte $tmpResult = $HAS_NULL;
+            |if (!${valueGen.isNull}) {
+            |  $tmpResult = $NOT_MATCHED;
+            |  $javaDataType $valueArg = ${valueGen.value};
+            |  do {
+            |    $codes
+            |  } while (false);
+            |}
+            |final boolean ${ev.isNull} = ($tmpResult == $HAS_NULL);
+            |final boolean ${ev.value} = ($tmpResult == $MATCHED);
+       """.stripMargin)
+  }
+
+  override def sql: String = {
+    val valueSQL = value.sql
+    val listSQL = list.map(_.sql).mkString(", ")
+    s"($valueSQL IN ($listSQL))"
+  }
+
+//  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): In =
+//    copy(value = newChildren.head, list = newChildren.tail)
+}
+
