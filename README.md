@@ -29,7 +29,7 @@ In SeccoSQL, we deal with communication and computation explicitly. To do so, we
 
 With the pair operator defined, we can explicitly deal with communication to deliver pairs of partitions to computing nodes. With local computation defined, we can perform local computation on pairs. 
 
-In short, with ⊗, $\tilde{op}$, and $\tilde{\cup}$ , we are able to explicitly specify communication and computation for RA operators. And, with communication and computation being explicitly specified, we make it possible to “move” the communication and computation inside the RA plan in a very flexible way.
+In short, with pair, merge and local computation, we are able to explicitly specify communication and computation for RA operators. And, with communication and computation being explicitly specified, we make it possible to “move” the communication and computation inside the RA plan in a very flexible way.
 
 Beyond that SeccoSQL leverages latest research on query optimization and query execution, such as [GHD-based join optimization](https://www.google.com.hk/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwjh2o-_xbH4AhW4jdgFHUawD9YQFnoECAcQAQ&url=https%3A%2F%2Farxiv.org%2Fabs%2F1503.02368&usg=AOvVaw0Wv9Gm97hvKV3BRw80ppQd), [Multiway Shuffle](https://ieeexplore.ieee.org/document/5710932),  [Multiway Join](https://arxiv.org/abs/1203.1952), etc.
 
