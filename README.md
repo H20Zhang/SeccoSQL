@@ -45,7 +45,7 @@ SeccoSQL is built on Spark and is designed to run as a library just like SparkSQ
 
 SeccoSQL support multiple ways to query. It support SQL and Cypher to query the data in a declarive ways. Also, it support DataFrame, which allow user to construct the query gradually. Note SeccoSQL is mainly used as a experimental platform for testing new ideas, the languages support for SQL and Cypher are limited. Only basic SQL and Cypher support are expected. With the parser query, SeccoSQL optimizes query in two steps, it first optimize the query as an RA expression, then on top of that, it perform the separation, and does the reordering of communication and computation to further optimize the query.
 
-**Note: SeccoSQL is very unstable and contains many bugs right now. It will improve gradually. For benchmark purpose, you can check [Secco-SIGMOD](https://github.com/H20Zhang/Secco-SIGMOD), which is the Secco version that with limited functionality but can be used for benchmarking.**
+**Note: SeccoSQL is very unstable and contains many bugs right now. It will improve gradually. For benchmark purpose, you can check [Secco-SIGMOD](https://github.com/H20Zhang/Secco-SIGMOD), which is the Secco version that comes with benchmark mentioned in the SIGMOD [paper](https://dl.acm.org/doi/10.1145/3514221.3526164). It has limited capability, but it is much more stable.**
 
 ## QuickStart
 
