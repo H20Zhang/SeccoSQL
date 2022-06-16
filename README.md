@@ -35,12 +35,12 @@ Beyond that SeccoSQL leverages latest research on query optimization and query e
 
 SeccoSQL is built on Spark and is designed to run as a library just like SparkSQL, but intended for complex SQL/Graph queries, where SparkSQL cannot perform well. Behind the scenes, SeccoSQL have a very similar structure to SparkSQL. 
 
-1. Parser: able to parse SQL, Cypher, DataFrame queries
-2. Expression: deal with expression
-3. Catalog: records meta data
-4. Codegen: do the code generation
-5. Optimizer: 
-6. Planner: translate logical plan into optimized physical plan
+1. Parser
+2. Expression
+3. Catalog
+4. Codegen
+5. Optimizer 
+6. Planner
 7. Storage
 
 SeccoSQL support multiple ways to query. It support SQL and Cypher to query the data in a declarive ways. Also, it support DataFrame, which allow user to construct the query gradually. Note SeccoSQL is mainly used as a experimental platform for testing new ideas, the languages support for SQL and Cypher are limited. Only basic SQL and Cypher support are expected. With the parser query, SeccoSQL optimizes query in two steps, it first optimize the query as an RA expression, then on top of that, it perform the separation, and does the reordering of communication and computation to further optimize the query.
