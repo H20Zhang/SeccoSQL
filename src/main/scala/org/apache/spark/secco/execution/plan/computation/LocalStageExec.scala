@@ -5,23 +5,72 @@ import org.apache.spark.secco.optimization.plan.JoinType
 import org.apache.spark.secco.execution.statsComputation.StatisticKeeper
 import org.apache.spark.secco.execution.SeccoPlan
 import org.apache.spark.rdd.RDD
+import org.apache.spark.secco.codegen.{
+  CodeAndComment,
+  CodeFormatter,
+  CodeGenerator,
+  CodegenContext,
+  ExprCode
+}
+import org.apache.spark.secco.execution.plan.computation.localExec.LocalInputExec
+import org.apache.spark.secco.execution.plan.computation.utils.BufferedRowIterator
+import org.apache.spark.secco.execution.storage.block.InternalBlock
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
   PairedPartition
 }
 import org.apache.spark.secco.execution.storage.row.InternalRow
-import org.apache.spark.secco.expression.Attribute
+import org.apache.spark.secco.expression.{Attribute, BoundReference}
+import org.apache.spark.secco.types.StructType
+import org.apache.spark.secco.util.counter.Counter
 
 import scala.collection.mutable
 
 /** A local computation physical operator that performs a sequence of local computations in a stage.
+  *
+  * There are two mode for performing a local stage:
+  *   a. Iterator Mode (Pull-Based Computation)
+  *   a. Compilation Mode (Push-Based Computation)
+  *
+  * For Pull-Based Computation: XXX
+  *
+  * For Push-Based Computation:
+  * It compiles a subtree of plans that support codegen together into single Java
+  * function.
+  *
+  * `doCodeGen()` will create a `CodeGenContext`, which will hold a list of variables for input,
+  * used to generated code for [[BoundReference]].
+  *
+  * Here is the call graph of to generate Java source
+  *
+  *   LocalStageExec       Plan A               InputPlan B
+  * =============================================================
+  *
+  * -> doCodegen()
+  *     |
+  *     +----------------->   produce()
+  *                             |
+  *                          doProduce()  -------> produce()
+  *                                                   |
+  *                                                doProduce()
+  *                                                   |
+  *                         doConsume() <--------- consume()
+  *                             |
+  *  doConsume()  <--------  consume()
+  *
+  * SeccoPlan A and B should override `doProduce()` and `doConsume()`.
+  *
   * @param child child physical operator
   * @param localExec local computations to be performed in this stage
   */
 case class LocalStageExec(
     child: SeccoPlan,
     var localExec: LocalProcessingExec
-) extends SeccoPlan {
+)(val codegenStageId: Int)
+    extends SeccoPlan
+    with PushBasedCodegen {
+
+  private val doPushBasedCodegen: Boolean = true
 
   override def output: Seq[Attribute] = localExec.output
 
@@ -42,15 +91,27 @@ case class LocalStageExec(
         }
       }
 
-      //non-codegen mode
-      InternalPartition.fromInternalBlock(
-        localExec.output,
-        localExec.result(),
-        partition.coordinate,
-        partition.partitioner
-      )
+      if (!doPushBasedCodegen) {
+        //iterator mode
+        InternalPartition.fromInternalBlock(
+          localExec.output,
+          localExec.iteratorResults(),
+          partition.coordinate,
+          partition.partitioner
+        )
+      } else {
+        // push-based codegen mode
+        InternalPartition.fromInternalBlock(
+          localExec.output,
+          InternalBlock(
+            executeWithCodeGen().toArray,
+            StructType.fromAttributes(localExec.output)
+          ),
+          partition.coordinate,
+          partition.partitioner
+        )
+      }
 
-    //TODO: implement codegen mode
     }
   }
 
@@ -73,6 +134,159 @@ case class LocalStageExec(
   override def argString: String = {
     s"[${localExec.relationalString}]"
   }
+
+  /** Generates code for this subtree.
+    *
+    * @return the tuple of the codegen context and the actual generated source.
+    */
+  def doCodeGen(): (CodegenContext, CodeAndComment) = {
+    val startTime = System.nanoTime()
+    val ctx = new CodegenContext
+    val code = localExec.asInstanceOf[PushBasedCodegen].produce(ctx, this)
+
+    // main next function.
+    ctx.addNewFunction(
+      "processNext",
+      s"""
+        protected void processNext() throws java.io.IOException {
+          System.out.println("in PushBasedCodegenExec, beginning...");
+          ${code.trim}
+        }
+       """,
+      inlineToOuterClass = true
+    )
+
+    val className = "GeneratedIterator"
+
+    val source = s"""
+      public Object generate(Object[] references) {
+        return new $className(references);
+      }
+
+      ${ctx.registerComment(
+      s"""Codegened pipeline for stage (id=$codegenStageId)
+         |${this.treeString.trim}""".stripMargin,
+      "wsc_codegenPipeline"
+    )}
+      ${ctx.registerComment(
+      s"codegenStageId=$codegenStageId",
+      "wsc_codegenStageId",
+      true
+    )}
+      final class $className extends ${classOf[BufferedRowIterator].getName} {
+
+        private Object[] references;
+        private scala.collection.Iterator[] inputs;
+        ${ctx.declareMutableStates()}
+
+        public $className(Object[] references) {
+          this.references = references;
+        }
+
+        public void init(int index, scala.collection.Iterator[] inputs) {
+          // partitionIndex = index;
+          this.inputs = inputs;
+          ${ctx.initMutableStates()}
+          ${ctx.initPartition()}
+          System.out.println("in PushBasedCodegenExec, init finished");
+        }
+
+        ${ctx.emitExtraCode()}
+
+        ${ctx.declareAddedFunctions()}
+      }
+      """.trim
+
+    // try to compile, helpful for debug
+    val cleanedSource = CodeFormatter.stripOverlappingComments(
+      new CodeAndComment(
+        CodeFormatter.stripExtraNewLines(source),
+        ctx.getPlaceHolderToComments()
+      )
+    )
+
+    val duration = System.nanoTime() - startTime
+    PushBasedCodegenExec.increaseCodeGenTime(duration)
+
+    logDebug(s"\n${CodeFormatter.format(cleanedSource)}")
+    (ctx, cleanedSource)
+  }
+
+  override def doProduce(ctx: CodegenContext): String = {
+    throw new UnsupportedOperationException
+  }
+
+  override def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
+    val doCopy = if (needCopyResult) {
+      ".copy()"
+    } else {
+      ""
+    }
+    s"""
+       |${row.code}
+       |System.out.println("in PushBasedCodegenExec, will append a row");
+       |append(${row.value}.copy());
+     """.stripMargin.trim
+  }
+
+  def executeWithCodeGen(): Iterator[InternalRow] = {
+    val (ctx, cleanedSource) = doCodeGen()
+
+    val (clazz, _) = CodeGenerator.compile(cleanedSource)
+
+    val references = ctx.references.toArray
+    val buffer = clazz.generate(references).asInstanceOf[BufferedRowIterator]
+//    println("in executeWithCodeGen(), before calling inputRowIterators()")
+    val rowIters = child.asInstanceOf[PushBasedCodegen].inputRowIterators()
+//    println("in executeWithCodeGen(), before init")
+    buffer.init(0, rowIters.toArray)
+//    println("in executeWithCodeGen(), after init")
+//    println(s"rowIters: $rowIters")
+    //    var iterCount = 0
+    //    for(iter <- rowIters){
+    //      println(s"iter $iterCount in rowIters:")
+    //      while(iter.hasNext)
+    //        {
+    //          println(s"iter $iterCount.next():" + iter.next())
+    //        }
+    //      iterCount += 1
+    //    }
+    new Iterator[InternalRow] {
+      override def hasNext: Boolean = buffer.hasNext
+      override def next: InternalRow = buffer.next
+    }
+  }
+
+  override def generateTreeString(
+      depth: Int,
+      lastChildren: Seq[Boolean],
+      builder: StringBuilder,
+      verbose: Boolean,
+      prefix: String = "",
+      addSuffix: Boolean = false
+  ): StringBuilder = {
+    child.generateTreeString(depth, lastChildren, builder, verbose, "*")
+  }
+
+  override def needStopCheck: Boolean = true
+
+  override protected def otherCopyArgs: Seq[AnyRef] = Seq(
+    codegenStageId.asInstanceOf[Integer]
+  )
+
+  protected def withNewChildInternal(
+      newChild: SeccoPlan
+  ): LocalStageExec =
+    copy(child = newChild)(codegenStageId)
+
+  override def inputRowIterators(): Seq[Iterator[InternalRow]] = {
+    throw new UnsupportedOperationException
+  }
+
 }
 
 //TODO: add optimization rules to optimize Local Stage.

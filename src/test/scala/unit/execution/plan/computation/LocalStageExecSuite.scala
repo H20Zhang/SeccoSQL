@@ -72,7 +72,7 @@ class LocalStageExecSuite extends SeccoFunSuite {
     val ds4 = seccoSession.sql(sql4)
     val ds5 = seccoSession.sql(sql5)
 
-    println(ds5.queryExecution)
+    ds5.explain()
     ds5.show(100)
 
   }

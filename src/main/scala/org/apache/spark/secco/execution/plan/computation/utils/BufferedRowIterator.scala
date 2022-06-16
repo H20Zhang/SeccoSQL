@@ -1,10 +1,12 @@
-package org.apache.spark.secco.execution
+package org.apache.spark.secco.execution.plan.computation.utils
 
-import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
+import org.apache.spark.secco.execution.storage.row.{
+  InternalRow,
+  UnsafeInternalRow
+}
 
 import java.io.IOException
 import java.util
-import scala.collection.Iterator
 
 /** An iterator interface used to pull the output from generated function for multiple operators
   * (whole stage codegen).

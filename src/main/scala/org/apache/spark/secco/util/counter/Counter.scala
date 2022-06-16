@@ -2,8 +2,7 @@ package org.apache.spark.secco.util.counter
 
 import java.util.concurrent.atomic.AtomicLong
 
-/**
-  * The counter with `Long` value.
+/** The counter with `Long` value.
   * @param scope scope of the counter.
   * @param name name of the counter
   */
@@ -22,6 +21,12 @@ case class Counter(scope: String, name: String) {
       val newValue = existingValue + x
       if (_counter.compareAndSet(existingValue, newValue)) return
     }
+  }
+
+  def next(): Long = {
+    val old_value = value
+    increment(1)
+    old_value
   }
 
   /** Increment counter by 1. */

@@ -1,11 +1,23 @@
-package org.apache.spark.secco.execution
+package org.apache.spark.secco.execution.plan.computation
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.codegen.Block.BlockHelper
 import org.apache.spark.secco.codegen._
-import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
+import org.apache.spark.secco.execution.plan.computation.deprecated.{
+  HashJoinExec,
+  LeapFrogJoinExec
+}
+import org.apache.spark.secco.execution.plan.computation.newIter.SeccoIterator
+import org.apache.spark.secco.execution.plan.computation.utils.BufferedRowIterator
+import org.apache.spark.secco.execution.storage.InternalPartition
+import org.apache.spark.secco.execution.storage.block.InternalBlock
+import org.apache.spark.secco.execution.storage.row.{
+  InternalRow,
+  UnsafeInternalRow
+}
+import org.apache.spark.secco.execution.{SeccoPlan, UnaryExecNode}
 import org.apache.spark.secco.expression._
-import org.apache.spark.secco.expression.codegen.{GenerateSafeProjection, GenerateUnsafeProjection}
+import org.apache.spark.secco.expression.codegen.GenerateUnsafeProjection
 import org.apache.spark.secco.expression.utils.AttributeSet
 import org.apache.spark.secco.types._
 
@@ -16,28 +28,23 @@ trait PushBasedCodegen extends SeccoPlan {
 
 //  def variablePrefix: String
   //  /** Prefix used in the current operator's variable names. */
-    protected def variablePrefix: String = this match {
+  protected def variablePrefix: String = this match {
     case _: PushBasedCodegenExec => "wholestagecodegen"
-    case _ => nodeName.toLowerCase(Locale.ROOT)
+    case _                       => nodeName.toLowerCase(Locale.ROOT)
   }
 
 //  def inputRowIterator(): Iterator[InternalRow]
   def inputRowIterators(): Seq[Iterator[InternalRow]]
 
-  /**
-    * Whether this SparkPlan supports whole stage codegen or not.
+  /** Whether this SparkPlan supports whole stage codegen or not.
     */
   def supportCodegen: Boolean = true
 
-  override final def outputOld: Seq[String] = output.map(_.name)
-
-  /**
-    * Which SparkPlan is calling produce() of this one. It's itself for the first SparkPlan.
+  /** Which SparkPlan is calling produce() of this one. It's itself for the first SparkPlan.
     */
   protected var parent: PushBasedCodegen = null
 
-  /**
-    * Returns Java source code to process the rows from input RDD.
+  /** Returns Java source code to process the rows from input RDD.
     */
   final def produce(ctx: CodegenContext, parent: PushBasedCodegen): String = {
     this.parent = parent
@@ -48,8 +55,7 @@ trait PushBasedCodegen extends SeccoPlan {
      """.stripMargin
   }
 
-  /**
-    * Generate the Java source code to process, should be overridden by subclass to support codegen.
+  /** Generate the Java source code to process, should be overridden by subclass to support codegen.
     *
     * doProduce() usually generate the framework, for example, aggregation could generate this:
     *
@@ -68,9 +74,15 @@ trait PushBasedCodegen extends SeccoPlan {
     */
   protected def doProduce(ctx: CodegenContext): String
 
-  private def prepareRowVar(ctx: CodegenContext, row: String, colVars: Seq[ExprCode]): ExprCode = {
+  private def prepareRowVar(
+      ctx: CodegenContext,
+      row: String,
+      colVars: Seq[ExprCode]
+  ): ExprCode = {
     if (row != null) {
-      ExprCode.forNonNullValue(JavaCode.variable(row, classOf[UnsafeInternalRow]))
+      ExprCode.forNonNullValue(
+        JavaCode.variable(row, classOf[UnsafeInternalRow])
+      )
     } else {
       if (colVars.nonEmpty) {
         val colExprs = output.zipWithIndex.map { case (attr, i) =>
@@ -89,17 +101,22 @@ trait PushBasedCodegen extends SeccoPlan {
         ExprCode(code, FalseLiteralValue, ev.value)
       } else {
         // There are no columns
-        ExprCode.forNonNullValue(JavaCode.variable("UnsafeInternalRow", classOf[UnsafeInternalRow]))
+        ExprCode.forNonNullValue(
+          JavaCode.variable("UnsafeInternalRow", classOf[UnsafeInternalRow])
+        )
       }
     }
   }
 
-  /**
-    * Consume the generated columns or row from current SparkPlan, call its parent's `doConsume()`.
+  /** Consume the generated columns or row from current SparkPlan, call its parent's `doConsume()`.
     *
     * Note that `outputVars` and `row` can't both be null.
     */
-  final def consume(ctx: CodegenContext, outputVars: Seq[ExprCode], row: String = null): String = {
+  final def consume(
+      ctx: CodegenContext,
+      outputVars: Seq[ExprCode],
+      row: String = null
+  ): String = {
     val inputVarsCandidate =
       if (outputVars != null) {
         assert(outputVars.length == output.length)
@@ -116,7 +133,7 @@ trait PushBasedCodegen extends SeccoPlan {
 
     val inputVars = inputVarsCandidate match {
       case stream: Stream[ExprCode] => stream.force
-      case other => other
+      case other                    => other
     }
 
     val rowVar = prepareRowVar(ctx, row, outputVars)
@@ -127,7 +144,8 @@ trait PushBasedCodegen extends SeccoPlan {
     ctx.currentVars = inputVars
     ctx.INPUT_ROW = null
     ctx.freshNamePrefix = parent.variablePrefix
-    val evaluated = evaluateRequiredVariables(output, inputVars, parent.usedInputs)
+    val evaluated =
+      evaluateRequiredVariables(output, inputVars, parent.usedInputs)
 
     s"""
        |${ctx.registerComment(s"CONSUME: ${parent.simpleString}")}
@@ -136,24 +154,24 @@ trait PushBasedCodegen extends SeccoPlan {
      """.stripMargin
   }
 
-  /**
-    * Returns source code to evaluate all the variables, and clear the code of them, to prevent
+  /** Returns source code to evaluate all the variables, and clear the code of them, to prevent
     * them to be evaluated twice.
     */
   protected def evaluateVariables(variables: Seq[ExprCode]): String = {
-    val evaluate = variables.filter(_.code.nonEmpty).map(_.code.toString).mkString("\n")
+    val evaluate =
+      variables.filter(_.code.nonEmpty).map(_.code.toString).mkString("\n")
     variables.foreach(_.code = EmptyBlock)
     evaluate
   }
 
-  /**
-    * Returns source code to evaluate the variables for required attributes, and clear the code
+  /** Returns source code to evaluate the variables for required attributes, and clear the code
     * of evaluated variables, to prevent them to be evaluated twice.
     */
   protected def evaluateRequiredVariables(
-                                           attributes: Seq[Attribute],
-                                           variables: Seq[ExprCode],
-                                           required: AttributeSet): String = {
+      attributes: Seq[Attribute],
+      variables: Seq[ExprCode],
+      required: AttributeSet
+  ): String = {
     val evaluateVars = new StringBuilder
     variables.zipWithIndex.foreach { case (ev, i) =>
       if (ev.code.nonEmpty && required.contains(attributes(i))) {
@@ -164,28 +182,31 @@ trait PushBasedCodegen extends SeccoPlan {
     evaluateVars.toString()
   }
 
-  /**
-    * Returns source code to evaluate the variables for non-deterministic expressions, and clear the
+  /** Returns source code to evaluate the variables for non-deterministic expressions, and clear the
     * code of evaluated variables, to prevent them to be evaluated twice.
     */
   protected def evaluateNondeterministicVariables(
-                                                   attributes: Seq[Attribute],
-                                                   variables: Seq[ExprCode],
-                                                   expressions: Seq[NamedExpression]): String = {
-    val nondeterministicAttrs = expressions.filterNot(_.deterministic).map(_.toAttribute)
-    evaluateRequiredVariables(attributes, variables, AttributeSet(nondeterministicAttrs))
+      attributes: Seq[Attribute],
+      variables: Seq[ExprCode],
+      expressions: Seq[NamedExpression]
+  ): String = {
+    val nondeterministicAttrs =
+      expressions.filterNot(_.deterministic).map(_.toAttribute)
+    evaluateRequiredVariables(
+      attributes,
+      variables,
+      AttributeSet(nondeterministicAttrs)
+    )
   }
 
-  /**
-    * The subset of inputSet those should be evaluated before this plan.
+  /** The subset of inputSet those should be evaluated before this plan.
     *
     * We will use this to insert some code to access those columns that are actually used by current
     * plan before calling doConsume().
     */
   def usedInputs: AttributeSet = references
 
-  /**
-    * Generate the Java source code to process the rows from child SparkPlan. This should only be
+  /** Generate the Java source code to process the rows from child SparkPlan. This should only be
     * called from `consume`.
     *
     * This should be override by subclass to support codegen.
@@ -206,12 +227,15 @@ trait PushBasedCodegen extends SeccoPlan {
     *       `CodegenContext.INPUT_ROW` manually. Some plans may need more tweaks as they have
     *       different inputs(join build side, aggregate buffer, etc.), or other special cases.
     */
-  def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+  def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
     throw new UnsupportedOperationException
   }
 
-  /**
-    * Whether or not the result rows of this operator should be copied before putting into a buffer.
+  /** Whether or not the result rows of this operator should be copied before putting into a buffer.
     *
     * If any operator inside WholeStageCodegen generate multiple rows from a single row (for
     * example, Join), this should be true.
@@ -225,16 +249,14 @@ trait PushBasedCodegen extends SeccoPlan {
       true
     } else if (this.isInstanceOf[HashJoinExec]) { // Added by lgh
       true
-    }
-    else if (children.length == 1) {
+    } else if (children.length == 1) {
       children.head.asInstanceOf[PushBasedCodegen].needCopyResult
     } else {
       throw new UnsupportedOperationException
     }
   }
 
-  /**
-    * Whether or not the children of this operator should generate a stop check when consuming input
+  /** Whether or not the children of this operator should generate a stop check when consuming input
     * rows. This is used to suppress shouldStop() in a loop of WholeStageCodegen.
     *
     * This should be false if an operator starts a new pipeline, which means it consumes all rows
@@ -243,8 +265,7 @@ trait PushBasedCodegen extends SeccoPlan {
     */
   def needStopCheck: Boolean = parent.needStopCheck
 
-  /**
-    * Helper default should stop check code.
+  /** Helper default should stop check code.
     */
   def shouldStopCheckCode: String = if (needStopCheck) {
     "if (shouldStop()) return;"
@@ -260,18 +281,24 @@ trait BuildExecPushBasedCodegen extends UnaryExecNode with PushBasedCodegen {
   override def doProduce(ctx: CodegenContext): String = {
     throw new UnsupportedOperationException
   }
-  /**
-    * Returns Java source code to process the rows from input,
+
+  /** Returns Java source code to process the rows from input,
     * and the variable term that stores the result.
     */
-  final def produceBulk(ctx: CodegenContext, parent: PushBasedCodegen): (String, String) = {
+  final def produceBulk(
+      ctx: CodegenContext,
+      parent: PushBasedCodegen
+  ): (String, String) = {
     this.parent = parent
     ctx.freshNamePrefix = variablePrefix
     var resultTerm: String = null
     val codeStr =
-    s"""
+      s"""
        |${ctx.registerComment(s"PRODUCE_BULK: ${this.simpleString}")}
-       |${val (codeStrInner, resultTermInner) = doProduceBulk(ctx); resultTerm = resultTermInner; codeStrInner}
+       |${
+        val (codeStrInner, resultTermInner) = doProduceBulk(ctx);
+        resultTerm = resultTermInner; codeStrInner
+      }
      """.stripMargin
     (codeStr, resultTerm)
   }
@@ -280,13 +307,12 @@ trait BuildExecPushBasedCodegen extends UnaryExecNode with PushBasedCodegen {
 
 }
 
-
 object PushBasedCodegenExec {
   val PIPELINE_DURATION_METRIC = "duration"
 
   private def numOfNestedFields(dataType: DataType): Int = dataType match {
     case dt: StructType => dt.fields.map(f => numOfNestedFields(f.dataType)).sum
-    case _ => 1
+    case _              => 1
   }
 
   // The whole-stage codegen generates Java code on the driver side and sends it to the Executors
@@ -310,9 +336,7 @@ object PushBasedCodegenExec {
   def resetCodeGenTime(): Unit = _codeGenTime.set(0L)
 }
 
-
-/**
-  * WholeStageCodegen compiles a subtree of plans that support codegen together into single Java
+/** WholeStageCodegen compiles a subtree of plans that support codegen together into single Java
   * function.
   *
   * `doCodeGen()` will create a `CodeGenContext`, which will hold a list of variables for input,
@@ -336,17 +360,16 @@ object PushBasedCodegenExec {
   *  doConsume()  <--------  consume()
   *
   * SeccoPlan A and B should override `doProduce()` and `doConsume()`.
-  *
   */
 case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
-  extends UnaryExecNode with PushBasedCodegen {
+    extends UnaryExecNode
+    with PushBasedCodegen {
 
   override def output: Seq[Attribute] = child.output
 
   override def nodeName: String = s"WholeStageCodegen (${codegenStageId})"
 
-  /**
-    * Generates code for this subtree.
+  /** Generates code for this subtree.
     *
     * @return the tuple of the codegen context and the actual generated source.
     */
@@ -356,13 +379,16 @@ case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
     val code = child.asInstanceOf[PushBasedCodegen].produce(ctx, this)
 
     // main next function.
-    ctx.addNewFunction("processNext",
+    ctx.addNewFunction(
+      "processNext",
       s"""
         protected void processNext() throws java.io.IOException {
           System.out.println("in PushBasedCodegenExec, beginning...");
           ${code.trim}
         }
-       """, inlineToOuterClass = true)
+       """,
+      inlineToOuterClass = true
+    )
 
     val className = "GeneratedIterator"
 
@@ -374,8 +400,13 @@ case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
       ${ctx.registerComment(
       s"""Codegened pipeline for stage (id=$codegenStageId)
          |${this.treeString.trim}""".stripMargin,
-      "wsc_codegenPipeline")}
-      ${ctx.registerComment(s"codegenStageId=$codegenStageId", "wsc_codegenStageId", true)}
+      "wsc_codegenPipeline"
+    )}
+      ${ctx.registerComment(
+      s"codegenStageId=$codegenStageId",
+      "wsc_codegenStageId",
+      true
+    )}
       final class $className extends ${classOf[BufferedRowIterator].getName} {
 
         private Object[] references;
@@ -402,7 +433,11 @@ case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
 
     // try to compile, helpful for debug
     val cleanedSource = CodeFormatter.stripOverlappingComments(
-      new CodeAndComment(CodeFormatter.stripExtraNewLines(source), ctx.getPlaceHolderToComments()))
+      new CodeAndComment(
+        CodeFormatter.stripExtraNewLines(source),
+        ctx.getPlaceHolderToComments()
+      )
+    )
 
     val duration = System.nanoTime() - startTime
     PushBasedCodegenExec.increaseCodeGenTime(duration)
@@ -415,7 +450,11 @@ case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
     throw new UnsupportedOperationException
   }
 
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+  override def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
     val doCopy = if (needCopyResult) {
       ".copy()"
     } else {
@@ -457,34 +496,32 @@ case class PushBasedCodegenExec(child: SeccoPlan)(val codegenStageId: Int)
   }
 
   override def generateTreeString(
-                                   depth: Int,
-                                   lastChildren: Seq[Boolean],
-                                   builder: StringBuilder,
-                                   verbose: Boolean,
-                                   prefix: String = "",
-                                   addSuffix: Boolean = false): StringBuilder = {
-    child.generateTreeString(
-      depth,
-      lastChildren,
-      builder,
-      verbose,
-      "*")
+      depth: Int,
+      lastChildren: Seq[Boolean],
+      builder: StringBuilder,
+      verbose: Boolean,
+      prefix: String = "",
+      addSuffix: Boolean = false
+  ): StringBuilder = {
+    child.generateTreeString(depth, lastChildren, builder, verbose, "*")
   }
 
   override def needStopCheck: Boolean = true
 
-  override protected def otherCopyArgs: Seq[AnyRef] = Seq(codegenStageId.asInstanceOf[Integer])
+  override protected def otherCopyArgs: Seq[AnyRef] = Seq(
+    codegenStageId.asInstanceOf[Integer]
+  )
 
-  protected def withNewChildInternal(newChild: SeccoPlan): PushBasedCodegenExec =
+  protected def withNewChildInternal(
+      newChild: SeccoPlan
+  ): PushBasedCodegenExec =
     copy(child = newChild)(codegenStageId)
-
-
 
   /** Perform the computation for computing the result of the query as an `RDD[InternalBlock]`
     *
     * Overridden by concrete implementations of SparkPlan.
     */
-  override protected def doExecute(): RDD[OldInternalBlock] = ???
+  override protected def doExecute(): RDD[InternalPartition] = ???
 
   override def inputRowIterators(): Seq[Iterator[InternalRow]] = {
     throw new UnsupportedOperationException

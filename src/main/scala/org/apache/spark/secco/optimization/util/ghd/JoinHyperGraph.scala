@@ -19,7 +19,13 @@ import org.apache.spark.secco.optimization.plan.{
   Project
 }
 import org.apache.spark.secco.optimization.util.joingraph.JoinGraph
-import org.apache.spark.secco.optimization.util.{Edge, Graph, HasID, Node}
+import org.apache.spark.secco.optimization.util.{
+  Edge,
+  EquiAttributes,
+  Graph,
+  HasID,
+  Node
+}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -406,91 +412,107 @@ object JoinHyperGraph extends PredicateHelper {
       condition: Seq[Expression]
   ): JoinHyperGraph = {
 
-    // Construct the set of equivalence attributes in terms of EqualTo.
-    val equivSet = {
-
-      // Find out all equivalence relationship.
-      val equiv = condition.flatMap(splitConjunctivePredicates).map { f =>
-        f match {
-          case EqualTo(a: AttributeReference, b: AttributeReference) =>
-            if (
-              children.exists(plan =>
-                plan.outputSet.contains(a) && plan.outputSet.contains(b)
-              )
-            ) {
-              throw new Exception(
-                s"join graph only allow join condition between relation, invalid condition:${f.sql}"
-              )
-            } else {
-              (a, b)
-            }
-          case _ =>
-            throw new Exception(
-              s"only equi-join is allowed in multiway join's condition, found invalid condition ${f}"
-            )
-        }
-      }
-
-      //propagate the equivalence relationship
-      val equivSetArr = ArrayBuffer[AttributeSet]()
-      equiv.foreach { case (a, b) =>
-        var newEquivSet = AttributeSet(a :: b :: Nil)
-        var oldEquivSetOpt: Option[AttributeSet] = None
-
-        //check if a or b are already contains in the equivSet. If so expand equivSet by adding b or a.
-        equivSetArr.foreach { equivSet =>
-          if (equivSet.contains(a)) { // add to existing equivSet
-            oldEquivSetOpt = Some(equivSet)
-            newEquivSet = equivSet ++ AttributeSet(b)
-          } else if (equivSet.contains(b)) { // add to existing equivSet
-            oldEquivSetOpt = Some(equivSet)
-            newEquivSet = equivSet ++ AttributeSet(a)
-          }
-        }
-
-        // remove old equivSet
-        oldEquivSetOpt.foreach(oldEquivSet =>
-          equivSetArr.remove(equivSetArr.indexOf(oldEquivSet))
-        )
-
-        // add new equivSet
-        equivSetArr += newEquivSet
-      }
-
-      equivSetArr
-    }
-
-    // give each equivSet a representative element
-    val representativeAttributes = equivSet.map(_.head.newInstance())
-
-    val joinAttr2RepresentativeAttr =
-      AttributeMap(representativeAttributes.zip(equivSet).flatMap {
-        case (representativeAttr, equivSet) =>
-          equivSet.toSeq.map(attr => (attr, representativeAttr))
-      })
-
-    val nonJoinAttr2RepresentativeAttr = children
-      .flatMap(_.output)
-      .filterNot(attr => joinAttr2RepresentativeAttr.contains(attr))
-      .map(f => (f, f))
-
-    val attr2RepresentativeAttr = AttributeMap(
-      joinAttr2RepresentativeAttr.toSeq ++ nonJoinAttr2RepresentativeAttr
-    )
-
-//    println(s"[debug]:attr2RepresentativeAttr:${attr2RepresentativeAttr}")
+    val equiAttrs =
+      EquiAttributes.fromConditions(children.flatMap(_.output), condition)
+    val attr2RepAttr = equiAttrs.attr2RepAttr
 
     // construct edges and nodes
     val edges = children.map { child =>
-      JoinHyperGraphEdge(child.output.map(attr2RepresentativeAttr).toSet, child)
+      JoinHyperGraphEdge(child.output.map(attr2RepAttr).toSet, child)
     }
 
     val nodes = edges.flatMap(_.nodes).distinct
 
-    JoinHyperGraph(nodes.toArray, edges.toArray, attr2RepresentativeAttr)
+    JoinHyperGraph(nodes.toArray, edges.toArray, attr2RepAttr)
   }
 
-  def apply(multiwayJoin: MultiwayJoin): JoinHyperGraph =
-    apply(multiwayJoin.children, multiwayJoin.conditions)
+  def apply(m: MultiwayJoin): JoinHyperGraph = {
+
+    // construct edges and nodes
+    val attr2RepAttr = m.equiAttrs.attr2RepAttr
+    val edges = m.children.map { child =>
+      JoinHyperGraphEdge(child.output.map(attr2RepAttr).toSet, child)
+    }
+
+    val nodes = edges.flatMap(_.nodes).distinct
+
+    JoinHyperGraph(nodes.toArray, edges.toArray, attr2RepAttr)
+
+  }
 
 }
+
+//  def apply(multiwayJoin: MultiwayJoin): JoinHyperGraph =
+//    apply(multiwayJoin.children, multiwayJoin.conditions)
+
+//    // Construct the set of equivalence attributes in terms of EqualTo.
+//    val equivSet = {
+//
+//      // Find out all equivalence relationship.
+//      val equiv = condition.flatMap(splitConjunctivePredicates).map { f =>
+//        f match {
+//          case EqualTo(a: AttributeReference, b: AttributeReference) =>
+//            if (
+//              children.exists(plan =>
+//                plan.outputSet.contains(a) && plan.outputSet.contains(b)
+//              )
+//            ) {
+//              throw new Exception(
+//                s"join graph only allow join condition between relation, invalid condition:${f.sql}"
+//              )
+//            } else {
+//              (a, b)
+//            }
+//          case _ =>
+//            throw new Exception(
+//              s"only equi-join is allowed in multiway join's condition, found invalid condition ${f}"
+//            )
+//        }
+//      }
+//
+//      //propagate the equivalence relationship
+//      val equivSetArr = ArrayBuffer[AttributeSet]()
+//      equiv.foreach { case (a, b) =>
+//        var newEquivSet = AttributeSet(a :: b :: Nil)
+//        var oldEquivSetOpt: Option[AttributeSet] = None
+//
+//        //check if a or b are already contains in the equivSet. If so expand equivSet by adding b or a.
+//        equivSetArr.foreach { equivSet =>
+//          if (equivSet.contains(a)) { // add to existing equivSet
+//            oldEquivSetOpt = Some(equivSet)
+//            newEquivSet = equivSet ++ AttributeSet(b)
+//          } else if (equivSet.contains(b)) { // add to existing equivSet
+//            oldEquivSetOpt = Some(equivSet)
+//            newEquivSet = equivSet ++ AttributeSet(a)
+//          }
+//        }
+//
+//        // remove old equivSet
+//        oldEquivSetOpt.foreach(oldEquivSet =>
+//          equivSetArr.remove(equivSetArr.indexOf(oldEquivSet))
+//        )
+//
+//        // add new equivSet
+//        equivSetArr += newEquivSet
+//      }
+//
+//      equivSetArr
+//    }
+//
+//    // give each equivSet a representative element
+//    val representativeAttributes = equivSet.map(_.head.newInstance())
+//
+//    val joinAttr2RepresentativeAttr =
+//      AttributeMap(representativeAttributes.zip(equivSet).flatMap {
+//        case (representativeAttr, equivSet) =>
+//          equivSet.toSeq.map(attr => (attr, representativeAttr))
+//      })
+//
+//    val nonJoinAttr2RepresentativeAttr = children
+//      .flatMap(_.output)
+//      .filterNot(attr => joinAttr2RepresentativeAttr.contains(attr))
+//      .map(f => (f, f))
+//
+//    val attr2RepresentativeAttr = AttributeMap(
+//      joinAttr2RepresentativeAttr.toSeq ++ nonJoinAttr2RepresentativeAttr
+//    )

@@ -1,29 +1,55 @@
-package org.apache.spark.secco.execution
+package org.apache.spark.secco.execution.plan.computation.deprecated
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.secco.codegen.Block.BlockHelper
-import org.apache.spark.secco.codegen._
-import org.apache.spark.secco.execution.storage.row.{InternalRow, UnsafeInternalRow}
+import org.apache.spark.secco.codegen.{
+  CodeGenerator,
+  CodegenContext,
+  ExprCode,
+  JavaCode
+}
+import org.apache.spark.secco.execution.SeccoPlan
+import org.apache.spark.secco.execution.plan.computation.PushBasedCodegen
+import org.apache.spark.secco.execution.storage.InternalPartition
+import org.apache.spark.secco.execution.storage.row.{
+  InternalRow,
+  UnsafeInternalRow
+}
 import org.apache.spark.secco.expression.BindReferences.bindReferences
-import org.apache.spark.secco.expression._
-import org.apache.spark.secco.expression.aggregate._
+import org.apache.spark.secco.expression.aggregate.{
+  AggregateFunction,
+  DeclarativeAggregate,
+  ImperativeAggregate
+}
 import org.apache.spark.secco.expression.codegen.GenerateUnsafeProjection
 import org.apache.spark.secco.expression.utils.AttributeSet
+import org.apache.spark.secco.expression.{
+  Attribute,
+  AttributeReference,
+  AttributeSeq,
+  BoundReference,
+  EmptyRow,
+  Expression,
+  NamedExpression
+}
 import org.apache.spark.secco.types.StructType
 
 import java.util
 import scala.collection.mutable
 
-/**
-  * Hash-based aggregate operator.
+/** Hash-based aggregate operator.
   */
-case class AggregateExec(groupingExpressions: Seq[NamedExpression],
-                         aggregateFunctions: Array[AggregateFunction], /* Only support DeclarativeAggregate */
-                         child: SeccoPlan)
-  extends PushBasedCodegen {
+case class AggregateExec(
+    groupingExpressions: Seq[NamedExpression],
+    aggregateFunctions: Array[AggregateFunction],
+    /* Only support DeclarativeAggregate */
+    child: SeccoPlan
+) extends PushBasedCodegen {
 
-  private val aggregateAttributes = aggregateFunctions.map(item => AttributeReference(item.prettyName, item.dataType)())
-  private val aggregateBufferAttributes = aggregateFunctions.flatMap(_.aggBufferAttributes).toSeq
+  private val aggregateAttributes = aggregateFunctions.map(item =>
+    AttributeReference(item.prettyName, item.dataType)()
+  )
+  private val aggregateBufferAttributes =
+    aggregateFunctions.flatMap(_.aggBufferAttributes).toSeq
 
   lazy val allAttributes: AttributeSeq =
     child.output ++ aggregateBufferAttributes ++ aggregateAttributes ++
@@ -35,7 +61,7 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
       AttributeReference(expr.prettyName, expr.dataType, expr.nullable)()
     }
 
-  protected override def doExecute(): RDD[OldInternalBlock] = ???
+  override protected def doExecute(): RDD[InternalPartition] = ???
 
   override def usedInputs: AttributeSet = inputSet
 
@@ -44,8 +70,7 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     !aggregateFunctions.exists(_.isInstanceOf[ImperativeAggregate])
   }
 
-  /**
-    * Generate the code for output.
+  /** Generate the code for output.
     * @return function name for the result code.
     */
   private def generateResultFunction(ctx: CodegenContext): String = {
@@ -63,15 +88,17 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
         }
         val evaluateKeyVars = evaluateVariables(keyVars)
         ctx.INPUT_ROW = bufferTerm
-        val bufferVars = aggregateBufferAttributes.zipWithIndex.map { case (e, i) =>
-          BoundReference(i, e.dataType, e.nullable).genCode(ctx)
+        val bufferVars = aggregateBufferAttributes.zipWithIndex.map {
+          case (e, i) =>
+            BoundReference(i, e.dataType, e.nullable).genCode(ctx)
         }
         val evaluateBufferVars = evaluateVariables(bufferVars)
         // evaluate the aggregation result
         ctx.currentVars = bufferVars
         val aggResults = bindReferences(
           declFunctions.map(_.evaluateExpression),
-          aggregateBufferAttributes).map(_.genCode(ctx))
+          aggregateBufferAttributes
+        ).map(_.genCode(ctx))
         val evaluateAggResults = evaluateVariables(aggResults)
 //        // generate the final result
 //        ctx.currentVars = keyVars ++ aggResults
@@ -89,7 +116,7 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
        """.stripMargin
 //        |$evaluateNondeterministicResults
 //        ${consume(ctx, resultVars)}
-      }else {
+      } else {
 //        // generate result based on grouping key
 //        ctx.INPUT_ROW = keyTerm
 //        ctx.currentVars = null
@@ -106,13 +133,15 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
            |${consume(ctx, Seq[ExprCode]())}
        """.stripMargin
       }
-    ctx.addNewFunction(funcName,
+    ctx.addNewFunction(
+      funcName,
       s"""
          |private void $funcName(UnsafeInternalRow $keyTerm, UnsafeInternalRow $bufferTerm)
          |    throws java.io.IOException {
          |  $body
          |}
-       """.stripMargin)
+       """.stripMargin
+    )
   }
 
   protected override def doProduce(ctx: CodegenContext): String = {
@@ -123,7 +152,11 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     }
   }
 
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+  override def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
     if (groupingExpressions.isEmpty) {
       doConsumeWithoutKeys(ctx, input)
     } else {
@@ -145,8 +178,10 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     val initExpr = functions.map(f => f.initialValues)
     bufVars = initExpr.map { exprs =>
       exprs.map { e =>
-        val isNull = ctx.addMutableState(CodeGenerator.JAVA_BOOLEAN, "bufIsNull")
-        val value = ctx.addMutableState(CodeGenerator.javaType(e.dataType), "bufValue")
+        val isNull =
+          ctx.addMutableState(CodeGenerator.JAVA_BOOLEAN, "bufIsNull")
+        val value =
+          ctx.addMutableState(CodeGenerator.javaType(e.dataType), "bufValue")
         // The initial expression should not access any column
         val ev = e.genCode(ctx)
         val initVars = code"""
@@ -156,7 +191,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
         ExprCode(
           ev.code + initVars,
           JavaCode.isNullGlobal(isNull),
-          JavaCode.global(value, e.dataType))
+          JavaCode.global(value, e.dataType)
+        )
       }
     }
     val flatBufVars = bufVars.flatten
@@ -168,7 +204,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
       ctx.currentVars = flatBufVars
       val aggResults = bindReferences(
         functions.map(_.evaluateExpression),
-        aggregateBufferAttributes.toSeq).map(_.genCode(ctx))
+        aggregateBufferAttributes.toSeq
+      ).map(_.genCode(ctx))
       val evaluateAggResults = evaluateVariables(aggResults)
       // evaluate result expressions
       ctx.currentVars = aggResults
@@ -176,7 +213,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     }
 
     val doAgg = ctx.freshName("doAggregateWithoutKey")
-    val doAggFuncName = ctx.addNewFunction(doAgg,
+    val doAggFuncName = ctx.addNewFunction(
+      doAgg,
       s"""
          |private void $doAgg() throws java.io.IOException {
          |  // initialize aggregation buffer
@@ -184,7 +222,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
          |
          |  ${child.asInstanceOf[PushBasedCodegen].produce(ctx, this)}
          |}
-       """.stripMargin)
+       """.stripMargin
+    )
 
     s"""
        |while (!$initAgg) {
@@ -199,10 +238,15 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
      """.stripMargin
   }
 
-  private def doConsumeWithoutKeys(ctx: CodegenContext, input: Seq[ExprCode]): String = {
+  private def doConsumeWithoutKeys(
+      ctx: CodegenContext,
+      input: Seq[ExprCode]
+  ): String = {
     // only have DeclarativeAggregate
     val functions = aggregateFunctions.map(_.asInstanceOf[DeclarativeAggregate])
-    val inputAttrs = functions.flatMap(_.aggBufferAttributes).toSeq ++ child.output  // TODO: check this --lgh
+    val inputAttrs = functions
+      .flatMap(_.aggBufferAttributes)
+      .toSeq ++ child.output // TODO: check this --lgh
     // To individually generate code for each aggregate function, an element in `updateExprs` holds
     // all the expressions for the buffer of an aggregation function.
     val updateExprs = aggregateFunctions.map { aggFun =>
@@ -218,17 +262,19 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     }
 
     val aggNames = functions.map(_.prettyName)
-    val aggCodeBlocks = bufferEvals.zipWithIndex.map { case (bufferEvalsForOneFunc, i) =>
-      val bufVarsForOneFunc = bufVars(i)
-      // All the update code for aggregation buffers should be placed in the end
-      // of each aggregation function code.
-      val updates = bufferEvalsForOneFunc.zip(bufVarsForOneFunc).map { case (ev, bufVar) =>
-        s"""
+    val aggCodeBlocks = bufferEvals.zipWithIndex.map {
+      case (bufferEvalsForOneFunc, i) =>
+        val bufVarsForOneFunc = bufVars(i)
+        // All the update code for aggregation buffers should be placed in the end
+        // of each aggregation function code.
+        val updates = bufferEvalsForOneFunc.zip(bufVarsForOneFunc).map {
+          case (ev, bufVar) =>
+            s"""
            |${bufVar.isNull} = ${ev.isNull};
            |${bufVar.value} = ${ev.value};
          """.stripMargin
-      }
-      code"""
+        }
+        code"""
             |${ctx.registerComment(s"do aggregate for ${aggNames(i)}")}
             |${ctx.registerComment("evaluate aggregate function")}
             |${evaluateVariables(bufferEvalsForOneFunc)}
@@ -253,31 +299,47 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
 
     // Create a name for the iterator from the regular hash map.
     // Inline mutable state since not many aggregation operations in a task
-    val iterClassName = classOf[java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]]].getName
-    val iterTerm = ctx.addMutableState(iterClassName, "mapIter", forceInline = true)
+    val iterClassName = classOf[
+      java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]]
+    ].getName
+    val iterTerm =
+      ctx.addMutableState(iterClassName, "mapIter", forceInline = true)
 //    // create hashMap
     val hashMapClassName =
-          classOf[java.util.LinkedHashMap[InternalRow, InternalRow]].getName + "<UnsafeInternalRow, UnsafeInternalRow>"
-    hashMapTerm = ctx.addMutableState(hashMapClassName,
-      "hashMap", v => s"$v = new $hashMapClassName();", forceInline = true)
+      classOf[
+        java.util.LinkedHashMap[InternalRow, InternalRow]
+      ].getName + "<UnsafeInternalRow, UnsafeInternalRow>"
+    hashMapTerm = ctx.addMutableState(
+      hashMapClassName,
+      "hashMap",
+      v => s"$v = new $hashMapClassName();",
+      forceInline = true
+    )
     val initExpr = declFunctions.flatMap(f => f.initialValues)
     initialBuffer = GenerateUnsafeProjection.generate(initExpr)(EmptyRow)
     val a = new util.LinkedHashMap[InternalRow, InternalRow]()
-    val b: java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]] = a.entrySet().iterator()
-    initialBufferTerm = ctx.addMutableState("UnsafeInternalRow", "initialBuffer",
-      v => s"$v = $thisPlan.getInitialBuffer();", forceInline = true)
+    val b: java.util.Iterator[java.util.Map.Entry[InternalRow, InternalRow]] =
+      a.entrySet().iterator()
+    initialBufferTerm = ctx.addMutableState(
+      "UnsafeInternalRow",
+      "initialBuffer",
+      v => s"$v = $thisPlan.getInitialBuffer();",
+      forceInline = true
+    )
 
     val doAgg = ctx.freshName("doAggregateWithKeys")
 
     val finishHashMap = s"$iterTerm = $hashMapTerm.entrySet().iterator();"
 
-    val doAggFuncName = ctx.addNewFunction(doAgg,
+    val doAggFuncName = ctx.addNewFunction(
+      doAgg,
       s"""
          |private void $doAgg() throws java.io.IOException {
          |  ${child.asInstanceOf[PushBasedCodegen].produce(ctx, this)}
          |  $finishHashMap
          |}
-       """.stripMargin)
+       """.stripMargin
+    )
 
     // generate code for output
     val keyTerm = ctx.freshName("aggKey")
@@ -315,18 +377,23 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
   def doConsumeWithKeys(ctx: CodegenContext, input: Seq[ExprCode]): String = {
     // create grouping key
     val unsafeRowKeyCode = GenerateUnsafeProjection.createCode(
-      ctx, bindReferences[Expression](groupingExpressions, child.output))
+      ctx,
+      bindReferences[Expression](groupingExpressions, child.output)
+    )
     val fastRowKeys = ctx.generateExpressions(
-      bindReferences[Expression](groupingExpressions, child.output))
+      bindReferences[Expression](groupingExpressions, child.output)
+    )
     val unsafeRowKeys = unsafeRowKeyCode.value
     val unsafeRowBuffer = ctx.freshName("unsafeRowAggBuffer")
 
     // To individually generate code for each aggregate function, an element in `updateExprs` holds
     // all the expressions for the buffer of an aggregation function.
-    val updateExprs = aggregateFunctions.map(_.asInstanceOf[DeclarativeAggregate].updateExpressions)
+    val updateExprs = aggregateFunctions.map(
+      _.asInstanceOf[DeclarativeAggregate].updateExpressions
+    )
 
     val findOrInsertHashMap: String =
-    s"""
+      s"""
          |// generate grouping key
          |${unsafeRowKeyCode.code}
          |  // try to get the buffer from hash map
@@ -344,7 +411,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
     // Here we set `currentVars(0)` to `currentVars(numBufferSlots)` to null, so that when
     // generating code for buffer columns, we use `INPUT_ROW`(will be the buffer row), while
     // generating input columns, we use `currentVars`.
-    ctx.currentVars = new Array[ExprCode](aggregateBufferAttributes.length) ++ input
+    ctx.currentVars =
+      new Array[ExprCode](aggregateBufferAttributes.length) ++ input
 
     val aggNames = aggregateFunctions.map(_.prettyName)
     // Computes start offsets for each aggregation function code
@@ -364,7 +432,8 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
       val boundUpdateExprs = updateExprs.map { updateExprsForOneFunc =>
         bindReferences(updateExprsForOneFunc, inputAttrs)
       }
-      val unsafeRowBufferEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
+      val unsafeRowBufferEvals = boundUpdateExprs.map {
+        boundUpdateExprsForOneFunc =>
           boundUpdateExprsForOneFunc.map(_.genCode(ctx))
       }
 
@@ -375,14 +444,23 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
 
         // All the update code for aggregation buffers should be placed in the end
         // of each aggregation function code.
-        val updateRowBuffers = rowBufferEvalsForOneFunc.zipWithIndex.map { case (ev, j) =>
-          val updateExpr = boundUpdateExprsForOneFunc(j)
-          val dt = updateExpr.dataType
-          val nullable = updateExpr.nullable
-          CodeGenerator.updateColumn(unsafeRowBuffer, dt, bufferOffset + j, ev, nullable)
+        val updateRowBuffers = rowBufferEvalsForOneFunc.zipWithIndex.map {
+          case (ev, j) =>
+            val updateExpr = boundUpdateExprsForOneFunc(j)
+            val dt = updateExpr.dataType
+            val nullable = updateExpr.nullable
+            CodeGenerator.updateColumn(
+              unsafeRowBuffer,
+              dt,
+              bufferOffset + j,
+              ev,
+              nullable
+            )
         }
         code"""
-              |${ctx.registerComment(s"evaluate aggregate function for ${aggNames(i)}")}
+              |${ctx.registerComment(
+          s"evaluate aggregate function for ${aggNames(i)}"
+        )}
               |${evaluateVariables(rowBufferEvalsForOneFunc)}
               |${ctx.registerComment("update unsafe row buffer")}
               |${updateRowBuffers.mkString("\n").trim}
@@ -412,9 +490,11 @@ case class AggregateExec(groupingExpressions: Seq[NamedExpression],
   private val groupingAttributes = groupingExpressions.map(_.toAttribute)
   private val groupingKeySchema = StructType.fromAttributes(groupingAttributes)
   private val declFunctions =
-    aggregateFunctions.filter(_.isInstanceOf[DeclarativeAggregate]).map(_.asInstanceOf[DeclarativeAggregate])
-  private val bufferSchema = StructType.fromAttributes(aggregateBufferAttributes)
-
+    aggregateFunctions
+      .filter(_.isInstanceOf[DeclarativeAggregate])
+      .map(_.asInstanceOf[DeclarativeAggregate])
+  private val bufferSchema =
+    StructType.fromAttributes(aggregateBufferAttributes)
 
   // The name for UnsafeInternalRow HashMap
   private var hashMapTerm: String = _

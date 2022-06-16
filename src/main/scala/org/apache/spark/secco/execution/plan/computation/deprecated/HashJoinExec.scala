@@ -1,15 +1,20 @@
-package org.apache.spark.secco.execution
+package org.apache.spark.secco.execution.plan.computation.deprecated
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.codegen.Block.BlockHelper
 import org.apache.spark.secco.codegen._
-import org.apache.spark.secco.execution.storage.row._
+import org.apache.spark.secco.execution.plan.computation.{
+  BuildExecPushBasedCodegen,
+  PushBasedCodegen
+}
+import org.apache.spark.secco.execution.storage.InternalPartition
 import org.apache.spark.secco.execution.storage.block._
+import org.apache.spark.secco.execution.storage.row._
+import org.apache.spark.secco.execution.{BinaryExecNode, SeccoPlan}
 import org.apache.spark.secco.expression.BindReferences.bindReferences
 import org.apache.spark.secco.expression._
 import org.apache.spark.secco.expression.codegen._
 import org.apache.spark.secco.util.misc.LogAble
-
 
 sealed abstract class BuildSide
 
@@ -19,24 +24,25 @@ case object BuildLeft extends BuildSide
 
 /** Physical plan for Build HashMap. */
 case class BuildHashMapExec(
-                            child: SeccoPlan,
-                            keys: Seq[Attribute]
-                            )
-  extends BuildExecPushBasedCodegen {
+    child: SeccoPlan,
+    keys: Seq[Attribute]
+) extends BuildExecPushBasedCodegen {
 
   private var hashMapBuilderTerm: String = _
 
-  override protected def doProduceBulk(ctx: CodegenContext): (String, String) = {
+  override protected def doProduceBulk(
+      ctx: CodegenContext
+  ): (String, String) = {
     val builderClassName = classOf[HashMapInternalBlockBuilder].getName
     hashMapBuilderTerm = ctx.addMutableState(builderClassName, "hashMapBuilder")
     val blockClassName = classOf[HashMapInternalBlock].getName
     val hashMapBlockTerm = ctx.addMutableState(blockClassName, "hashMapBlock")
     val codeStr = {
       s"""
-         |$hashMapBuilderTerm = ($builderClassName) ${
-        ctx.addReferenceObj(s"HashMapBuilder",
-          new HashMapInternalBlockBuilder(child.output, keys))
-      };
+         |$hashMapBuilderTerm = ($builderClassName) ${ctx.addReferenceObj(
+        s"HashMapBuilder",
+        new HashMapInternalBlockBuilder(child.output, keys)
+      )};
          |${child.asInstanceOf[PushBasedCodegen].produce(ctx, this)}
          |$hashMapBlockTerm = $hashMapBuilderTerm.build();
          |""".stripMargin
@@ -44,28 +50,32 @@ case class BuildHashMapExec(
     (codeStr, hashMapBlockTerm)
   }
 
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+  override def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
     s"""
        |${row.code}
        |$hashMapBuilderTerm.add(${row.value}.copy());
        |""".stripMargin
   }
 
-  override protected def doExecute(): RDD[OldInternalBlock] = ???
+  override protected def doExecute(): RDD[InternalPartition] = ???
 
   override def inputRowIterators(): Seq[Iterator[InternalRow]] =
     child.asInstanceOf[PushBasedCodegen].inputRowIterators()
 }
 
-
 /** Physical plan for Hash Join. */
 case class HashJoinExec(
-                         left: SeccoPlan,
-                         right: SeccoPlan,
-                         streamedKeys: Seq[Expression],
-                         joinCondition: Option[Expression]
-                       )
-  extends BinaryExecNode with PushBasedCodegen with LogAble{
+    left: SeccoPlan,
+    right: SeccoPlan,
+    streamedKeys: Seq[Expression],
+    joinCondition: Option[Expression]
+) extends BinaryExecNode
+    with PushBasedCodegen
+    with LogAble {
 
   var thisPlan: String = _
   var relationTerm: String = _
@@ -75,13 +85,13 @@ case class HashJoinExec(
   def buildSide: BuildSide = BuildRight
 
   protected lazy val (buildPlan, streamedPlan) = buildSide match {
-    case BuildLeft => (left, right)
+    case BuildLeft  => (left, right)
     case BuildRight => (right, left)
   }
 
   @transient protected lazy val (buildOutput, streamedOutput) = {
     buildSide match {
-      case BuildLeft => (left.output, right.output)
+      case BuildLeft  => (left.output, right.output)
       case BuildRight => (right.output, left.output)
     }
   }
@@ -91,14 +101,14 @@ case class HashJoinExec(
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-  /**
-    * Generates the code for variables of one child side of join.
+  /** Generates the code for variables of one child side of join.
     */
   protected def genOneSideJoinVars(
-                                    ctx: CodegenContext,
-                                    row: String,
-                                    plan: SeccoPlan,
-                                    setDefaultValue: Boolean): Seq[ExprCode] = {
+      ctx: CodegenContext,
+      row: String,
+      plan: SeccoPlan,
+      setDefaultValue: Boolean
+  ): Seq[ExprCode] = {
     ctx.currentVars = null
     ctx.INPUT_ROW = row
     plan.output.zipWithIndex.map { case (a, i) =>
@@ -110,47 +120,57 @@ case class HashJoinExec(
         val javaType = CodeGenerator.javaType(a.dataType)
         val code = code"""
                          |boolean $isNull = true;
-                         |$javaType $value = ${CodeGenerator.defaultValue(a.dataType)};
+                         |$javaType $value = ${CodeGenerator.defaultValue(
+          a.dataType
+        )};
                          |if ($row != null) {
                          |  ${ev.code}
                          |  $isNull = ${ev.isNull};
                          |  $value = ${ev.value};
                          |}
           """.stripMargin
-        ExprCode(code, JavaCode.isNullVariable(isNull), JavaCode.variable(value, a.dataType))
+        ExprCode(
+          code,
+          JavaCode.isNullVariable(isNull),
+          JavaCode.variable(value, a.dataType)
+        )
       } else {
         ev
       }
     }
   }
 
-  /**
-    * Generate the (non-equi) condition used to filter joined rows.
+  /** Generate the (non-equi) condition used to filter joined rows.
     * This is used in Inner, Left Semi, Left Anti and Full Outer joins.
     *
     * @return Tuple of variable name for row of build side, generated code for condition,
     *         and generated code for variables of build side.
     */
   protected def getJoinCondition(
-                                  ctx: CodegenContext,
-                                  streamVars: Seq[ExprCode],
-                                  streamPlan: SeccoPlan,
-                                  buildPlan: SeccoPlan,
-                                  buildRow: Option[String] = None): (String, String, Seq[ExprCode]) = {
+      ctx: CodegenContext,
+      streamVars: Seq[ExprCode],
+      streamPlan: SeccoPlan,
+      buildPlan: SeccoPlan,
+      buildRow: Option[String] = None
+  ): (String, String, Seq[ExprCode]) = {
     val buildSideRow = buildRow.getOrElse(ctx.freshName("buildRow"))
-    val buildVars = genOneSideJoinVars(ctx, buildSideRow, buildPlan, setDefaultValue = false)
+    val buildVars =
+      genOneSideJoinVars(ctx, buildSideRow, buildPlan, setDefaultValue = false)
     logTrace(s"streamVars: ${streamVars.mkString(", ")}")
     logTrace(s"buildVars: ${buildVars.mkString(", ")}")
     val checkCondition = if (joinCondition.isDefined) {
       val expr = joinCondition.get
       // evaluate the variables from build side that used by condition
-      val eval = evaluateRequiredVariables(buildPlan.output, buildVars, expr.references)
+      val eval =
+        evaluateRequiredVariables(buildPlan.output, buildVars, expr.references)
 
       // filter the output via condition
       ctx.currentVars = streamVars ++ buildVars
 
       val ev =
-        BindReferences.bindReference(expr, streamPlan.output ++ buildPlan.output).genCode(ctx)
+        BindReferences
+          .bindReference(expr, streamPlan.output ++ buildPlan.output)
+          .genCode(ctx)
       val skipRow = s"${ev.isNull} || !${ev.value}"
       s"""
          |$eval
@@ -167,28 +187,35 @@ case class HashJoinExec(
     thisPlan = ctx.addReferenceObj("plan", this)
 
     s"""
-       |${val (codeStr, hashMapTerm) = buildPlan.asInstanceOf[BuildHashMapExec].produceBulk(ctx, this)
-         relationTerm = hashMapTerm
-         ctx.incrementCurInputIndex()
-         codeStr}
+       |${
+      val (codeStr, hashMapTerm) =
+        buildPlan.asInstanceOf[BuildHashMapExec].produceBulk(ctx, this)
+      relationTerm = hashMapTerm
+      ctx.incrementCurInputIndex()
+      codeStr
+    }
        |${streamedPlan.asInstanceOf[PushBasedCodegen].produce(ctx, this)}
        |""".stripMargin
   }
 
-  override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+  override def doConsume(
+      ctx: CodegenContext,
+      input: Seq[ExprCode],
+      row: ExprCode
+  ): String = {
 
     // generate the join key as UnsafeInternalRow
     ctx.currentVars = input
     val ev = GenerateUnsafeProjection.createCode(ctx, streamedBoundKeys)
     val (keyEv, anyNull) = (ev, s"${ev.value}.anyNull()")
 
-    val (matched, checkCondition, buildVars) = getJoinCondition(ctx, input, streamedPlan, buildPlan)
+    val (matched, checkCondition, buildVars) =
+      getJoinCondition(ctx, input, streamedPlan, buildPlan)
 
     val resultVars = buildSide match {
-      case BuildLeft => buildVars ++ input
+      case BuildLeft  => buildVars ++ input
       case BuildRight => input ++ buildVars
     }
-
 
     if (isEmptyHashedRelation) {
       """
@@ -218,7 +245,7 @@ case class HashJoinExec(
     }
   }
 
-  protected override def doExecute(): RDD[OldInternalBlock] = ???
+  override protected def doExecute(): RDD[InternalPartition] = ???
 
   def verboseStringWithOperatorId(): String = {
     val joinCondStr = if (joinCondition.isDefined) {
@@ -238,7 +265,10 @@ case class HashJoinExec(
     }
   }
 
-  protected def withNewChildrenInternal(newLeft: SeccoPlan, newRight: SeccoPlan): HashJoinExec =
+  protected def withNewChildrenInternal(
+      newLeft: SeccoPlan,
+      newRight: SeccoPlan
+  ): HashJoinExec =
     copy(left = newLeft, right = newRight)
 
   override def inputRowIterators(): Seq[Iterator[InternalRow]] =
