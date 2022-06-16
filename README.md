@@ -56,17 +56,25 @@ The main entry of Secco is SeccoSession, where you can create the `Dataset` , re
 An example is shown below.
 
 ```scala
-// Obtain SeccoSession via singleton.
+    // Obtain SeccoSession via singleton.
     val dlSession = SeccoSession.currentSession
 
-    // Create datasets.
-    val seq1 = Seq(Array(1.0, 2.0), Array(2.0, 2.0))
-    val tableName = "R1"
-    val schema = Seq("A", "B")
-    val ds1 =
-      dlSession.createDatasetFromSeq(seq1, Some(tableName), Some(schema))
+    /** --- SQL API --- */
+    val sqlString =
+      """
+        |select A, B
+        |from R1
+        |where A < B
+        |""".stripMargin
+  
+    val ds = dlSession.sql(sqlString)
 
-    // Construct RA expression via relational algebra like API.
+    /**  --- DataFrame API ---  */
+
+    // get dataset R1.
+    val ds1 = dlSession.table("R1")
+
+    // Construct RA expression via Dataframe like API.
     val ds2 = ds1.select("A < B")
 
     // Explain the query execution of ds1 and ds2. It will show parsed plan, analyzed plan, optimized plan, execution plan.
