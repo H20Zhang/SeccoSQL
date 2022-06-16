@@ -113,27 +113,53 @@ In the future, SeccoSQL will be published to maven, which allows you do import S
 
 ## Reference
 
-We give a reference list of new query optimization and query execution techniques implemented in SeccoSQL.
+We give a reference list of new query optimization and query execution techniques implemented in SeccoSQL. Also, we explain why we used such techniques.
 
 ### Query Optimization
 
-[Communication/Computation Separated Optimization Framework](https://dl.acm.org/doi/10.1145/3514221.3526164)
+- [Communication/Computation Separated Optimization Framework](https://dl.acm.org/doi/10.1145/3514221.3526164)
 
-[GHD(Generalized HyperTree Decomposition)-Based Join Optimization](https://www.google.com.hk/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwjh2o-_xbH4AhW4jdgFHUawD9YQFnoECAcQAQ&url=https%3A%2F%2Farxiv.org%2Fabs%2F1503.02368&usg=AOvVaw0Wv9Gm97hvKV3BRw80ppQd)
+- [GHD(Generalized HyperTree Decomposition)-Based Join Optimization](https://www.google.com.hk/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwjh2o-_xbH4AhW4jdgFHUawD9YQFnoECAcQAQ&url=https%3A%2F%2Farxiv.org%2Fabs%2F1503.02368&usg=AOvVaw0Wv9Gm97hvKV3BRw80ppQd)
 
-[Aggregation Push-Down over GHD](https://arxiv.org/abs/1508.07532)
+- [Aggregation Push-Down over GHD](https://arxiv.org/abs/1508.07532)
+
+**Why separate communication from computation?**
+
+Separate communication from computation helps us reorder communication and computation in a fine grained ways, which allows to delay the generation of large intermediate results.
+
+**Why GHD-based Join Optimization?**
+
+GHD-based join optimization is very effective for complex queries whose hypergraph of join contains cycle. Such complex queries occurs frequently in graph queries.
+
+**Why Aggregation Push-Down over GHD?**
+
+By pushing aggregation down, it further reduce the intermediate results generated.
 
 ### Query Execution
 
-[Worst-case Optimal Join](https://arxiv.org/abs/1203.1952)
+- [Worst-case Optimal Join](https://arxiv.org/abs/1203.1952)
 
-[Cached LeapFrog Join](https://arxiv.org/abs/1602.08721)
+- [Cached LeapFrog Join](https://arxiv.org/abs/1602.08721)
 
-[HyperCube Shuffle](https://ieeexplore.ieee.org/document/5710932)
+- [HyperCube Shuffle (Theorem)](https://ieeexplore.ieee.org/document/5710932)
 
+- [HyperCube Shuffle (Efficient Implementation)](https://arxiv.org/pdf/2102.13370.pdf)
 
+**Why Worst-case Optimal Join?**
+
+Worst-case optimal join is a new kinds of join algorithm that is very effective at handling join query that contains cycle.
+
+**Why does caching in worst-case optimal join?**
+
+Worst-case optimal join incurs duplicate computation sometimes. By caching, it can further improve speed of worst-case optimal join in average cases.
+
+**Why HyperCube Shuffle?**
+
+HyperCube shuffle is a ways of shuffle multiple relations at a time, which is also worst-case optimal.
 
 ## Road Map
+
+Here is a road map for SeccoSQL in the short term.
 
 1. Fix bugs in the optimizer when handling equi-joins
 2. Fix the bugs in codegen
