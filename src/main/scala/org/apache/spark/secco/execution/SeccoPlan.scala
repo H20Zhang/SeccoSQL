@@ -8,6 +8,7 @@ import org.apache.spark.secco.trees.QueryPlan
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.secco.execution.plan.communication.HyperCubePartitioner
+import org.apache.spark.secco.execution.plan.computation.deprecated.ProjectExec
 import org.apache.spark.secco.execution.storage.{
   InternalPartition,
   PairedPartition
@@ -259,6 +260,9 @@ trait UnaryExecNode extends SeccoPlan {
 
   override final def children: Seq[SeccoPlan] = child :: Nil
 }
+
+// Added by lgh
+trait MultiExecNode extends SeccoPlan {}
 
 object UnaryExecNode {
   def unapply(a: Any): Option[(SeccoPlan, SeccoPlan)] =

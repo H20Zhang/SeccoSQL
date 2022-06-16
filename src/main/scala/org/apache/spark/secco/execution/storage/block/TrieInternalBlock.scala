@@ -219,7 +219,7 @@ class TrieInternalBlock(
 
     assert(j == bindingLevel, "j != bindingLevel")
 
-    val arrayBuffer = new ArrayBuffer[Any]
+    val arrayBuffer = new ArrayBuffer[Any]()
     for(idx <- start until end) {
       val curGetter = getters(j)
       val curValue = curGetter(idx)

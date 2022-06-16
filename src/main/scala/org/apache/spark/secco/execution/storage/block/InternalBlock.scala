@@ -48,8 +48,14 @@ trait ColumnLike extends InternalBlock {
 /** The base class for InternalBlock */
 abstract class InternalBlock {
 
+  //<<<<<<< HEAD
+  //  def getDictionaryOrder: Option[Seq[String]]
+  //
+  //  /* Accessor */
+  //=======
   /* DictionaryOrder, if sorted */
   def getDictionaryOrder: Option[Seq[String]]
+  //>>>>>>> 870122b6b713b48e9e5ce396aa3fb3cc9ba46cfb
 
   /** The iterator for accessing InternalBlock.
     *  Note: The [[InternalRow]] returned by this class will be reused.
@@ -122,10 +128,14 @@ object InternalBlock {
 
   /** This method can be used to construct a [[InternalBlock]] with rows and the schema given .
     */
-//  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = UnsafeInternalBlock(rows, schema)
+//  def apply(rows: Array[InternalRow], schema: StructType, isSorted: Boolean = false): InternalBlock =
+//    UnsafeInternalBlock(rows, schema)
 //  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = TrieInternalBlock(rows, schema)
-  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock =
-    ColumnarInternalBlock(rows, schema)
+  def apply(
+      rows: Array[InternalRow],
+      schema: StructType,
+      isSorted: Boolean = false
+  ): InternalBlock = ColumnarInternalBlock(rows, schema, isSorted)
 //  def apply(rows: Array[InternalRow], schema: StructType): InternalBlock = GenericInternalBlock(rows, schema)
   // edited by lgh
 

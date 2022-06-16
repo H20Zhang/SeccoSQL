@@ -185,9 +185,12 @@ class UnionIteratorSuite extends FunSuite with BeforeAndAfter{
 
   test("test_basic_functions_sorted_emptySide(s)"){
     var childIdx = 2
-    var leftChildBlock = blocks_left(childIdx)
     var childSchema = childrenSchemas(childIdx).toArray
-    var rightChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema))
+    var structTypeSchema = StructType.fromAttributes(childSchema)
+    var sortedRowArray = blocks_left(childIdx).toArray()
+    sortRowArray(childSchema, sortedRowArray)
+    var leftChildBlock = InternalBlock(sortedRowArray, structTypeSchema, isSorted = true)
+    var rightChildBlock = InternalBlock(Array[InternalRow](), structTypeSchema, isSorted = true)
     var rowArray = leftChildBlock.toArray() ++ rightChildBlock.toArray()
     sortRowArray(childSchema, rowArray)
     println(rowArray.mkString("Array[ ", ",\n", "]"))
@@ -199,9 +202,12 @@ class UnionIteratorSuite extends FunSuite with BeforeAndAfter{
     assert(!unionIter.hasNext)
 
     childIdx = 1
-    rightChildBlock = blocks_right(childIdx)
     childSchema = childrenSchemas(childIdx).toArray
-    leftChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema))
+    structTypeSchema = StructType.fromAttributes(childSchema)
+    sortedRowArray = blocks_left(childIdx).toArray()
+    sortRowArray(childSchema, sortedRowArray)
+    rightChildBlock = InternalBlock(sortedRowArray, structTypeSchema, isSorted = true)
+    leftChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema), isSorted = true)
     rowArray = leftChildBlock.toArray() ++ rightChildBlock.toArray()
     sortRowArray(childSchema, rowArray)
     println(rowArray.mkString("Array[ ", ",\n", "]"))
@@ -214,8 +220,8 @@ class UnionIteratorSuite extends FunSuite with BeforeAndAfter{
 
     childIdx = 0
     childSchema = childrenSchemas(childIdx).toArray
-    leftChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema))
-    rightChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema))
+    leftChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema), isSorted = true)
+    rightChildBlock = InternalBlock(Array[InternalRow](), StructType.fromAttributes(childSchema), isSorted = true)
     rowArray = leftChildBlock.toArray() ++ rightChildBlock.toArray()
     sortRowArray(childSchema, rowArray)
     println(rowArray.mkString("Array[ ", ",\n", "]"))

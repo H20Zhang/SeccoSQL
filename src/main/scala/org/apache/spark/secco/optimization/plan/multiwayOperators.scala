@@ -11,7 +11,8 @@ import org.apache.spark.secco.expression.{
 }
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
-import org.apache.spark.secco.optimization.util.ghd.{JoinHyperGraph}
+import org.apache.spark.secco.optimization.util.{AttributeOrder, EquiAttributes}
+import org.apache.spark.secco.optimization.util.ghd.JoinHyperGraph
 import org.apache.spark.secco.util.`extension`.SeqExtension.posOf
 
 import scala.collection.mutable
@@ -64,30 +65,21 @@ case class MultiwayJoin(
   /** Join Type. */
   val joinType: JoinType = NaturalJoin(Inner)
 
+  /** Equivalence attributes defined in terms of conditions. */
+  val equiAttrs =
+    EquiAttributes.fromConditions(children.flatMap(_.output), conditions)
+
   /** Return Hypergraph that represents the multiway join. */
   lazy val hypergraph: JoinHyperGraph = JoinHyperGraph(this)
 
   /** The representative attributes for each set of attributes related by EqualTo in `condition`. */
-  lazy val repAttrs: Seq[Attribute] =
-    hypergraph.attr2RepAttr.values.toSeq.distinct
+  lazy val repAttrs: Seq[Attribute] = equiAttrs.repAttrs
 
   /** The map from representative attribute to attributes it represents. */
-  lazy val repAttr2Attr: AttributeMap[Array[Attribute]] = {
-
-    val repAttr2AttrBuilder =
-      mutable.HashMap[Attribute, ArrayBuffer[Attribute]]()
-
-    hypergraph.attr2RepAttr.foreach { case (attr, repAttr) =>
-      val attrArray = repAttr2AttrBuilder.getOrElse(repAttr, ArrayBuffer())
-      attrArray += attr
-      repAttr2AttrBuilder(repAttr) = attrArray
-    }
-
-    AttributeMap(repAttr2AttrBuilder.map(f => (f._1, f._2.toArray)).toSeq)
-  }
+  lazy val repAttr2Attr: AttributeMap[Array[Attribute]] = equiAttrs.repAttr2Attr
 
   /** A simple heuristic for computing the attribute order. */
-  private val simpleAttributeOrder = {
+  private val simpleAttributeOrder: Seq[Attribute] = {
     assert(
       hypergraph.edges.nonEmpty,
       "HyperGraph of the Multiway join must be non-empty."
@@ -129,18 +121,23 @@ case class MultiwayJoin(
   private var _attributeOrder: Option[Seq[Attribute]] = None
 
   /** The optimized attribute order. */
-  def attributeOrder: Seq[Attribute] = {
-    _attributeOrder.getOrElse(simpleAttributeOrder)
+  def attributeOrder: AttributeOrder = {
+    val order = _attributeOrder.getOrElse(simpleAttributeOrder)
+    AttributeOrder(equiAttrs, order.toArray)
   }
 
   /** The relative optimized attributes order for the given attributes. */
-  def FindRelativeAttributeOrder(attrs: Seq[Attribute]): Seq[Attribute] =
-    attributeOrder.filter { attr =>
+  def FindRelativeAttributeOrder(attrs: Seq[Attribute]): AttributeOrder = {
+
+    val order = attributeOrder.order.filter { attr =>
       attrs.contains(attr)
     }
 
+    AttributeOrder(equiAttrs, order)
+  }
+
   override def output: Seq[Attribute] = {
-    attributeOrder
+    attributeOrder.order
   }
 
   def duplicatedResolved: Boolean =

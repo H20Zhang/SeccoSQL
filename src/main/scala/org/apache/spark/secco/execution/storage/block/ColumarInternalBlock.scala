@@ -101,7 +101,7 @@ class ColumnarInternalBlock(
       val elemSize = Utils.sizeMap(dataType)
       structType(item).dataType match{
         case BooleanType =>
-          val (a,b) = (Utils._UNSAFE.getBooleanVolatile(null, address_a + + i * elemSize),
+          val (a,b) = (Utils._UNSAFE.getBooleanVolatile(null, address_a + i * elemSize),
             Utils._UNSAFE.getBooleanVolatile(null, address_b + j * elemSize))
           compareResult = Utils.compare(a,b)
         case IntegerType =>
@@ -305,10 +305,12 @@ class ColumnarInternalBlock(
                      maintainSortOrder: Boolean): InternalBlock = {
 
     class SchemaNotConsistentException(message: String) extends IllegalArgumentException(message:String)
-    if(!this.schema().eq(other.schema()))
-      throw new SchemaNotConsistentException("Schemas of the two blocks to be merged are not consistent.")
+    if(!this.schema().equals(other.schema()))
+      throw new SchemaNotConsistentException(s"Schemas of the two blocks to be merged are not consistent.\n" +
+      s"This: ${this.schema()}\n" +
+      s"Other: ${other.schema()}")
     if(maintainSortOrder && (this.dictionaryOrder.isEmpty || other.getDictionaryOrder.isEmpty ||
-      !this.dictionaryOrder.get .eq(other.getDictionaryOrder.get)))
+      !this.dictionaryOrder.get.equals(other.getDictionaryOrder.get)))
       throw new IllegalArgumentException("DictionaryOrders not existing or not consistent.")
 
     //    val blockBuilder =
@@ -572,7 +574,7 @@ class ColumnarInternalBlock(
 object ColumnarInternalBlock {
 
   /** Initialize the [[ColumnarInternalBlock]] by array of [[InternalRow]] */
-  def apply(rows: Array[InternalRow], schema: StructType): ColumnarInternalBlock = {
+  def apply(rows: Array[InternalRow], schema: StructType, isSorted: Boolean = false): ColumnarInternalBlock = {
 
     val row_num = rows.length
 
@@ -620,6 +622,10 @@ object ColumnarInternalBlock {
       }
       Utils.copyMemory(bitMaps, Utils._UNSAFE.arrayBaseOffset(classOf[Array[Long]]),
         null, block.bitMapAddress + i * block.bitMapSizeInBytes, block.bitMapSizeInBytes)
+    }
+
+    if(isSorted){
+      block.dictionaryOrder = Some(schema.map(_.name))
     }
 
     return block

@@ -345,4 +345,13 @@ class UnsafeInternalRowTest extends FunSuite with BeforeAndAfter {
       s"Operations on the UnsafeInternalRow for $threshold times cost $sencondsCosted ms"
     )
   }
+
+  test("test_copy"){
+    val rowCopyArray = new Array[UnsafeInternalRow](5)
+    for(idx <- rowCopyArray.indices){
+      rowCopyArray(idx) = testRow.copy().asInstanceOf[UnsafeInternalRow]
+      println(s"rowwCopy $idx:" + rowCopyArray(idx))
+      println(s"testRow: " + testRow )
+    }
+  }
 }

@@ -13,6 +13,20 @@ import org.apache.spark.secco.execution.plan.communication.{
 import org.apache.spark.secco.optimization.{ExecMode, LogicalPlan}
 import org.apache.spark.secco.optimization.plan._
 import org.apache.spark.secco.execution.plan.computation._
+import org.apache.spark.secco.execution.plan.computation.localExec.{
+  BuildHashMapExec,
+  BuildTrieExec,
+  LocalAggregateExec,
+  LocalCartesianProductExec,
+  LocalDistinctExec,
+  LocalFilterExec,
+  LocalHashJoinExec,
+  LocalInputExec,
+  LocalLeapFrogJoinExec,
+  LocalProjectExec,
+  LocalSortExec,
+  LocalUnionExec
+}
 import org.apache.spark.secco.execution.plan.computation.newIter.SeccoIterator
 import org.apache.spark.secco.execution.plan.io.{
   ExternalRDDScanExec,
@@ -29,6 +43,7 @@ import org.apache.spark.secco.expression.{
 import org.apache.spark.secco.expression.aggregate.AggregateFunction
 import org.apache.spark.secco.expression.utils.AttributeMap
 import org.apache.spark.secco.optimization.ExecMode.ExecMode
+import org.apache.spark.secco.util.counter.Counter
 //import org.apache.spark.secco.execution.plan.io.{DiskScanExec, InMemoryScanExec}
 import org.apache.spark.secco.execution.{
   SeccoPlan,
@@ -147,9 +162,8 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         }
         .getOrElse((Seq(), Seq()))
 
-      val buildHashTableExec = LocalBuildIndexExec(
+      val buildHashTableExec = BuildHashMapExec(
         localPlanLater(b.right, localStageExec),
-        HashMapIndex,
         rightKeys
       )
 
@@ -159,7 +173,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         buildHashTableExec,
         leftKeys,
         b.joinType,
-        b.condition.get
+        b.condition
       )
 
     }
@@ -167,14 +181,13 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
     /** Choose the optimal multiway join implementation. */
     def multiwayJoinSelection(m: MultiwayJoin): LocalProcessingExec = {
       val buildTrieExec = m.children.map(child =>
-        LocalBuildIndexExec(
+        BuildTrieExec(
           localPlanLater(child, localStageExec),
-          TrieIndex,
           m.FindRelativeAttributeOrder(child.output)
         )
       )
 
-      LocalLeapFrogJoinExec(buildTrieExec, m.conditions, m.attributeOrder)
+      LocalLeapFrogJoinExec(buildTrieExec, m.attributeOrder)
     }
 
     override def apply(plan: LogicalPlan): Seq[SeccoPlan] =
@@ -184,7 +197,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
         case s @ Filter(child, condition, mode)
             if checkValidExecutionMode(mode) =>
           Seq(
-            LocalSelectExec(
+            LocalFilterExec(
               localPlanLater(child, localStageExec),
               condition
             )
@@ -333,6 +346,8 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
       case _                     => false
     }
 
+    val codegenStageCounter = Counter("planner", "codegenStageID")
+
     //TODO: implement the planning for iterative queries.
     override def apply(plan: LogicalPlan): Seq[SeccoPlan] =
       plan match {
@@ -343,7 +358,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
             LocalStageExec(
               planLater(child),
               null
-            )
+            )(codegenStageCounter.next().toInt)
 
           localStageExec.localExec = genLocalExec(localPlan, localStageExec)
 
@@ -359,7 +374,7 @@ abstract class SeccoStrategies extends QueryPlanner[SeccoPlan] {
             LocalStageExec(
               pairExchangeExec,
               null
-            )
+            )(codegenStageCounter.next().toInt)
 
           localStageExec.localExec = genLocalExec(localPlan, localStageExec)
 
